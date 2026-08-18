@@ -1025,7 +1025,9 @@ class MediaRepository(private val context: Context) {
                 serverUrl = "http://mysave23.com",
                 username = "OscarDuarte6295",
                 password = "naNMGtc9sK",
-                type = "XTREAM"
+                type = "XTREAM",
+                isAdmin = true,
+                isReadOnly = true
             )
         )
         return defaultList.filterNot { deleted.contains(it.id) }
@@ -1336,7 +1338,9 @@ class MediaRepository(private val context: Context) {
                                 serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
                                 username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
                                 password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
-                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U")
+                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
+                                isAdmin = obj.optBoolean("isAdmin", false),
+                                isReadOnly = obj.optBoolean("isReadOnly", false)
                             )
                         )
                     }
@@ -1351,7 +1355,7 @@ class MediaRepository(private val context: Context) {
     fun saveUserPlaylist(playlist: PlaylistInfo) {
         val current = getUserPlaylists().toMutableList()
         current.removeAll { it.id == playlist.id }
-        current.add(0, playlist)
+        current.add(0, playlist.copy(isAdmin = false, isReadOnly = false))
         saveUserPlaylistsList(current)
     }
 
@@ -1371,6 +1375,8 @@ class MediaRepository(private val context: Context) {
             obj.put("username", p.username ?: "")
             obj.put("password", p.password ?: "")
             obj.put("type", p.type)
+            obj.put("isAdmin", false)
+            obj.put("isReadOnly", false)
             arr.put(obj)
         }
         prefs.edit().putString("user_playlists", arr.toString()).apply()
@@ -1406,7 +1412,9 @@ class MediaRepository(private val context: Context) {
                             serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
                             username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
                             password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
-                            type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U")
+                            type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
+                            isAdmin = true,
+                            isReadOnly = true
                         )
                     )
                 }
@@ -1420,7 +1428,7 @@ class MediaRepository(private val context: Context) {
     fun saveAdminPlaylist(playlist: PlaylistInfo) {
         val current = getAdminPlaylists().toMutableList()
         current.removeAll { it.id == playlist.id }
-        current.add(0, playlist)
+        current.add(0, playlist.copy(isAdmin = true, isReadOnly = true))
         saveAdminPlaylistsList(current)
     }
 
@@ -1440,6 +1448,8 @@ class MediaRepository(private val context: Context) {
             obj.put("username", p.username ?: "")
             obj.put("password", p.password ?: "")
             obj.put("type", p.type)
+            obj.put("isAdmin", true)
+            obj.put("isReadOnly", true)
             arr.put(obj)
         }
         prefs.edit().putString("admin_playlists", arr.toString()).apply()
@@ -1508,6 +1518,8 @@ class MediaRepository(private val context: Context) {
                 fields.put("password", JSONObject().put("stringValue", playlist.password))
             }
             fields.put("type", JSONObject().put("stringValue", playlist.type))
+            fields.put("isAdmin", JSONObject().put("booleanValue", true))
+            fields.put("isReadOnly", JSONObject().put("booleanValue", true))
 
             firestoreObj.put("fields", fields)
             val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
@@ -1544,6 +1556,8 @@ class MediaRepository(private val context: Context) {
                 obj.put("username", playlist.username ?: "")
                 obj.put("password", playlist.password ?: "")
                 obj.put("type", playlist.type)
+                obj.put("isAdmin", true)
+                obj.put("isReadOnly", true)
 
                 val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                 val targetUrl = "$cleanUrl/playlists/${playlist.id}.json"
@@ -1597,7 +1611,9 @@ class MediaRepository(private val context: Context) {
                                 serverUrl = s("serverUrl").takeIf { it.isNotBlank() },
                                 username = s("username").takeIf { it.isNotBlank() },
                                 password = s("password").takeIf { it.isNotBlank() },
-                                type = s("type").ifBlank { if (s("serverUrl").isNotBlank() || s("username").isNotBlank()) "XTREAM" else "M3U" }
+                                type = s("type").ifBlank { if (s("serverUrl").isNotBlank() || s("username").isNotBlank()) "XTREAM" else "M3U" },
+                                isAdmin = true,
+                                isReadOnly = true
                             )
                         )
                     }
@@ -1637,7 +1653,9 @@ class MediaRepository(private val context: Context) {
                                                 serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
                                                 username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
                                                 password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
-                                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U")
+                                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
+                                                isAdmin = true,
+                                                isReadOnly = true
                                             )
                                         )
                                     }
@@ -2125,23 +2143,27 @@ class MediaRepository(private val context: Context) {
 
     fun getInitialPhisherProviders(repoId: String = "repo_phisher", repoName: String = "Phisher Repo"): List<MovieProvider> {
         val items = listOf(
+            Triple("Microtv", "https://api6.aoneroom.com", "MovieBox / Microtv - Stream 100,000+ Movies, Series & Anime"),
             Triple("ShowFlix", "https://showflix.in", "Watch Hindi, Bollywood & Hollywood Movies & Web Series in HD"),
+            Triple("MultiMovies", "https://multimovies.online", "Multi-Audio Hindi Dubbed, South & Dual Audio Cinema"),
+            Triple("Vegamovies", "https://vegamovies.im", "VegaMovies - 300MB Dual Audio Hindi Movies & Series"),
+            Triple("BollyFlix", "https://bollyflix.tools", "BollyFlix 720p 1080p HEVC Bollywood & Hollywood Dubbed"),
+            Triple("MPlayer", "https://mplayer.tv", "MPlayer Multi-Language Cinema, HD Series & Trending TV Shows"),
+            Triple("MassTamilan", "https://masstamilan.dev", "South Indian, Tamil, Telugu & Hindi Dubbed Blockbusters"),
+            Triple("Megakino", "https://megakino.top", "Megakino Ultra HD Cinema, Hollywood & Worldwide Movies"),
+            Triple("Netcinez", "https://netcinez.com", "Netcinez Free HD Cinema, Latest Movies & Web Series"),
             Triple("AllWish", "https://allwish.me", "All-in-one Movie, Anime & TV Series Streaming Portal"),
             Triple("DoraBash", "https://dorabash.com", "High-speed Hindi, Bengali & English Movies Hub"),
             Triple("Animesalt", "https://animesalt.com", "Watch Latest Anime Episodes, Movies & Dual Audio in 1080p"),
-            Triple("AnimeCloud", "https://animecloud.top", "Fast Anime Cloud Streaming with English/Hindi Subtitles"),
             Triple("Ringz", "https://ringz.in", "Hindi, Tamil, Telugu Dubbed Movies & Web Series"),
             Triple("XDMovies", "https://xdmovies.site", "Latest 4K & 1080p Bollywood, Hollywood & South Indian Cinema"),
             Triple("Yflix", "https://yflix.to", "Watch Free HD Movies and TV Shows Online"),
             Triple("YTS", "https://yts.mx", "The Official Home of YIFY Movies in 720p, 1080p and 4K"),
-            Triple("MultiMovies", "https://multimovies.online", "Multi-Audio Hindi Dubbed, South & Dual Audio Cinema"),
             Triple("Cineb", "https://cineb.rs", "Stream Free Movies and TV Series in Ultra HD Quality"),
             Triple("FlixHQ", "https://flixhq.to", "Watch Free Movies & TV Series with Zero Ads"),
             Triple("SmashyStream", "https://smashystream.com", "Top Speed Video Streaming Server for Cinema & Series"),
             Triple("Loklok", "https://loklok.com", "Global Popular Movies, KDramas, Anime and Blockbuster Series"),
             Triple("Toonstream", "https://toonstream.co", "Best Cartoon & Animation Series in Hindi & English Dub"),
-            Triple("Vegamovies", "https://vegamovies.im", "VegaMovies - 300MB Dual Audio Hindi Movies & Series"),
-            Triple("BollyFlix", "https://bollyflix.tools", "BollyFlix 720p 1080p HEVC Bollywood & Hollywood Dubbed"),
             Triple("Bioscope Live", "https://www.bioscopelive.com", "Bangla Movies, Natok, Originals & Exclusive Cinema"),
             Triple("Chorki", "https://www.chorki.com", "Film, Fun, Foorti - Premium Bangla Original Cinema & Web Series"),
             Triple("Bongo BD", "https://bongobd.com", "Watch Bangla Movies, Drama & South Dubbed Bangla Films")

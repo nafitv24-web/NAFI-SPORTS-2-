@@ -224,13 +224,14 @@ fun NafiTvMainApp() {
                 val customMov = customStreams.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
 
                 // 2. Playlists: separate admin/cloud playlists and user-local playlists
-                val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }
-                val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }
+                val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
+                val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
 
                 // Admin panel ONLY sees Firebase Cloud playlists + Admin saved playlists
                 val adminOnlyPlaylists = (fbPlaylists + adminPlaylists)
                     .distinctBy { it.id }
                     .filterNot { deleted.contains(it.id) }
+                    .map { it.copy(isAdmin = true, isReadOnly = true) }
                 adminPlaylistsList = adminOnlyPlaylists
 
                 // Users see everything: Cloud/Admin playlists + User private playlists
@@ -8293,63 +8294,101 @@ fun PlaylistTabScreen(
                                         }
                                     }
 
-                                    // Type Badge (XTREAM or M3U) Top-Left
-                                    Surface(
-                                        color = if (playlist.type == "XTREAM") Color(0xFF10B981) else Color(0xFF2563EB),
-                                        shape = RoundedCornerShape(bottomEnd = 8.dp),
-                                        modifier = Modifier.align(Alignment.TopStart)
+                                    // Type Badge (XTREAM or M3U) & Admin Lock Badge Top-Left
+                                    Row(
+                                        modifier = Modifier.align(Alignment.TopStart),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = if (playlist.type == "XTREAM") "⚡ Xtream" else "🔗 M3U",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-
-                                    // 3-dots Menu Button Top-Right
-                                    Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                                        IconButton(
-                                            onClick = { showCardMenu = true },
-                                            modifier = Modifier.size(32.dp)
+                                        Surface(
+                                            color = if (playlist.type == "XTREAM") Color(0xFF10B981) else Color(0xFF2563EB),
+                                            shape = RoundedCornerShape(bottomEnd = 8.dp)
                                         ) {
-                                            Icon(
-                                                Icons.Rounded.MoreVert,
-                                                contentDescription = "Options",
-                                                tint = Color.White.copy(alpha = 0.8f),
-                                                modifier = Modifier.size(18.dp)
+                                            Text(
+                                                text = if (playlist.type == "XTREAM") "⚡ Xtream" else "🔗 M3U",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
+                                        if (playlist.isProtected) {
+                                            Surface(
+                                                color = Color(0xFF00E5FF).copy(alpha = 0.22f),
+                                                shape = RoundedCornerShape(bottomEnd = 8.dp, bottomStart = 8.dp),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f))
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(10.dp))
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text(
+                                                        text = "এডমিন",
+                                                        color = Color(0xFF00E5FF),
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
 
-                                        DropdownMenu(
-                                            expanded = showCardMenu,
-                                            onDismissRequest = { showCardMenu = false },
-                                            modifier = Modifier.background(Color(0xFF1E293B))
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("প্লেলিস্ট চালু করুন", color = Color.White, fontSize = 12.sp) },
-                                                leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    loadPlaylist(playlist)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("এডিট করুন", color = Color.White, fontSize = 12.sp) },
-                                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, tint = Color(0xFF60A5FA)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    playlistToEdit = playlist
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("মুছে ফেলুন", color = Color(0xFFEF4444), fontSize = 12.sp) },
-                                                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFEF4444)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    playlistToDelete = playlist
-                                                }
+                                    // 3-dots Menu Button Top-Right (Only for user-created playlists; Admin playlists are protected and direct-tap only)
+                                    if (!playlist.isProtected) {
+                                        Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                                            IconButton(
+                                                onClick = { showCardMenu = true },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.MoreVert,
+                                                    contentDescription = "Options",
+                                                    tint = Color.White.copy(alpha = 0.8f),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+
+                                            DropdownMenu(
+                                                expanded = showCardMenu,
+                                                onDismissRequest = { showCardMenu = false },
+                                                modifier = Modifier.background(Color(0xFF1E293B))
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("প্লেলিস্ট চালু করুন", color = Color.White, fontSize = 12.sp) },
+                                                    leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF)) },
+                                                    onClick = {
+                                                        showCardMenu = false
+                                                        loadPlaylist(playlist)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("এডিট করুন", color = Color.White, fontSize = 12.sp) },
+                                                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, tint = Color(0xFF60A5FA)) },
+                                                    onClick = {
+                                                        showCardMenu = false
+                                                        playlistToEdit = playlist
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("মুছে ফেলুন", color = Color(0xFFEF4444), fontSize = 12.sp) },
+                                                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFEF4444)) },
+                                                    onClick = {
+                                                        showCardMenu = false
+                                                        playlistToDelete = playlist
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // Lock Indicator Top-Right for Admin Playlist
+                                        Box(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+                                            Icon(
+                                                Icons.Rounded.Lock,
+                                                contentDescription = "Protected",
+                                                tint = Color(0xFF00E5FF).copy(alpha = 0.7f),
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }
@@ -8375,15 +8414,13 @@ fun PlaylistTabScreen(
                                             overflow = TextOverflow.Ellipsis,
                                             textAlign = TextAlign.Center
                                         )
-                                        if (!playlist.serverUrl.isNullOrBlank()) {
-                                            Text(
-                                                text = playlist.serverUrl.replace("http://", "").replace("https://", "").take(22),
-                                                color = Color(0xFF94A3B8),
-                                                fontSize = 10.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
+                                        Text(
+                                            text = if (playlist.isProtected) "🔒 অফিশিয়াল সুরক্ষিত প্লেলিস্ট" else if (!playlist.serverUrl.isNullOrBlank()) playlist.serverUrl.replace("http://", "").replace("https://", "").take(22) else "কাস্টম প্লেলিস্ট",
+                                            color = if (playlist.isProtected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
@@ -8410,63 +8447,78 @@ fun PlaylistTabScreen(
     }
 
     // =============================================================
-    // EDIT PLAYLIST MODAL DIALOG
+    // EDIT PLAYLIST MODAL DIALOG (Protected check)
     // =============================================================
     if (playlistToEdit != null) {
-        AddOrEditPlaylistDialog(
-            initialPlaylist = playlistToEdit,
-            repository = repository,
-            onDismiss = { playlistToEdit = null },
-            onSaveSuccess = {
+        val toEdit = playlistToEdit!!
+        if (toEdit.isProtected) {
+            LaunchedEffect(toEdit) {
+                Toast.makeText(context, "⚠️ এটি এডমিন প্যানেলের সুরক্ষিত প্লেলিস্ট। শুধুমাত্র এডমিন প্যানেল থেকেই এটি পরিবর্তন করা যাবে।", Toast.LENGTH_LONG).show()
                 playlistToEdit = null
-                onPlaylistsChanged()
             }
-        )
+        } else {
+            AddOrEditPlaylistDialog(
+                initialPlaylist = toEdit,
+                repository = repository,
+                onDismiss = { playlistToEdit = null },
+                onSaveSuccess = {
+                    playlistToEdit = null
+                    onPlaylistsChanged()
+                }
+            )
+        }
     }
 
     // =============================================================
-    // DELETE PLAYLIST CONFIRMATION DIALOG
+    // DELETE PLAYLIST CONFIRMATION DIALOG (Protected check)
     // =============================================================
     if (playlistToDelete != null) {
         val target = playlistToDelete!!
-        AlertDialog(
-            onDismissRequest = { playlistToDelete = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("প্লেলিস্ট মুছবেন?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Text("আপনি কি নিশ্চিত যে \"${target.title}\" প্লেলিস্টটি মুছে ফেলতে চান?")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        repository.deleteUserPlaylist(target.id)
-                        playlistToDelete = null
-                        onPlaylistsChanged()
-                        Toast.makeText(context, "${target.title} প্লেলিস্ট মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
-                ) {
-                    Text("হ্যাঁ, মুছুন", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { playlistToDelete = null },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))
-                ) {
-                    Text("বাতিল")
-                }
-            },
-            containerColor = Color(0xFF1E293B),
-            titleContentColor = Color.White,
-            textContentColor = Color(0xFFCBD5E1)
-        )
+        if (target.isProtected) {
+            LaunchedEffect(target) {
+                Toast.makeText(context, "⚠️ এটি এডমিন প্যানেলের সুরক্ষিত প্লেলিস্ট। ডিলিট করা যাবে না।", Toast.LENGTH_LONG).show()
+                playlistToDelete = null
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = { playlistToDelete = null },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("প্লেলিস্ট মুছবেন?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Text("আপনি কি নিশ্চিত যে \"${target.title}\" প্লেলিস্টটি মুছে ফেলতে চান?")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            repository.deleteUserPlaylist(target.id)
+                            playlistToDelete = null
+                            onPlaylistsChanged()
+                            Toast.makeText(context, "${target.title} প্লেলিস্ট মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                    ) {
+                        Text("হ্যাঁ, মুছুন", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { playlistToDelete = null },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))
+                    ) {
+                        Text("বাতিল")
+                    }
+                },
+                containerColor = Color(0xFF1E293B),
+                titleContentColor = Color.White,
+                textContentColor = Color(0xFFCBD5E1)
+            )
+        }
     }
 }
 

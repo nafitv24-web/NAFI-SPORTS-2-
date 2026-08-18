@@ -81,8 +81,12 @@ data class PlaylistInfo(
     val serverUrl: String? = null,
     val username: String? = null,
     val password: String? = null,
-    val type: String = "M3U" // "XTREAM" or "M3U"
-)
+    val type: String = "M3U", // "XTREAM" or "M3U"
+    val isAdmin: Boolean = false,
+    val isReadOnly: Boolean = false
+) {
+    val isProtected: Boolean get() = isAdmin || isReadOnly
+}
 
 data class MovieProvider(
     val id: String,
