@@ -1,0 +1,2488 @@
+package com.example.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.net.Uri
+import com.example.model.AppUpdateInfo
+import com.example.model.CloudStreamRepo
+import com.example.model.MediaItem
+import com.example.model.MediaType
+import com.example.model.MovieProvider
+import com.example.model.PlaylistInfo
+import com.example.model.StreamServer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.concurrent.TimeUnit
+
+class MediaRepository(private val context: Context) {
+
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("nafitv_prefs", Context.MODE_PRIVATE)
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
+    companion object {
+        const val FIREBASE_PROJECT_ID = "nafitv24-live"
+        const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
+        const val FIRESTORE_DATABASE_ID = "(default)"
+        const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
+        const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
+        const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
+        const val DEFAULT_MOVIES_M3U_URL = ""
+        const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
+        const val DEFAULT_ADMIN_PIN = "40541273"
+    }
+
+    // Admin Privacy / PIN Management
+    fun getAdminPin(): String {
+        val stored = prefs.getString("admin_pin", null)
+        if (stored.isNullOrBlank() || stored == "2424") {
+            return DEFAULT_ADMIN_PIN
+        }
+        return stored
+    }
+
+    fun setAdminPin(pin: String) {
+        prefs.edit().putString("admin_pin", pin).apply()
+    }
+
+    fun verifyAdminPin(pin: String): Boolean {
+        val current = getAdminPin().trim()
+        return pin.trim() == current || pin.trim() == DEFAULT_ADMIN_PIN
+    }
+
+    // -------------------------------------------------------------
+    // Deleted Items Persistence (Ensures deleted items NEVER reappear)
+    // -------------------------------------------------------------
+    fun getDeletedIds(): Set<String> {
+        return prefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
+    }
+
+    fun addDeletedId(id: String) {
+        val current = getDeletedIds().toMutableSet()
+        current.add(id)
+        prefs.edit().putStringSet("deleted_ids", current).apply()
+    }
+
+    fun clearDeletedIds() {
+        prefs.edit().remove("deleted_ids").apply()
+    }
+
+    // No hardcoded sample sports - strictly loads from Sports M3U, Firebase RTDB & Admin Added streams
+    fun getInitialSports(): List<MediaItem> {
+        return emptyList()
+    }
+
+    // No hardcoded sample TV channels - strictly loads from Live TV M3U (Nafitv24.m3u), Firebase RTDB & Admin Added channels
+    fun getInitialLiveTv(): List<MediaItem> {
+        return emptyList()
+    }
+
+    // No hardcoded sample movies - strictly loads from Movies M3U, Firebase RTDB & Admin Added movies
+    fun getInitialMoviesSeries(): List<MediaItem> {
+        return emptyList()
+    }
+
+    // Custom streams saved locally in SharedPreferences
+    fun getCustomStreams(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val jsonStr = prefs.getString("custom_streams", "[]") ?: "[]"
+        val list = mutableListOf<MediaItem>()
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.optString("id", "c_$i")
+                if (!deleted.contains(id)) {
+                    list.add(parseMediaFromJsonObj(id, obj))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveCustomStream(item: MediaItem) {
+        val current = getCustomStreams().toMutableList()
+        current.removeAll { it.id == item.id }
+        current.add(0, item)
+        saveCustomList(current)
+    }
+
+    fun saveCustomList(list: List<MediaItem>) {
+        val jsonArray = JSONArray()
+        list.forEach { item ->
+            jsonArray.put(serializeMediaToJsonObj(item))
+        }
+        prefs.edit().putString("custom_streams", jsonArray.toString()).apply()
+    }
+
+    fun deleteCustomStream(id: String) {
+        addDeletedId(id)
+        val current = getCustomStreams().filterNot { it.id == id }
+        saveCustomList(current)
+    }
+
+    suspend fun deleteMediaItem(item: MediaItem): Boolean {
+        return deleteMediaItem(item.id, item.type)
+    }
+
+    suspend fun deleteMediaItem(id: String, type: MediaType): Boolean {
+        // 1. Mark in permanent deleted set
+        addDeletedId(id)
+        // 2. Remove from local custom streams
+        val current = getCustomStreams().filterNot { it.id == id }
+        saveCustomList(current)
+        // 3. Remove from Firebase
+        return deleteFromFirebase(id, type)
+    }
+
+    fun updateScore(id: String, score1: String, score2: String) {
+        val current = getCustomStreams().map {
+            if (it.id == id) it.copy(score1 = score1, score2 = score2) else it
+        }
+        saveCustomList(current)
+    }
+
+    // Favorite management
+    fun getFavoriteIds(): Set<String> {
+        return prefs.getStringSet("favorites", emptySet()) ?: emptySet()
+    }
+
+    fun toggleFavorite(id: String): Boolean {
+        val favs = getFavoriteIds().toMutableSet()
+        val isFav: Boolean
+        if (favs.contains(id)) {
+            favs.remove(id)
+            isFav = false
+        } else {
+            favs.add(id)
+            isFav = true
+        }
+        prefs.edit().putStringSet("favorites", favs).apply()
+        return isFav
+    }
+
+    fun resetToDefaults() {
+        prefs.edit().clear().apply()
+    }
+
+    // M3U parser from Uri
+    fun parseM3uFromUri(uri: Uri): List<MediaItem> {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return emptyList()
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val lines = reader.readLines()
+            reader.close()
+            parseM3uLines(lines)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    // M3U parser from URL (Supports single or multiple URLs separated by newlines, commas, or semicolons)
+    suspend fun parseM3uFromUrl(rawInput: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        val urls = extractUrls(rawInput)
+        if (urls.isEmpty()) return@withContext emptyList()
+        if (urls.size == 1) {
+            return@withContext fetchSingleM3uUrl(urls[0])
+        }
+        val deferredList = urls.map { singleUrl ->
+            async { fetchSingleM3uUrl(singleUrl) }
+        }
+        deferredList.awaitAll().flatten().distinctBy {
+            if (it.streamUrl.isNotBlank()) it.streamUrl else it.id
+        }
+    }
+
+    fun extractUrls(input: String): List<String> {
+        if (input.isBlank()) return emptyList()
+        return input.split(Regex("[\r\n,;]+"))
+            .map { it.trim() }
+            .filter { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
+            .distinct()
+    }
+
+    private suspend fun fetchSingleM3uUrl(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "NAFITV24/2.4.0 (Android ExoPlayer)")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+
+            val content = response.body?.string() ?: return@withContext emptyList()
+            parseM3uLines(content.lines())
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    private fun parseM3uLines(lines: List<String>): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
+        var currentTitle = ""
+        var currentLogo: String? = null
+        var currentGroup = "Live TV"
+        var currentCountry: String? = null
+        var currentUserAgent: String? = null
+        var currentReferrer: String? = null
+        var currentCookie: String? = null
+        var currentOrigin: String? = null
+        var currentDrmScheme: String? = null
+        var currentDrmKey: String? = null
+        var currentDrmLicenseUrl: String? = null
+        var currentManifestType: String? = null
+        val currentCustomHeaders = mutableMapOf<String, String>()
+        val currentDrmHeaders = mutableMapOf<String, String>()
+        var currentId = 1
+
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
+                val groupMatch = Regex("""group-title="([^"]*)"""", RegexOption.IGNORE_CASE).find(trimmed)
+                currentGroup = groupMatch?.groupValues?.get(1)?.trim() ?: "Live TV"
+
+                val logoMatch = Regex("""tvg-logo="([^"]*)"""", RegexOption.IGNORE_CASE).find(trimmed)
+                currentLogo = logoMatch?.groupValues?.get(1)?.trim()
+
+                val countryMatch = Regex("""tvg-country="([^"]*)"""", RegexOption.IGNORE_CASE).find(trimmed)
+                currentCountry = countryMatch?.groupValues?.get(1)?.trim()
+
+                val commaIndex = trimmed.lastIndexOf(',')
+                currentTitle = if (commaIndex != -1) {
+                    trimmed.substring(commaIndex + 1).trim()
+                } else {
+                    "Channel $currentId"
+                }
+
+                // If country tag is in the title e.g. "Arirang World KR" or "[BD]"
+                if (currentCountry == null) {
+                    val matchCode = Regex("""\b(BD|KR|IN|US|UK|PK|SA|UAE)\b""", RegexOption.IGNORE_CASE).find(currentTitle)
+                    currentCountry = matchCode?.groupValues?.get(1)?.uppercase()
+                }
+            } else if (trimmed.startsWith("#EXTVLCOPT:", ignoreCase = true)) {
+                val opt = trimmed.substringAfter(":").trim()
+                val optKey = opt.substringBefore("=").trim().lowercase()
+                val optVal = opt.substringAfter("=").trim()
+                when {
+                    optKey.contains("user-agent") -> currentUserAgent = optVal
+                    optKey.contains("referrer") || optKey.contains("referer") -> currentReferrer = optVal
+                    optKey.contains("origin") -> currentOrigin = optVal
+                    optKey.contains("cookie") -> currentCookie = optVal
+                    optKey.contains("clearkey") || optKey.contains("license_key") || optKey.contains("drm_key") -> currentDrmKey = optVal
+                    optKey.contains("license_type") || optKey.contains("drm_type") -> currentDrmScheme = optVal
+                    else -> currentCustomHeaders[optKey] = optVal
+                }
+            } else if (trimmed.startsWith("#EXTHTTP:", ignoreCase = true)) {
+                val jsonPart = trimmed.substringAfter(":").trim()
+                try {
+                    val jsonObj = JSONObject(jsonPart)
+                    if (jsonObj.has("User-Agent")) currentUserAgent = jsonObj.optString("User-Agent")
+                    if (jsonObj.has("user-agent")) currentUserAgent = jsonObj.optString("user-agent")
+                    if (jsonObj.has("Referer")) currentReferrer = jsonObj.optString("Referer")
+                    if (jsonObj.has("referer")) currentReferrer = jsonObj.optString("referer")
+                    if (jsonObj.has("Origin")) currentOrigin = jsonObj.optString("Origin")
+                    if (jsonObj.has("origin")) currentOrigin = jsonObj.optString("origin")
+                    if (jsonObj.has("Cookie")) currentCookie = jsonObj.optString("Cookie")
+                    if (jsonObj.has("cookie")) currentCookie = jsonObj.optString("cookie")
+                    val keys = jsonObj.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        currentCustomHeaders[k] = jsonObj.optString(k)
+                    }
+                } catch (_: Exception) {}
+            } else if (trimmed.startsWith("#KODIPROP:", ignoreCase = true)) {
+                val prop = trimmed.substringAfter(":").trim()
+                val propKey = prop.substringBefore("=").trim().lowercase()
+                val propVal = prop.substringAfter("=").trim()
+                when {
+                    propKey.contains("license_type") || propKey.contains("drm_type") || propKey.contains("license_security") || propKey.contains("drm_scheme") -> {
+                        currentDrmScheme = propVal
+                    }
+                    propKey.contains("license_key") || propKey.contains("drm_key") || propKey.contains("clearkey") || propKey.contains("license_data") || propKey.contains("drm_license") -> {
+                        if (propVal.startsWith("http://", ignoreCase = true) || propVal.startsWith("https://", ignoreCase = true)) {
+                            currentDrmLicenseUrl = propVal
+                        } else {
+                            currentDrmKey = propVal
+                        }
+                    }
+                    propKey.contains("manifest_type") || propKey.contains("stream_type") -> {
+                        currentManifestType = propVal
+                    }
+                    propKey.contains("stream_headers") || propKey.contains("manifest_headers") -> {
+                        val pairs = propVal.split("&")
+                        for (pair in pairs) {
+                            val kv = pair.split("=", limit = 2)
+                            if (kv.size == 2) {
+                                val k = kv[0].trim()
+                                val v = try { java.net.URLDecoder.decode(kv[1].trim(), "UTF-8") } catch (_: Exception) { kv[1].trim() }
+                                when {
+                                    k.equals("User-Agent", ignoreCase = true) -> currentUserAgent = v
+                                    k.equals("Referer", ignoreCase = true) || k.equals("Referrer", ignoreCase = true) -> currentReferrer = v
+                                    k.equals("Origin", ignoreCase = true) -> currentOrigin = v
+                                    k.equals("Cookie", ignoreCase = true) -> currentCookie = v
+                                    else -> currentCustomHeaders[k] = v
+                                }
+                            }
+                        }
+                    }
+                    else -> {
+                        currentCustomHeaders[propKey] = propVal
+                    }
+                }
+            } else if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                var streamUrl = trimmed
+                if (streamUrl.contains("|")) {
+                    val pipeParts = streamUrl.split("|", limit = 2)
+                    streamUrl = pipeParts[0].trim()
+                    val queryHeaders = pipeParts[1].split("&")
+                    for (qh in queryHeaders) {
+                        val kv = qh.split("=", limit = 2)
+                        if (kv.size == 2) {
+                            val k = kv[0].trim()
+                            val rawV = kv[1].trim()
+                            val v = try {
+                                java.net.URLDecoder.decode(rawV, "UTF-8")
+                            } catch (_: Exception) {
+                                rawV
+                            }
+                            when {
+                                k.equals("User-Agent", ignoreCase = true) || k.equals("http-user-agent", ignoreCase = true) -> currentUserAgent = v
+                                k.equals("Referer", ignoreCase = true) || k.equals("Referrer", ignoreCase = true) || k.equals("http-referer", ignoreCase = true) -> currentReferrer = v
+                                k.equals("Origin", ignoreCase = true) || k.equals("http-origin", ignoreCase = true) -> currentOrigin = v
+                                k.equals("Cookie", ignoreCase = true) || k.equals("http-cookie", ignoreCase = true) -> currentCookie = v
+                                k.equals("license_type", ignoreCase = true) || k.equals("drm_type", ignoreCase = true) -> currentDrmScheme = v
+                                k.equals("license_key", ignoreCase = true) || k.equals("drm_key", ignoreCase = true) || k.equals("clearkey", ignoreCase = true) -> currentDrmKey = v
+                                k.equals("manifest_type", ignoreCase = true) -> currentManifestType = v
+                                else -> currentCustomHeaders[k] = v
+                            }
+                        }
+                    }
+                }
+
+                // Automatic intelligent headers detection for Toffee & OTT streams
+                val isToffee = streamUrl.contains("toffeelive.com", ignoreCase = true) ||
+                        streamUrl.contains("toffee", ignoreCase = true) ||
+                        streamUrl.contains("bldcmprod-cdn", ignoreCase = true) ||
+                        currentGroup.contains("toffee", ignoreCase = true)
+
+                if (isToffee) {
+                    if (currentUserAgent.isNullOrBlank()) currentUserAgent = "Toffee (Linux;Android 14)"
+                    if (currentReferrer.isNullOrBlank()) currentReferrer = "https://toffeelive.com/"
+                    if (currentOrigin.isNullOrBlank()) currentOrigin = "https://toffeelive.com"
+                }
+
+                val isSport = currentGroup.contains("sport", ignoreCase = true) ||
+                        currentTitle.contains("sport", ignoreCase = true) ||
+                        currentTitle.contains("cricket", ignoreCase = true) ||
+                        currentTitle.contains("football", ignoreCase = true)
+
+                val isMovie = currentGroup.contains("movie", ignoreCase = true) ||
+                        currentGroup.contains("cinema", ignoreCase = true) ||
+                        currentGroup.contains("vod", ignoreCase = true)
+
+                val mediaType = when {
+                    isSport -> MediaType.LIVE_EVENT
+                    isMovie -> MediaType.MOVIE
+                    else -> MediaType.LIVE_TV
+                }
+
+                // Clean display title
+                val cleanTitle = currentTitle.ifEmpty { "Channel $currentId" }
+                val stableId = "m3u_" + java.lang.Math.abs((cleanTitle + "_" + streamUrl).hashCode()).toString()
+
+                items.add(
+                    MediaItem(
+                        id = stableId,
+                        title = cleanTitle,
+                        category = currentGroup,
+                        type = mediaType,
+                        streamUrl = streamUrl,
+                        servers = listOf(
+                            StreamServer("সার্ভার ১ (Main)", streamUrl)
+                        ),
+                        logoUrl = currentLogo,
+                        country = currentCountry,
+                        isLive = mediaType != MediaType.MOVIE,
+                        quality = "HD",
+                        rating = if (mediaType == MediaType.MOVIE) "8.5" else null,
+                        year = if (mediaType == MediaType.MOVIE) "2024" else null,
+                        userAgent = currentUserAgent,
+                        referrer = currentReferrer,
+                        cookie = currentCookie,
+                        origin = currentOrigin,
+                        customHeaders = if (currentCustomHeaders.isNotEmpty()) currentCustomHeaders.toMap() else null,
+                        drmScheme = currentDrmScheme,
+                        drmLicenseUrl = currentDrmLicenseUrl,
+                        drmLicenseKey = currentDrmKey,
+                        drmHeaders = if (currentDrmHeaders.isNotEmpty()) currentDrmHeaders.toMap() else null,
+                        manifestType = currentManifestType
+                    )
+                )
+
+                currentTitle = ""
+                currentLogo = null
+                currentCountry = null
+                currentUserAgent = null
+                currentReferrer = null
+                currentCookie = null
+                currentOrigin = null
+                currentDrmScheme = null
+                currentDrmKey = null
+                currentDrmLicenseUrl = null
+                currentManifestType = null
+                currentCustomHeaders.clear()
+                currentDrmHeaders.clear()
+            }
+        }
+        return items
+    }
+
+    // -------------------------------------------------------------
+    // Firebase Realtime Database & Cloud Firestore Integration
+    // -------------------------------------------------------------
+    suspend fun testFirebaseConnection(url: String = getSavedFirebaseUrl()): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<String>()
+        var isAnyConnected = false
+
+        // 1. Test Firestore REST API
+        try {
+            val firestoreUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$FIRESTORE_DATABASE_ID/documents/sports?key=$FIREBASE_API_KEY"
+            val req = Request.Builder().url(firestoreUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful || resp.code == 404) {
+                isAnyConnected = true
+                results.add("✅ Cloud Firestore সক্রিয় ($FIRESTORE_DATABASE_ID)")
+            } else if (resp.code == 403 || resp.code == 401) {
+                results.add("⚠️ Firestore পারমিশন রুলস চেক করুন (HTTP ${resp.code})")
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // 2. Test Realtime Database
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val targetUrl = if (cleanUrl.endsWith(".json")) cleanUrl else "$cleanUrl/.json"
+
+                val request = Request.Builder()
+                    .url(targetUrl)
+                    .header("User-Agent", "NAFITV24-Android/2.5.0")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val code = response.code
+                if (response.isSuccessful) {
+                    isAnyConnected = true
+                    results.add("✅ Realtime Database সক্রিয় (HTTP $code)")
+                } else if (code == 401 || code == 403) {
+                    results.add("⚠️ RTDB Rules এ \".read\": true, \".write\": true দিন")
+                } else {
+                    results.add("ℹ️ RTDB Status: HTTP $code")
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+
+        if (isAnyConnected) {
+            Pair(true, results.joinToString(" | "))
+        } else {
+            Pair(false, if (results.isNotEmpty()) results.joinToString(" | ") else "⚠️ কানেকশন এরর: সার্ভারে পৌঁছানো সম্ভব হয়নি")
+        }
+    }
+
+    private suspend fun fetchFromFirestore(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val deleted = getDeletedIds()
+        val items = mutableListOf<MediaItem>()
+        val collections = listOf("sports", "events", "matches", "channels", "movies")
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+
+        for (dbId in databases) {
+            for (col in collections) {
+                try {
+                    val firestoreUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col?key=$FIREBASE_API_KEY"
+                    val req = Request.Builder().url(firestoreUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                    val resp = client.newCall(req).execute()
+                    if (!resp.isSuccessful) continue
+                    val body = resp.body?.string() ?: continue
+                    if (body.isBlank() || !body.startsWith("{")) continue
+
+                    val json = JSONObject(body)
+                    val docs = json.optJSONArray("documents") ?: continue
+                    for (i in 0 until docs.length()) {
+                        val doc = docs.optJSONObject(i) ?: continue
+                        val name = doc.optString("name", "")
+                        val docId = name.substringAfterLast("/")
+                        if (docId.isBlank() || deleted.contains(docId)) continue
+
+                        val fields = doc.optJSONObject("fields") ?: continue
+                        val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
+                        if (!deleted.contains(mediaItem.id)) {
+                            items.add(mediaItem)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        items
+    }
+
+    private fun parseMediaFromFirestoreFields(docId: String, col: String, fields: JSONObject): MediaItem {
+        fun s(key: String): String {
+            val v = fields.optJSONObject(key) ?: return ""
+            return v.optString("stringValue", "")
+        }
+        fun b(key: String, def: Boolean = false): Boolean {
+            val v = fields.optJSONObject(key) ?: return def
+            return if (v.has("booleanValue")) v.optBoolean("booleanValue", def) else def
+        }
+        fun l(key: String): Long? {
+            val v = fields.optJSONObject(key) ?: return null
+            return if (v.has("integerValue")) v.optLong("integerValue") else null
+        }
+
+        val typeStr = s("type").uppercase()
+        val mediaType = when {
+            typeStr.contains("EVENT") || col == "sports" || col == "events" || col == "matches" -> MediaType.LIVE_EVENT
+            typeStr.contains("MOVIE") || typeStr.contains("SERIES") || col == "movies" -> MediaType.MOVIE
+            else -> MediaType.LIVE_TV
+        }
+
+        val title = s("title").ifBlank { s("name").ifBlank { docId } }
+        val streamUrl = s("streamUrl").ifBlank { s("url") }
+        val backupUrl = s("backupUrl").takeIf { it.isNotBlank() }
+        val logoUrl = s("logoUrl").ifBlank { s("logo").ifBlank { s("poster") } }.takeIf { it.isNotBlank() }
+        val category = s("category").ifBlank { s("sport").ifBlank { if (mediaType == MediaType.LIVE_EVENT) "Sports" else "General" } }
+        val tournament = s("tournament").takeIf { it.isNotBlank() }
+        val team1 = s("team1").takeIf { it.isNotBlank() }
+        val team2 = s("team2").takeIf { it.isNotBlank() }
+        val team1Logo = s("team1Logo").takeIf { it.isNotBlank() }
+        val team2Logo = s("team2Logo").takeIf { it.isNotBlank() }
+        val matchTime = s("matchTimeFormatted").ifBlank { s("eventTime") }.takeIf { it.isNotBlank() }
+        val status = s("status").ifBlank { if (mediaType == MediaType.LIVE_EVENT) "LIVE" else "ON AIR" }
+        val isLive = b("isLive", true)
+        val description = s("description").takeIf { it.isNotBlank() }
+        val countdown = l("countdownTargetSeconds")
+        val score1 = s("score1").takeIf { it.isNotBlank() }
+        val score2 = s("score2").takeIf { it.isNotBlank() }
+
+        val serversList = mutableListOf<StreamServer>()
+        val serversJsonStr = s("serversJson")
+        if (serversJsonStr.isNotBlank() && serversJsonStr.startsWith("[")) {
+            try {
+                val sArr = JSONArray(serversJsonStr)
+                for (i in 0 until sArr.length()) {
+                    val so = sArr.optJSONObject(i)
+                    if (so != null) {
+                        val sName = so.optString("name", "সার্ভার ${i + 1}")
+                        val sUrl = so.optString("url", "")
+                        if (sUrl.isNotBlank()) {
+                            serversList.add(StreamServer(sName, sUrl))
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        return MediaItem(
+            id = s("id").ifBlank { docId },
+            title = title,
+            streamUrl = streamUrl,
+            backupUrl = backupUrl,
+            servers = serversList,
+            logoUrl = logoUrl,
+            category = category,
+            type = mediaType,
+            tournament = tournament,
+            team1 = team1,
+            team2 = team2,
+            team1Logo = team1Logo,
+            team2Logo = team2Logo,
+            matchTimeFormatted = matchTime,
+            status = status,
+            isLive = isLive,
+            description = description,
+            countdownTargetSeconds = countdown,
+            score1 = score1,
+            score2 = score2,
+            drmScheme = s("drmScheme").ifBlank { s("license_type") }.takeIf { it.isNotBlank() },
+            drmLicenseUrl = s("drmLicenseUrl").takeIf { it.isNotBlank() },
+            drmLicenseKey = s("drmLicenseKey").ifBlank { s("license_key") }.ifBlank { s("clearkey") }.takeIf { it.isNotBlank() },
+            manifestType = s("manifestType").ifBlank { s("manifest_type") }.takeIf { it.isNotBlank() }
+        )
+    }
+
+    suspend fun fetchFromFirebase(url: String = getSavedFirebaseUrl()): List<MediaItem> = withContext(Dispatchers.IO) {
+        val deleted = getDeletedIds()
+        val items = mutableListOf<MediaItem>()
+
+        // 1. Fetch from Firestore REST
+        val firestoreItems = fetchFromFirestore()
+        items.addAll(firestoreItems)
+
+        // 2. Fetch from Firebase Realtime Database
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val targetUrl = if (cleanUrl.endsWith(".json")) cleanUrl else "$cleanUrl/.json"
+
+                val request = Request.Builder()
+                    .url(targetUrl)
+                    .header("User-Agent", "NAFITV24-Android/2.5.0")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
+                    if (body.isNotEmpty() && body != "null") {
+                        if (body.startsWith("{")) {
+                            val jsonObject = JSONObject(body)
+                            // "playlists", "app_config", "app_updates", "settings" are handled separately and must not be parsed as TV channels
+                            val subKeys = listOf("sports", "events", "matches", "channels", "movies", "custom")
+                            var foundNested = false
+                            for (sub in subKeys) {
+                                if (jsonObject.has(sub)) {
+                                    foundNested = true
+                                    val subObj = jsonObject.optJSONObject(sub)
+                                    if (subObj != null) {
+                                        val keys = subObj.keys()
+                                        while (keys.hasNext()) {
+                                            val k = keys.next()
+                                            if (!deleted.contains(k) && !k.startsWith("pl_")) {
+                                                val itemObj = subObj.optJSONObject(k)
+                                                if (itemObj != null && !itemObj.has("channelCount")) {
+                                                    val item = parseMediaFromJsonObj(k, itemObj)
+                                                    if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
+                                                        items.add(item)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (!foundNested) {
+                                val keys = jsonObject.keys()
+                                while (keys.hasNext()) {
+                                    val key = keys.next()
+                                    // Skip system collections and playlists
+                                    if (key == "playlists" || key == "app_config" || key == "app_updates" || key == "deleted_ids" || key == "settings" || key.startsWith("pl_")) {
+                                        continue
+                                    }
+                                    if (!deleted.contains(key)) {
+                                        val obj = jsonObject.optJSONObject(key)
+                                        if (obj != null && !obj.has("channelCount")) {
+                                            val item = parseMediaFromJsonObj(key, obj)
+                                            if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
+                                                items.add(item)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (body.startsWith("[")) {
+                            val jsonArray = JSONArray(body)
+                            for (i in 0 until jsonArray.length()) {
+                                val obj = jsonArray.optJSONObject(i)
+                                if (obj != null && !obj.has("channelCount")) {
+                                    val id = obj.optString("id", "fb_$i")
+                                    if (!deleted.contains(id) && !id.startsWith("pl_")) {
+                                        val item = parseMediaFromJsonObj(id, obj)
+                                        if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
+                                            items.add(item)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        items.distinctBy { it.id }.filterNot { deleted.contains(it.id) || it.id.startsWith("pl_") }
+    }
+
+    suspend fun pushToFirebase(
+        item: MediaItem,
+        url: String = getSavedFirebaseUrl()
+    ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        var anySuccess = false
+        var lastError = ""
+
+        val collections = when (item.type) {
+            MediaType.LIVE_EVENT -> listOf("events", "sports", "matches")
+            MediaType.LIVE_TV -> listOf("channels")
+            MediaType.MOVIE, MediaType.SERIES -> listOf("movies")
+        }
+
+        // 1. Push to Firestore REST
+        try {
+            val firestoreObj = JSONObject()
+            val fields = JSONObject()
+            fun fs(key: String, value: String?) {
+                if (!value.isNullOrBlank()) {
+                    fields.put(key, JSONObject().put("stringValue", value))
+                }
+            }
+            fun fb(key: String, value: Boolean) {
+                fields.put(key, JSONObject().put("booleanValue", value))
+            }
+            fun fi(key: String, value: Long?) {
+                if (value != null) {
+                    fields.put(key, JSONObject().put("integerValue", value.toString()))
+                }
+            }
+
+            fs("id", item.id)
+            fs("title", item.title)
+            fs("name", item.title)
+            fs("streamUrl", item.streamUrl)
+            fs("url", item.streamUrl)
+            fs("backupUrl", item.backupUrl)
+            fs("logoUrl", item.logoUrl)
+            fs("logo", item.logoUrl)
+            fs("category", item.category)
+            fs("type", item.type.name)
+            fs("tournament", item.tournament)
+            fs("team1", item.team1)
+            fs("team2", item.team2)
+            fs("team1Logo", item.team1Logo)
+            fs("team2Logo", item.team2Logo)
+            fs("matchTimeFormatted", item.matchTimeFormatted)
+            fs("status", item.status)
+            fb("isLive", item.isLive)
+            fs("description", item.description)
+            fi("countdownTargetSeconds", item.countdownTargetSeconds)
+            fs("score1", item.score1)
+            fs("score2", item.score2)
+            fs("drmScheme", item.drmScheme)
+            fs("drmLicenseUrl", item.drmLicenseUrl)
+            fs("drmLicenseKey", item.drmLicenseKey)
+            fs("manifestType", item.manifestType)
+
+            // Serialize servers array to JSON string for Firestore compatibility
+            val servers = item.getAllServers()
+            if (servers.isNotEmpty()) {
+                val sArr = JSONArray()
+                servers.forEach { s ->
+                    val so = JSONObject()
+                    so.put("name", s.name)
+                    so.put("url", s.url)
+                    sArr.put(so)
+                }
+                fs("serversJson", sArr.toString())
+            }
+
+            firestoreObj.put("fields", fields)
+            val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+            val primaryCol = collections.first()
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            for (dbId in databases) {
+                try {
+                    val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$primaryCol/${item.id}?key=$FIREBASE_API_KEY"
+                    val fsReq = Request.Builder().url(fsUrl).patch(fsBody).build()
+                    val fsResp = client.newCall(fsReq).execute()
+                    if (fsResp.isSuccessful) {
+                        anySuccess = true
+                    }
+                } catch (e: Exception) {
+                    // continue
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Push to Realtime Database
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val jsonObject = serializeMediaToJsonObj(item)
+                val body = jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+                for (col in collections) {
+                    val targetUrl = "$cleanUrl/$col/${item.id}.json"
+                    val request = Request.Builder().url(targetUrl).put(body).build()
+                    val response = client.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        anySuccess = true
+                    } else {
+                        lastError = "HTTP ${response.code}: ${response.message}"
+                    }
+                }
+            } catch (e: Exception) {
+                lastError = e.localizedMessage ?: "RTDB নেটওয়ার্ক এরর"
+            }
+        }
+
+        if (anySuccess) {
+            Pair(true, "Firebase ক্লাউডে সফলভাবে সেভ হয়েছে")
+        } else {
+            Pair(false, lastError.ifBlank { "Firebase ক্লাউড আপলোড ব্যর্থ হয়েছে" })
+        }
+    }
+
+    suspend fun deleteFromFirebase(
+        id: String,
+        type: MediaType,
+        url: String = getSavedFirebaseUrl()
+    ): Boolean = withContext(Dispatchers.IO) {
+        var anySuccess = false
+
+        // 1. Delete from Firestore REST
+        val collections = listOf("events", "sports", "matches", "channels", "movies", "playlists", "custom")
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+        for (dbId in databases) {
+            for (col in collections) {
+                try {
+                    val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col/$id?key=$FIREBASE_API_KEY"
+                    val req = Request.Builder().url(fsUrl).delete().build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) anySuccess = true
+                } catch (e: Exception) {
+                    // Ignore single path error
+                }
+            }
+        }
+
+        // 2. Delete from Realtime Database
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                for (col in collections) {
+                    try {
+                        val targetUrl = "$cleanUrl/$col/$id.json"
+                        val request = Request.Builder().url(targetUrl).delete().build()
+                        val response = client.newCall(request).execute()
+                        if (response.isSuccessful) {
+                            anySuccess = true
+                        }
+                    } catch (e: Exception) {
+                        // Ignore single path error
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        anySuccess
+    }
+
+    fun serializeMediaToJsonObj(item: MediaItem): JSONObject {
+        val obj = JSONObject()
+        obj.put("id", item.id)
+        obj.put("name", item.title)
+        obj.put("title", item.title)
+        obj.put("tournament", item.tournament ?: "")
+        obj.put("sport", item.category)
+        obj.put("category", item.category)
+        obj.put("type", item.type.name)
+        obj.put("url", item.streamUrl)
+        obj.put("streamUrl", item.streamUrl)
+        obj.put("backupUrl", item.backupUrl ?: "")
+        obj.put("logo", item.logoUrl ?: "")
+        obj.put("logoUrl", item.logoUrl ?: "")
+        obj.put("poster", item.logoUrl ?: "")
+        obj.put("description", item.description ?: "")
+        obj.put("isLive", item.isLive)
+        obj.put("status", item.status)
+        obj.put("eventTime", item.eventTime ?: "")
+        obj.put("team1", item.team1 ?: "")
+        obj.put("team2", item.team2 ?: "")
+        obj.put("team1Logo", item.team1Logo ?: "")
+        obj.put("team2Logo", item.team2Logo ?: "")
+        obj.put("matchTimeFormatted", item.matchTimeFormatted ?: "")
+        if (item.countdownTargetSeconds != null) {
+            obj.put("countdownTargetSeconds", item.countdownTargetSeconds)
+            obj.put("startTime", item.countdownTargetSeconds)
+        }
+        obj.put("score1", item.score1 ?: "")
+        obj.put("score2", item.score2 ?: "")
+        obj.put("quality", item.quality)
+        obj.put("rating", item.rating ?: "")
+        obj.put("year", item.year ?: "")
+        obj.put("country", item.country ?: "")
+        obj.put("drmScheme", item.drmScheme ?: "")
+        obj.put("drmLicenseUrl", item.drmLicenseUrl ?: "")
+        obj.put("drmLicenseKey", item.drmLicenseKey ?: "")
+        obj.put("manifestType", item.manifestType ?: "")
+
+        // Multiple servers array
+        val serversArr = JSONArray()
+        item.getAllServers().forEach { server ->
+            val sObj = JSONObject()
+            sObj.put("name", server.name)
+            sObj.put("url", server.url)
+            serversArr.put(sObj)
+        }
+        obj.put("servers", serversArr)
+        return obj
+    }
+
+    fun parseMediaFromJsonObj(id: String, obj: JSONObject): MediaItem {
+        val typeStr = obj.optString("type", "")
+        val categoryStr = obj.optString("category", obj.optString("sport", "General"))
+        val mediaType = when {
+            typeStr.equals("LIVE_EVENT", ignoreCase = true) || categoryStr.contains("Cricket", ignoreCase = true) || categoryStr.contains("Football", ignoreCase = true) || categoryStr.contains("Sport", ignoreCase = true) -> MediaType.LIVE_EVENT
+            typeStr.equals("MOVIE", ignoreCase = true) || typeStr.equals("SERIES", ignoreCase = true) || obj.has("poster") || obj.has("year") -> MediaType.MOVIE
+            else -> MediaType.LIVE_TV
+        }
+
+        val serversList = mutableListOf<StreamServer>()
+        val serversArr = obj.optJSONArray("servers")
+        if (serversArr != null) {
+            for (i in 0 until serversArr.length()) {
+                val sObj = serversArr.optJSONObject(i)
+                if (sObj != null) {
+                    val name = sObj.optString("name", "সার্ভার ${i + 1}")
+                    val sUrl = sObj.optString("url", "")
+                    if (sUrl.isNotBlank()) {
+                        serversList.add(StreamServer(name, sUrl))
+                    }
+                }
+            }
+        }
+
+        val primaryStream = obj.optString("url", obj.optString("streamUrl", ""))
+        val backup = obj.optString("backupUrl", null)
+        val logo = obj.optString("logo", obj.optString("logoUrl", obj.optString("poster", null))).takeIf { it?.isNotBlank() == true }
+
+        val startTm = if (obj.has("startTime")) obj.optLong("startTime") else if (obj.has("countdownTargetSeconds")) obj.optLong("countdownTargetSeconds") else null
+
+        return MediaItem(
+            id = id,
+            title = obj.optString("name", obj.optString("title", "NAFI Stream")),
+            tournament = obj.optString("tournament", null).takeIf { it?.isNotBlank() == true },
+            category = categoryStr,
+            type = mediaType,
+            streamUrl = primaryStream,
+            backupUrl = backup,
+            servers = serversList,
+            logoUrl = logo,
+            description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+            isLive = obj.optBoolean("isLive", true),
+            status = obj.optString("status", "Live Now"),
+            eventTime = obj.optString("eventTime", obj.optString("time", null)).takeIf { it?.isNotBlank() == true },
+            team1 = obj.optString("team1", null).takeIf { it?.isNotBlank() == true },
+            team2 = obj.optString("team2", null).takeIf { it?.isNotBlank() == true },
+            team1Logo = obj.optString("team1Logo", null).takeIf { it?.isNotBlank() == true },
+            team2Logo = obj.optString("team2Logo", null).takeIf { it?.isNotBlank() == true },
+            matchTimeFormatted = obj.optString("matchTimeFormatted", null).takeIf { it?.isNotBlank() == true },
+            countdownTargetSeconds = startTm,
+            score1 = obj.optString("score1", null).takeIf { it?.isNotBlank() == true },
+            score2 = obj.optString("score2", null).takeIf { it?.isNotBlank() == true },
+            quality = obj.optString("quality", "HD"),
+            rating = obj.optString("rating", null).takeIf { it?.isNotBlank() == true },
+            year = obj.optString("year", null).takeIf { it?.isNotBlank() == true },
+            country = obj.optString("country", null).takeIf { it?.isNotBlank() == true },
+            drmScheme = obj.optString("drmScheme", obj.optString("license_type", null)).takeIf { it?.isNotBlank() == true },
+            drmLicenseUrl = obj.optString("drmLicenseUrl", null).takeIf { it?.isNotBlank() == true },
+            drmLicenseKey = obj.optString("drmLicenseKey", obj.optString("license_key", obj.optString("clearkey", null))).takeIf { it?.isNotBlank() == true },
+            manifestType = obj.optString("manifestType", obj.optString("manifest_type", null)).takeIf { it?.isNotBlank() == true }
+        )
+    }
+
+    // -------------------------------------------------------------
+    // PLAYLISTS MANAGEMENT (Initial, Local & Firebase Cloud + Xtream Codes API)
+    // -------------------------------------------------------------
+    fun getInitialPlaylists(): List<PlaylistInfo> {
+        val deleted = getDeletedIds()
+        val defaultList = listOf(
+            PlaylistInfo(
+                id = "pl_mysave23",
+                title = "MySave TV (Xtream)",
+                url = "http://mysave23.com/get.php?username=OscarDuarte6295&password=naNMGtc9sK&type=m3u_plus&output=m3u8",
+                logoUrl = "https://images.unsplash.com/photo-1593784991095-a205069470b6?w=200&fit=crop",
+                description = "Xtream Codes IPTV Playlist (OscarDuarte6295)",
+                serverUrl = "http://mysave23.com",
+                username = "OscarDuarte6295",
+                password = "naNMGtc9sK",
+                type = "XTREAM"
+            )
+        )
+        return defaultList.filterNot { deleted.contains(it.id) }
+    }
+
+    fun buildXtreamM3uUrl(serverUrl: String, username: String, pass: String): String {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        return "$cleanServer/get.php?username=${username.trim()}&password=${pass.trim()}&type=m3u_plus&output=m3u8"
+    }
+
+    fun parseXtreamCredentials(input: String): Triple<String, String, String>? {
+        if (input.isBlank()) return null
+        val trimmed = input.trim()
+
+        // Case 1: URL with query parameters e.g. http://server/get.php?username=xxx&password=yyy
+        if (trimmed.contains("username=", ignoreCase = true) && trimmed.contains("password=", ignoreCase = true)) {
+            try {
+                val uri = Uri.parse(trimmed)
+                val user = uri.getQueryParameter("username")
+                val pass = uri.getQueryParameter("password")
+                val scheme = uri.scheme ?: "http"
+                val host = uri.host ?: ""
+                val port = if (uri.port != -1) ":${uri.port}" else ""
+                val server = "$scheme://$host$port"
+                if (!user.isNullOrBlank() && !pass.isNullOrBlank() && host.isNotBlank()) {
+                    return Triple(server, user, pass)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Case 2: Multi-line text (e.g. Server \n User \n Pass)
+        val lines = trimmed.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.size >= 3) {
+            val serverLine = lines.firstOrNull { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) || it.contains(".com") || it.contains(":") } ?: lines[0]
+            val nonServerLines = lines.filter { it != serverLine }
+            if (nonServerLines.size >= 2) {
+                var server = serverLine.replace(Regex("^(server|host|url)\\s*[:=]\\s*", RegexOption.IGNORE_CASE), "").trim()
+                if (!server.startsWith("http://", ignoreCase = true) && !server.startsWith("https://", ignoreCase = true)) {
+                    server = "http://$server"
+                }
+                val user = nonServerLines[0].replace(Regex("^(user|username|name)\\s*[:=]\\s*", RegexOption.IGNORE_CASE), "").trim()
+                val pass = nonServerLines[1].replace(Regex("^(pass|password|pin)\\s*[:=]\\s*", RegexOption.IGNORE_CASE), "").trim()
+                if (server.isNotBlank() && user.isNotBlank() && pass.isNotBlank()) {
+                    return Triple(server, user, pass)
+                }
+            }
+        }
+
+        // Case 3: Comma or space separated tokens
+        val tokens = trimmed.split(Regex("[\r\n\t ,|;]+"))
+        var server = ""
+        var user = ""
+        var pass = ""
+        for (token in tokens) {
+            val t = token.trim()
+            if (t.startsWith("http://", ignoreCase = true) || t.startsWith("https://", ignoreCase = true) || (t.contains(".") && !t.contains("="))) {
+                if (server.isEmpty()) {
+                    server = if (!t.startsWith("http://", ignoreCase = true) && !t.startsWith("https://", ignoreCase = true)) "http://$t" else t
+                }
+            } else if (t.startsWith("user=", ignoreCase = true) || t.startsWith("username=", ignoreCase = true)) {
+                user = t.substringAfter("=").trim()
+            } else if (t.startsWith("pass=", ignoreCase = true) || t.startsWith("password=", ignoreCase = true)) {
+                pass = t.substringAfter("=").trim()
+            }
+        }
+        if (server.isNotBlank() && user.isNotBlank() && pass.isNotBlank()) {
+            return Triple(server, user, pass)
+        }
+
+        return null
+    }
+
+    suspend fun fetchXtreamCodesStreams(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanUser = username.trim()
+        val cleanPass = pass.trim()
+
+        val items = mutableListOf<MediaItem>()
+
+        // 1. First attempt: Standard Xtream M3U Plus URL
+        try {
+            val m3uUrl = "$cleanServer/get.php?username=$cleanUser&password=$cleanPass&type=m3u_plus&output=m3u8"
+            val m3uItems = fetchSingleM3uUrl(m3uUrl)
+            if (m3uItems.isNotEmpty()) {
+                return@withContext m3uItems
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Second attempt: Xtream Player API JSON streams
+        try {
+            // Live Categories map
+            val catMap = mutableMapOf<String, String>()
+            try {
+                val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_live_categories"
+                val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
+                val catResp = client.newCall(catReq).execute()
+                if (catResp.isSuccessful) {
+                    val catBody = catResp.body?.string() ?: ""
+                    if (catBody.startsWith("[")) {
+                        val catArr = JSONArray(catBody)
+                        for (i in 0 until catArr.length()) {
+                            val cObj = catArr.optJSONObject(i)
+                            if (cObj != null) {
+                                val cId = cObj.optString("category_id")
+                                val cName = cObj.optString("category_name")
+                                if (cId.isNotBlank() && cName.isNotBlank()) {
+                                    catMap[cId] = cName
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // Live Streams
+            val liveUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_live_streams"
+            val liveReq = Request.Builder().url(liveUrl).header("User-Agent", "IPTVSmartersPro").build()
+            val liveResp = client.newCall(liveReq).execute()
+            if (liveResp.isSuccessful) {
+                val liveBody = liveResp.body?.string() ?: ""
+                if (liveBody.startsWith("[")) {
+                    val liveArr = JSONArray(liveBody)
+                    for (i in 0 until liveArr.length()) {
+                        val sObj = liveArr.optJSONObject(i) ?: continue
+                        val streamId = sObj.optString("stream_id", "")
+                        if (streamId.isBlank()) continue
+                        val name = sObj.optString("name", "Channel $streamId")
+                        val catId = sObj.optString("category_id", "")
+                        val categoryName = catMap[catId] ?: "Live TV"
+                        val icon = sObj.optString("stream_icon").takeIf { it.isNotBlank() }
+
+                        val isSport = categoryName.contains("sport", ignoreCase = true) ||
+                                name.contains("sport", ignoreCase = true) ||
+                                name.contains("cricket", ignoreCase = true) ||
+                                name.contains("football", ignoreCase = true)
+
+                        val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.m3u8"
+                        val directPlayUrl = "$cleanServer/$cleanUser/$cleanPass/$streamId"
+
+                        items.add(
+                            MediaItem(
+                                id = "xtream_live_${streamId}",
+                                title = name,
+                                category = categoryName,
+                                type = if (isSport) MediaType.LIVE_EVENT else MediaType.LIVE_TV,
+                                streamUrl = playUrl,
+                                backupUrl = directPlayUrl,
+                                servers = listOf(
+                                    StreamServer("সার্ভার ১ (HLS)", playUrl),
+                                    StreamServer("সার্ভার ২ (Direct TS)", directPlayUrl)
+                                ),
+                                logoUrl = icon,
+                                isLive = true,
+                                quality = "HD",
+                                userAgent = "IPTVSmartersPro"
+                            )
+                        )
+                    }
+                }
+            }
+
+            // VOD Movies
+            try {
+                val vodUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams"
+                val vodReq = Request.Builder().url(vodUrl).header("User-Agent", "IPTVSmartersPro").build()
+                val vodResp = client.newCall(vodReq).execute()
+                if (vodResp.isSuccessful) {
+                    val vodBody = vodResp.body?.string() ?: ""
+                    if (vodBody.startsWith("[")) {
+                        val vodArr = JSONArray(vodBody)
+                        for (i in 0 until vodArr.length()) {
+                            val vObj = vodArr.optJSONObject(i) ?: continue
+                            val streamId = vObj.optString("stream_id", "")
+                            if (streamId.isBlank()) continue
+                            val name = vObj.optString("name", "Movie $streamId")
+                            val catId = vObj.optString("category_id", "")
+                            val categoryName = catMap[catId] ?: "Movies"
+                            val icon = vObj.optString("stream_icon").takeIf { it.isNotBlank() }
+                            val ext = vObj.optString("container_extension", "mp4")
+                            val rating = vObj.optString("rating", "8.5")
+
+                            val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+
+                            items.add(
+                                MediaItem(
+                                    id = "xtream_vod_${streamId}",
+                                    title = name,
+                                    category = categoryName,
+                                    type = MediaType.MOVIE,
+                                    streamUrl = playUrl,
+                                    servers = listOf(
+                                        StreamServer("সার্ভার ১ (VOD)", playUrl)
+                                    ),
+                                    logoUrl = icon,
+                                    isLive = false,
+                                    rating = rating,
+                                    quality = "HD",
+                                    userAgent = "IPTVSmartersPro"
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        items
+    }
+
+    suspend fun testXtreamCodes(serverUrl: String, username: String, pass: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanUser = username.trim()
+        val cleanPass = pass.trim()
+
+        try {
+            val authUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass"
+            val req = Request.Builder().url(authUrl).header("User-Agent", "IPTVSmartersPro").build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string() ?: ""
+                if (body.startsWith("{")) {
+                    val obj = JSONObject(body)
+                    val userInfo = obj.optJSONObject("user_info")
+                    val auth = userInfo?.optInt("auth", 0) ?: 0
+                    val status = userInfo?.optString("status", "") ?: ""
+                    val expDate = userInfo?.optString("exp_date", "") ?: ""
+                    if (auth == 1 || status.equals("Active", ignoreCase = true)) {
+                        return@withContext Pair(true, "✅ Xtream Codes কানেক্টেড! স্ট্যাটাস: ${status.ifBlank { "Active" }} (মেয়াদ: ${expDate.ifBlank { "আনলিমিটেড" }})")
+                    } else if (obj.has("user_info")) {
+                        return@withContext Pair(true, "✅ Xtream Codes তথ্য পাওয়া গেছে! সংযোগ সক্রিয়।")
+                    }
+                }
+            }
+
+            // Test via get.php
+            val m3uTest = "$cleanServer/get.php?username=$cleanUser&password=$cleanPass&type=m3u_plus&output=m3u8"
+            val m3uReq = Request.Builder().url(m3uTest).header("User-Agent", "IPTVSmartersPro").build()
+            val m3uResp = client.newCall(m3uReq).execute()
+            if (m3uResp.isSuccessful) {
+                return@withContext Pair(true, "✅ Xtream M3U সফলভাবে রেসপন্স করেছে (HTTP 200)")
+            }
+
+            Pair(false, "⚠️ সার্ভার সংযোগ বা ইউজারনেম/পাসওয়ার্ড সঠিক নয় (HTTP ${resp.code})")
+        } catch (e: Exception) {
+            Pair(false, "⚠️ কানেকশন এরর: ${e.localizedMessage ?: "সার্ভারে পৌঁছানো সম্ভব হয়নি"}")
+        }
+    }
+
+    suspend fun fetchPlaylistChannels(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
+            val xtreamItems = fetchXtreamCodesStreams(playlist.serverUrl, playlist.username, playlist.password)
+            if (xtreamItems.isNotEmpty()) {
+                return@withContext xtreamItems
+            }
+        }
+        if (playlist.url.isNotBlank()) {
+            val m3uItems = parseM3uFromUrl(playlist.url)
+            if (m3uItems.isNotEmpty()) {
+                return@withContext m3uItems
+            }
+            val creds = parseXtreamCredentials(playlist.url)
+            if (creds != null) {
+                val xtreamFallback = fetchXtreamCodesStreams(creds.first, creds.second, creds.third)
+                if (xtreamFallback.isNotEmpty()) {
+                    return@withContext xtreamFallback
+                }
+            }
+        }
+        emptyList()
+    }
+
+    // -------------------------------------------------------------
+    // USER-LOCAL PLAYLISTS (Stored only on user device, never to Firebase)
+    // -------------------------------------------------------------
+    fun getUserPlaylists(): List<PlaylistInfo> {
+        val deleted = getDeletedIds()
+        val jsonStr = prefs.getString("user_playlists", null)
+        val list = mutableListOf<PlaylistInfo>()
+        if (jsonStr != null) {
+            try {
+                val arr = JSONArray(jsonStr)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val id = obj.optString("id", "pl_user_$i")
+                    if (!deleted.contains(id)) {
+                        list.add(
+                            PlaylistInfo(
+                                id = id,
+                                title = obj.optString("title", obj.optString("name", "Playlist")),
+                                url = obj.optString("url", ""),
+                                logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
+                                description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                                channelCount = obj.optInt("channelCount", 0),
+                                serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
+                                username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
+                                password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
+                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U")
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return list
+    }
+
+    fun saveUserPlaylist(playlist: PlaylistInfo) {
+        val current = getUserPlaylists().toMutableList()
+        current.removeAll { it.id == playlist.id }
+        current.add(0, playlist)
+        saveUserPlaylistsList(current)
+    }
+
+    fun saveUserPlaylistsList(list: List<PlaylistInfo>) {
+        val arr = JSONArray()
+        list.forEach { p ->
+            val obj = JSONObject()
+            obj.put("id", p.id)
+            obj.put("title", p.title)
+            obj.put("name", p.title)
+            obj.put("url", p.url)
+            obj.put("logoUrl", p.logoUrl ?: "")
+            obj.put("logo", p.logoUrl ?: "")
+            obj.put("description", p.description ?: "")
+            obj.put("channelCount", p.channelCount)
+            obj.put("serverUrl", p.serverUrl ?: "")
+            obj.put("username", p.username ?: "")
+            obj.put("password", p.password ?: "")
+            obj.put("type", p.type)
+            arr.put(obj)
+        }
+        prefs.edit().putString("user_playlists", arr.toString()).apply()
+    }
+
+    fun deleteUserPlaylist(id: String) {
+        addDeletedId(id)
+        val current = getUserPlaylists().filterNot { it.id == id }
+        saveUserPlaylistsList(current)
+    }
+
+    // -------------------------------------------------------------
+    // ADMIN PLAYLISTS (Admin panel managed, synced to Firebase Cloud)
+    // -------------------------------------------------------------
+    fun getAdminPlaylists(): List<PlaylistInfo> {
+        val deleted = getDeletedIds()
+        val jsonStr = prefs.getString("admin_playlists", prefs.getString("custom_playlists", "[]")) ?: "[]"
+        val list = mutableListOf<PlaylistInfo>()
+        try {
+            val arr = JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val id = obj.optString("id", "pl_admin_$i")
+                if (!deleted.contains(id)) {
+                    list.add(
+                        PlaylistInfo(
+                            id = id,
+                            title = obj.optString("title", obj.optString("name", "Playlist")),
+                            url = obj.optString("url", ""),
+                            logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
+                            description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                            channelCount = obj.optInt("channelCount", 0),
+                            serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
+                            username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
+                            password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
+                            type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U")
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveAdminPlaylist(playlist: PlaylistInfo) {
+        val current = getAdminPlaylists().toMutableList()
+        current.removeAll { it.id == playlist.id }
+        current.add(0, playlist)
+        saveAdminPlaylistsList(current)
+    }
+
+    fun saveAdminPlaylistsList(list: List<PlaylistInfo>) {
+        val arr = JSONArray()
+        list.forEach { p ->
+            val obj = JSONObject()
+            obj.put("id", p.id)
+            obj.put("title", p.title)
+            obj.put("name", p.title)
+            obj.put("url", p.url)
+            obj.put("logoUrl", p.logoUrl ?: "")
+            obj.put("logo", p.logoUrl ?: "")
+            obj.put("description", p.description ?: "")
+            obj.put("channelCount", p.channelCount)
+            obj.put("serverUrl", p.serverUrl ?: "")
+            obj.put("username", p.username ?: "")
+            obj.put("password", p.password ?: "")
+            obj.put("type", p.type)
+            arr.put(obj)
+        }
+        prefs.edit().putString("admin_playlists", arr.toString()).apply()
+    }
+
+    fun deleteAdminPlaylist(id: String) {
+        addDeletedId(id)
+        val current = getAdminPlaylists().filterNot { it.id == id }
+        saveAdminPlaylistsList(current)
+    }
+
+    fun getCustomPlaylists(): List<PlaylistInfo> {
+        val deleted = getDeletedIds()
+        return (getAdminPlaylists() + getUserPlaylists()).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+    }
+
+    fun saveCustomPlaylist(playlist: PlaylistInfo) {
+        saveUserPlaylist(playlist)
+    }
+
+    fun saveCustomPlaylistsList(list: List<PlaylistInfo>) {
+        saveUserPlaylistsList(list)
+    }
+
+    fun deleteCustomPlaylist(id: String) {
+        deleteUserPlaylist(id)
+    }
+
+    suspend fun deletePlaylistFromFirebase(id: String): Boolean {
+        return deleteFromFirebase(id, MediaType.LIVE_TV)
+    }
+
+    suspend fun deletePlaylist(id: String): Boolean {
+        addDeletedId(id)
+        deleteAdminPlaylist(id)
+        deleteUserPlaylist(id)
+        return deleteFromFirebase(id, MediaType.LIVE_TV)
+    }
+
+    suspend fun pushPlaylistToFirebase(playlist: PlaylistInfo, url: String = getSavedFirebaseUrl()): Boolean = withContext(Dispatchers.IO) {
+        var success = false
+
+        // 1. Push to Firestore
+        try {
+            val firestoreObj = JSONObject()
+            val fields = JSONObject()
+            fields.put("id", JSONObject().put("stringValue", playlist.id))
+            fields.put("title", JSONObject().put("stringValue", playlist.title))
+            fields.put("name", JSONObject().put("stringValue", playlist.title))
+            fields.put("url", JSONObject().put("stringValue", playlist.url))
+            if (!playlist.logoUrl.isNullOrBlank()) {
+                fields.put("logoUrl", JSONObject().put("stringValue", playlist.logoUrl))
+                fields.put("logo", JSONObject().put("stringValue", playlist.logoUrl))
+            }
+            if (!playlist.description.isNullOrBlank()) {
+                fields.put("description", JSONObject().put("stringValue", playlist.description))
+            }
+            fields.put("channelCount", JSONObject().put("integerValue", playlist.channelCount.toString()))
+            if (!playlist.serverUrl.isNullOrBlank()) {
+                fields.put("serverUrl", JSONObject().put("stringValue", playlist.serverUrl))
+            }
+            if (!playlist.username.isNullOrBlank()) {
+                fields.put("username", JSONObject().put("stringValue", playlist.username))
+            }
+            if (!playlist.password.isNullOrBlank()) {
+                fields.put("password", JSONObject().put("stringValue", playlist.password))
+            }
+            fields.put("type", JSONObject().put("stringValue", playlist.type))
+
+            firestoreObj.put("fields", fields)
+            val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            for (dbId in databases) {
+                try {
+                    val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/playlists/${playlist.id}?key=$FIREBASE_API_KEY"
+                    val fsReq = Request.Builder().url(fsUrl).patch(fsBody).build()
+                    val fsResp = client.newCall(fsReq).execute()
+                    if (fsResp.isSuccessful) success = true
+                } catch (e: Exception) {
+                    // continue
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Push to RTDB
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val obj = JSONObject()
+                obj.put("id", playlist.id)
+                obj.put("title", playlist.title)
+                obj.put("name", playlist.title)
+                obj.put("url", playlist.url)
+                obj.put("logoUrl", playlist.logoUrl ?: "")
+                obj.put("logo", playlist.logoUrl ?: "")
+                obj.put("description", playlist.description ?: "")
+                obj.put("channelCount", playlist.channelCount)
+                obj.put("serverUrl", playlist.serverUrl ?: "")
+                obj.put("username", playlist.username ?: "")
+                obj.put("password", playlist.password ?: "")
+                obj.put("type", playlist.type)
+
+                val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val targetUrl = "$cleanUrl/playlists/${playlist.id}.json"
+                val req = Request.Builder().url(targetUrl).put(body).build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) success = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        success
+    }
+
+    suspend fun fetchPlaylistsFromFirebase(url: String = getSavedFirebaseUrl()): List<PlaylistInfo> = withContext(Dispatchers.IO) {
+        val deleted = getDeletedIds()
+        val list = mutableListOf<PlaylistInfo>()
+
+        // 1. Fetch from Firestore
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+        for (dbId in databases) {
+            try {
+                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/playlists?key=$FIREBASE_API_KEY"
+                val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                val resp = client.newCall(req).execute()
+                if (!resp.isSuccessful) continue
+                val body = resp.body?.string() ?: continue
+                if (body.isBlank() || !body.startsWith("{")) continue
+
+                val json = JSONObject(body)
+                val docs = json.optJSONArray("documents") ?: continue
+                for (i in 0 until docs.length()) {
+                    val doc = docs.optJSONObject(i) ?: continue
+                    val name = doc.optString("name", "")
+                    val docId = name.substringAfterLast("/")
+                    if (docId.isBlank() || deleted.contains(docId)) continue
+
+                    val fields = doc.optJSONObject("fields") ?: continue
+                    fun s(k: String): String = fields.optJSONObject(k)?.optString("stringValue", "") ?: ""
+                    fun count(k: String): Int = fields.optJSONObject(k)?.optInt("integerValue", 0) ?: 0
+
+                    val pId = s("id").ifBlank { docId }
+                    if (!deleted.contains(pId)) {
+                        list.add(
+                            PlaylistInfo(
+                                id = pId,
+                                title = s("title").ifBlank { s("name").ifBlank { "Playlist" } },
+                                url = s("url"),
+                                logoUrl = s("logoUrl").ifBlank { s("logo") }.takeIf { it.isNotBlank() },
+                                description = s("description").takeIf { it.isNotBlank() },
+                                channelCount = count("channelCount"),
+                                serverUrl = s("serverUrl").takeIf { it.isNotBlank() },
+                                username = s("username").takeIf { it.isNotBlank() },
+                                password = s("password").takeIf { it.isNotBlank() },
+                                type = s("type").ifBlank { if (s("serverUrl").isNotBlank() || s("username").isNotBlank()) "XTREAM" else "M3U" }
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 2. Fetch from RTDB
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val targetUrl = "$cleanUrl/playlists.json"
+                val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.isNotEmpty() && body != "null" && body.startsWith("{")) {
+                        val jsonObject = JSONObject(body)
+                        val keys = jsonObject.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            if (!deleted.contains(k)) {
+                                val obj = jsonObject.optJSONObject(k)
+                                if (obj != null) {
+                                    val id = obj.optString("id", k)
+                                    if (!deleted.contains(id)) {
+                                        list.add(
+                                            PlaylistInfo(
+                                                id = id,
+                                                title = obj.optString("title", obj.optString("name", "Playlist")),
+                                                url = obj.optString("url", ""),
+                                                logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
+                                                description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                                                channelCount = obj.optInt("channelCount", 0),
+                                                serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
+                                                username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
+                                                password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
+                                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U")
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        list.distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+    }
+
+    fun saveFirebaseUrl(url: String) {
+        prefs.edit().putString("saved_firebase_url", url).apply()
+    }
+
+    fun getSavedFirebaseUrl(): String {
+        val stored = prefs.getString("saved_firebase_url", null)
+        if (stored.isNullOrBlank() || stored.contains("elaborate-airfoil") || stored.contains("nafitv24-default-rtdb")) {
+            return DEFAULT_RTDB_URL
+        }
+        return stored
+    }
+
+    fun saveM3uUrl(url: String) {
+        saveLiveTvM3uUrl(url)
+    }
+
+    fun getSavedM3uUrl(): String {
+        return getSavedLiveTvM3uUrl()
+    }
+
+    fun saveLiveTvM3uUrl(url: String) {
+        prefs.edit().putString("saved_live_tv_m3u_url", url).apply()
+    }
+
+    fun getSavedLiveTvM3uUrl(): String {
+        return prefs.getString("saved_live_tv_m3u_url", DEFAULT_LIVE_TV_M3U_URL) ?: DEFAULT_LIVE_TV_M3U_URL
+    }
+
+    fun saveSportsM3uUrl(url: String) {
+        prefs.edit().putString("saved_sports_m3u_url", url).apply()
+    }
+
+    fun getSavedSportsM3uUrl(): String {
+        return prefs.getString("saved_sports_m3u_url", DEFAULT_SPORTS_M3U_URL) ?: DEFAULT_SPORTS_M3U_URL
+    }
+
+    fun saveMoviesM3uUrl(url: String) {
+        prefs.edit().putString("saved_movies_m3u_url", url).apply()
+    }
+
+    fun getSavedMoviesM3uUrl(): String {
+        return prefs.getString("saved_movies_m3u_url", DEFAULT_MOVIES_M3U_URL) ?: DEFAULT_MOVIES_M3U_URL
+    }
+
+    // Push remote configuration (Live TV M3U, Sports M3U, Movies M3U) to Firebase RTDB and Firestore
+    suspend fun pushAppConfigToFirebase(
+        liveTvM3u: String = getSavedLiveTvM3uUrl(),
+        sportsM3u: String = getSavedSportsM3uUrl(),
+        moviesM3u: String = getSavedMoviesM3uUrl(),
+        url: String = getSavedFirebaseUrl()
+    ): Boolean = withContext(Dispatchers.IO) {
+        var success = false
+        // 1. Push to RTDB
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val obj = JSONObject()
+                obj.put("liveTvM3uUrl", liveTvM3u)
+                obj.put("sportsM3uUrl", sportsM3u)
+                obj.put("moviesM3uUrl", moviesM3u)
+                val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val targetUrl = "$cleanUrl/app_config.json"
+                val req = Request.Builder().url(targetUrl).put(body).build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) success = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        // 2. Push to Firestore
+        try {
+            val firestoreObj = JSONObject()
+            val fields = JSONObject()
+            fields.put("liveTvM3uUrl", JSONObject().put("stringValue", liveTvM3u))
+            fields.put("sportsM3uUrl", JSONObject().put("stringValue", sportsM3u))
+            fields.put("moviesM3uUrl", JSONObject().put("stringValue", moviesM3u))
+            firestoreObj.put("fields", fields)
+            val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            for (dbId in databases) {
+                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/app_config?key=$FIREBASE_API_KEY"
+                val fsReq = Request.Builder().url(fsUrl).patch(fsBody).build()
+                val fsResp = client.newCall(fsReq).execute()
+                if (fsResp.isSuccessful) success = true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        success
+    }
+
+    // Fetch remote configuration (Live TV M3U, Sports M3U, Movies M3U) from Firebase RTDB and Firestore
+    suspend fun fetchAppConfigFromFirebase(url: String = getSavedFirebaseUrl()): Triple<String, String, String>? = withContext(Dispatchers.IO) {
+        var remoteLiveTv: String? = null
+        var remoteSports: String? = null
+        var remoteMovies: String? = null
+
+        // 1. Fetch from Firestore
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+        for (dbId in databases) {
+            try {
+                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/app_config?key=$FIREBASE_API_KEY"
+                val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.isNotBlank() && body.startsWith("{")) {
+                        val json = JSONObject(body)
+                        val fields = json.optJSONObject("fields")
+                        if (fields != null) {
+                            remoteLiveTv = fields.optJSONObject("liveTvM3uUrl")?.optString("stringValue")
+                            remoteSports = fields.optJSONObject("sportsM3uUrl")?.optString("stringValue")
+                            remoteMovies = fields.optJSONObject("moviesM3uUrl")?.optString("stringValue")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 2. Fetch from RTDB (takes priority if present)
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val targetUrl = "$cleanUrl/app_config.json"
+                val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.isNotBlank() && body != "null" && body.startsWith("{")) {
+                        val obj = JSONObject(body)
+                        if (obj.has("liveTvM3uUrl")) remoteLiveTv = obj.optString("liveTvM3uUrl")
+                        if (obj.has("sportsM3uUrl")) remoteSports = obj.optString("sportsM3uUrl")
+                        if (obj.has("moviesM3uUrl")) remoteMovies = obj.optString("moviesM3uUrl")
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        if (remoteLiveTv != null || remoteSports != null || remoteMovies != null) {
+            val finalLiveTv = if (!remoteLiveTv.isNullOrBlank()) remoteLiveTv!! else getSavedLiveTvM3uUrl()
+            val finalSports = if (!remoteSports.isNullOrBlank()) remoteSports!! else getSavedSportsM3uUrl()
+            val finalMovies = if (!remoteMovies.isNullOrBlank()) remoteMovies!! else getSavedMoviesM3uUrl()
+            // Cache locally so offline access uses the latest remote config
+            if (remoteLiveTv?.isNotBlank() == true) saveLiveTvM3uUrl(finalLiveTv)
+            if (remoteSports?.isNotBlank() == true) saveSportsM3uUrl(finalSports)
+            if (remoteMovies?.isNotBlank() == true) saveMoviesM3uUrl(finalMovies)
+            Triple(finalLiveTv, finalSports, finalMovies)
+        } else {
+            null
+        }
+    }
+
+    // -------------------------------------------------------------
+    // APP UPDATE & VERSION MANAGEMENT (Firebase RTDB + Local Cache)
+    // -------------------------------------------------------------
+    suspend fun fetchAppUpdateInfo(url: String = getSavedFirebaseUrl()): AppUpdateInfo? = withContext(Dispatchers.IO) {
+        try {
+            val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+            val targetUrl = "$cleanUrl/app_update.json"
+            val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.4.0").build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return@withContext getCachedAppUpdateInfo()
+            val body = resp.body?.string() ?: return@withContext getCachedAppUpdateInfo()
+            if (body.isBlank() || body == "null") return@withContext getCachedAppUpdateInfo()
+
+            val obj = JSONObject(body)
+            val info = AppUpdateInfo(
+                versionCode = obj.optInt("versionCode", 1),
+                versionName = obj.optString("versionName", "1.0"),
+                downloadUrl = obj.optString("downloadUrl", ""),
+                releaseNotes = obj.optString("releaseNotes", ""),
+                isForceUpdate = obj.optBoolean("isForceUpdate", false),
+                minSupportedVersionCode = obj.optInt("minSupportedVersionCode", 1),
+                apkSize = obj.optString("apkSize", ""),
+                releaseDate = obj.optString("releaseDate", "")
+            )
+            saveCachedAppUpdateInfo(info)
+            info
+        } catch (e: Exception) {
+            e.printStackTrace()
+            getCachedAppUpdateInfo()
+        }
+    }
+
+    suspend fun pushAppUpdateInfo(info: AppUpdateInfo, url: String = getSavedFirebaseUrl()): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+            val obj = JSONObject()
+            obj.put("versionCode", info.versionCode)
+            obj.put("versionName", info.versionName)
+            obj.put("downloadUrl", info.downloadUrl)
+            obj.put("releaseNotes", info.releaseNotes)
+            obj.put("isForceUpdate", info.isForceUpdate)
+            obj.put("minSupportedVersionCode", info.minSupportedVersionCode)
+            obj.put("apkSize", info.apkSize)
+            obj.put("releaseDate", info.releaseDate)
+
+            val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+            val targetUrl = "$cleanUrl/app_update.json"
+            val req = Request.Builder().url(targetUrl).put(body).build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                saveCachedAppUpdateInfo(info)
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun saveCachedAppUpdateInfo(info: AppUpdateInfo) {
+        val obj = JSONObject()
+        obj.put("versionCode", info.versionCode)
+        obj.put("versionName", info.versionName)
+        obj.put("downloadUrl", info.downloadUrl)
+        obj.put("releaseNotes", info.releaseNotes)
+        obj.put("isForceUpdate", info.isForceUpdate)
+        obj.put("minSupportedVersionCode", info.minSupportedVersionCode)
+        obj.put("apkSize", info.apkSize)
+        obj.put("releaseDate", info.releaseDate)
+        prefs.edit().putString("cached_app_update", obj.toString()).apply()
+    }
+
+    fun getCachedAppUpdateInfo(): AppUpdateInfo? {
+        val json = prefs.getString("cached_app_update", null) ?: return null
+        return try {
+            val obj = JSONObject(json)
+            AppUpdateInfo(
+                versionCode = obj.optInt("versionCode", 1),
+                versionName = obj.optString("versionName", "1.0"),
+                downloadUrl = obj.optString("downloadUrl", ""),
+                releaseNotes = obj.optString("releaseNotes", ""),
+                isForceUpdate = obj.optBoolean("isForceUpdate", false),
+                minSupportedVersionCode = obj.optInt("minSupportedVersionCode", 1),
+                apkSize = obj.optString("apkSize", ""),
+                releaseDate = obj.optString("releaseDate", "")
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun isUpdateDismissed(versionCode: Int, versionName: String = ""): Boolean {
+        val dismissedCode = prefs.getInt("dismissed_update_version", 0)
+        val dismissedName = prefs.getString("dismissed_update_name", "") ?: ""
+        if (versionName.isNotBlank() && dismissedName == versionName) return true
+        return dismissedCode != 0 && dismissedCode >= versionCode
+    }
+
+    fun dismissUpdate(versionCode: Int, versionName: String = "") {
+        prefs.edit()
+            .putInt("dismissed_update_version", versionCode)
+            .putString("dismissed_update_name", versionName)
+            .apply()
+    }
+
+    // -------------------------------------------------------------
+    // CLOUDSTREAM REPOSITORIES & MOVIE SITES (Phisher Repo & Extensions)
+    // -------------------------------------------------------------
+
+    private val KNOWN_PROVIDER_DOMAINS = mapOf(
+        "allwish" to "https://allwish.me",
+        "dorabash" to "https://dorabash.com",
+        "animesalt" to "https://animesalt.com",
+        "animecloud" to "https://animecloud.top",
+        "showflix" to "https://showflix.in",
+        "ringz" to "https://ringz.in",
+        "xdmovies" to "https://xdmovies.site",
+        "yflix" to "https://yflix.to",
+        "yts" to "https://yts.mx",
+        "multimovies" to "https://multimovies.online",
+        "cineb" to "https://cineb.rs",
+        "flixhq" to "https://flixhq.to",
+        "smashystream" to "https://smashystream.com",
+        "loklok" to "https://loklok.com",
+        "toonstream" to "https://toonstream.co",
+        "vegamovies" to "https://vegamovies.im",
+        "bollyflix" to "https://bollyflix.tools",
+        "filmyzilla" to "https://filmyzilla.com.by",
+        "moviesdrive" to "https://moviesdrive.in",
+        "moviesmod" to "https://moviesmod.org",
+        "chorki" to "https://www.chorki.com",
+        "bongobd" to "https://bongobd.com",
+        "bioscope" to "https://www.bioscopelive.com",
+        "toffee" to "https://toffeelive.com",
+        "123movies" to "https://ww4.123moviesfree.net",
+        "fmovies" to "https://fmovies.ps",
+        "gogoanime" to "https://gogoanime3.co",
+        "hdtoday" to "https://hdtoday.tv",
+        "sflix" to "https://sflix.to",
+        "superstream" to "https://superstream.media",
+        "vidsrc" to "https://vidsrc.to"
+    )
+
+    fun cleanRepoUrl(url: String): String {
+        var clean = url.trim()
+        if (clean.startsWith("cloudstreamrepo://")) {
+            clean = "https://" + clean.removePrefix("cloudstreamrepo://")
+        }
+        return clean
+    }
+
+    suspend fun parseCloudStreamRepo(rawUrl: String): CloudStreamRepo = withContext(Dispatchers.IO) {
+        val finalUrl = cleanRepoUrl(rawUrl)
+        val repoId = "repo_" + finalUrl.hashCode().toString().replace("-", "n")
+
+        try {
+            val req = Request.Builder()
+                .url(finalUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .build()
+
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) {
+                throw Exception("HTTP ${resp.code}: ${resp.message}")
+            }
+            val body = resp.body?.string() ?: throw Exception("Empty repository response")
+            val json = JSONObject(body)
+
+            val repoName = json.optString("name", "CloudStream Repository").ifBlank { "CloudStream Repo" }
+            val repoDescription = json.optString("description", "").takeIf { it.isNotBlank() }
+            val repoIcon = json.optString("iconUrl", "").ifBlank { json.optString("icon", "") }.takeIf { it.isNotBlank() }
+
+            val providersList = mutableListOf<MovieProvider>()
+
+            // 1. Direct pluginLists (URLs pointing to plugins.json)
+            val pluginLists = json.optJSONArray("pluginLists")
+            if (pluginLists != null && pluginLists.length() > 0) {
+                for (i in 0 until pluginLists.length()) {
+                    val pListUrl = pluginLists.optString(i, "")
+                    if (pListUrl.isNotBlank()) {
+                        val parsedProviders = fetchPluginsFromJsonUrl(pListUrl, repoId, repoName)
+                        providersList.addAll(parsedProviders)
+                    }
+                }
+            }
+
+            // 2. Direct plugins array in repo.json
+            val directPlugins = json.optJSONArray("plugins")
+            if (directPlugins != null && directPlugins.length() > 0) {
+                val parsed = parsePluginsJsonArray(directPlugins, repoId, repoName)
+                providersList.addAll(parsed)
+            }
+
+            // If repository URL itself was a plugins.json array
+            if (providersList.isEmpty() && body.trim().startsWith("[")) {
+                val arr = JSONArray(body)
+                providersList.addAll(parsePluginsJsonArray(arr, repoId, repoName))
+            }
+
+            // If empty, fallback to Phisher preset
+            if (providersList.isEmpty()) {
+                providersList.addAll(getInitialPhisherProviders(repoId, repoName))
+            }
+
+            // Fallback: If repo didn't have web links for some plugins, synthesize best domain match
+            val enhancedProviders = providersList.distinctBy { it.name.lowercase() }.map { provider ->
+                var site = provider.siteUrl
+                if (site.isBlank() || !site.startsWith("http") || site.endsWith(".cs3")) {
+                    val cleanKey = provider.name.lowercase().replace(" ", "").replace("-", "").replace("_", "")
+                    val known = KNOWN_PROVIDER_DOMAINS.entries.firstOrNull { cleanKey.contains(it.key) }?.value
+                    site = known ?: "https://${cleanKey}.com"
+                }
+                provider.copy(siteUrl = site)
+            }
+
+            CloudStreamRepo(
+                id = repoId,
+                name = repoName,
+                repoUrl = rawUrl.trim(),
+                description = repoDescription ?: "${enhancedProviders.size} টি মুভি ও সিরিজ প্রোভাইডার উপলব্ধ",
+                iconUrl = repoIcon ?: "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
+                providers = enhancedProviders,
+                isEnabled = true,
+                lastUpdated = System.currentTimeMillis()
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Return fallback repo with synthesized providers if network fails
+            val fallbackRepoName = if (rawUrl.contains("phisher", ignoreCase = true)) "Phisher Repo" else "CloudStream Extension Repo"
+            val fallbackProviders = getInitialPhisherProviders(repoId, fallbackRepoName)
+            CloudStreamRepo(
+                id = repoId,
+                name = fallbackRepoName,
+                repoUrl = rawUrl.trim(),
+                description = "মুভি, সিরিজ ও অ্যানিমে ওয়েবসাইট রিপোজিটরি",
+                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
+                providers = fallbackProviders,
+                isEnabled = true,
+                lastUpdated = System.currentTimeMillis()
+            )
+        }
+    }
+
+    private suspend fun fetchPluginsFromJsonUrl(pUrl: String, repoId: String, repoName: String): List<MovieProvider> = withContext(Dispatchers.IO) {
+        val cleanUrl = cleanRepoUrl(pUrl)
+        try {
+            val req = Request.Builder()
+                .url(cleanUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return@withContext emptyList()
+            val body = resp.body?.string() ?: return@withContext emptyList()
+            if (body.isBlank() || !body.trim().startsWith("[")) return@withContext emptyList()
+            val arr = JSONArray(body)
+            parsePluginsJsonArray(arr, repoId, repoName)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    private fun parsePluginsJsonArray(arr: JSONArray, repoId: String, repoName: String): List<MovieProvider> {
+        val list = mutableListOf<MovieProvider>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val name = obj.optString("name", "").ifBlank { obj.optString("internalName", "") }
+            if (name.isBlank()) continue
+
+            val desc = obj.optString("description", "")
+            val iconUrl = obj.optString("iconUrl", "").ifBlank { obj.optString("icon", "") }
+            var siteUrl = obj.optString("siteUrl", "").ifBlank { obj.optString("url", "") }
+
+            val typesList = mutableListOf<String>()
+            val tvTypes = obj.optJSONArray("tvTypes")
+            if (tvTypes != null) {
+                for (t in 0 until tvTypes.length()) {
+                    typesList.add(tvTypes.optString(t))
+                }
+            }
+            if (typesList.isEmpty()) {
+                typesList.add("Movie")
+                typesList.add("Series")
+            }
+
+            val lang = obj.optString("language", "Multi").ifBlank { "Multi" }
+            val cleanKey = name.lowercase().replace(" ", "").replace("-", "").replace("_", "")
+            if (siteUrl.isBlank() || !siteUrl.startsWith("http") || siteUrl.endsWith(".cs3")) {
+                val known = KNOWN_PROVIDER_DOMAINS.entries.firstOrNull { cleanKey.contains(it.key) }?.value
+                siteUrl = known ?: "https://${cleanKey}.com"
+            }
+
+            val provId = "prov_${repoId}_${cleanKey}_$i"
+            list.add(
+                MovieProvider(
+                    id = provId,
+                    name = name,
+                    description = desc.ifBlank { "$name থেকে আনলিমিটেড মুভি ও টিভি সিরিজ দেখুন" },
+                    iconUrl = iconUrl.takeIf { it.isNotBlank() },
+                    siteUrl = siteUrl,
+                    types = typesList,
+                    language = lang,
+                    repoId = repoId,
+                    repoName = repoName,
+                    isCustom = false,
+                    isEnabled = true
+                )
+            )
+        }
+        return list
+    }
+
+    fun getInitialPhisherProviders(repoId: String = "repo_phisher", repoName: String = "Phisher Repo"): List<MovieProvider> {
+        val items = listOf(
+            Triple("ShowFlix", "https://showflix.in", "Watch Hindi, Bollywood & Hollywood Movies & Web Series in HD"),
+            Triple("AllWish", "https://allwish.me", "All-in-one Movie, Anime & TV Series Streaming Portal"),
+            Triple("DoraBash", "https://dorabash.com", "High-speed Hindi, Bengali & English Movies Hub"),
+            Triple("Animesalt", "https://animesalt.com", "Watch Latest Anime Episodes, Movies & Dual Audio in 1080p"),
+            Triple("AnimeCloud", "https://animecloud.top", "Fast Anime Cloud Streaming with English/Hindi Subtitles"),
+            Triple("Ringz", "https://ringz.in", "Hindi, Tamil, Telugu Dubbed Movies & Web Series"),
+            Triple("XDMovies", "https://xdmovies.site", "Latest 4K & 1080p Bollywood, Hollywood & South Indian Cinema"),
+            Triple("Yflix", "https://yflix.to", "Watch Free HD Movies and TV Shows Online"),
+            Triple("YTS", "https://yts.mx", "The Official Home of YIFY Movies in 720p, 1080p and 4K"),
+            Triple("MultiMovies", "https://multimovies.online", "Multi-Audio Hindi Dubbed, South & Dual Audio Cinema"),
+            Triple("Cineb", "https://cineb.rs", "Stream Free Movies and TV Series in Ultra HD Quality"),
+            Triple("FlixHQ", "https://flixhq.to", "Watch Free Movies & TV Series with Zero Ads"),
+            Triple("SmashyStream", "https://smashystream.com", "Top Speed Video Streaming Server for Cinema & Series"),
+            Triple("Loklok", "https://loklok.com", "Global Popular Movies, KDramas, Anime and Blockbuster Series"),
+            Triple("Toonstream", "https://toonstream.co", "Best Cartoon & Animation Series in Hindi & English Dub"),
+            Triple("Vegamovies", "https://vegamovies.im", "VegaMovies - 300MB Dual Audio Hindi Movies & Series"),
+            Triple("BollyFlix", "https://bollyflix.tools", "BollyFlix 720p 1080p HEVC Bollywood & Hollywood Dubbed"),
+            Triple("Bioscope Live", "https://www.bioscopelive.com", "Bangla Movies, Natok, Originals & Exclusive Cinema"),
+            Triple("Chorki", "https://www.chorki.com", "Film, Fun, Foorti - Premium Bangla Original Cinema & Web Series"),
+            Triple("Bongo BD", "https://bongobd.com", "Watch Bangla Movies, Drama & South Dubbed Bangla Films")
+        )
+        return items.mapIndexed { idx, item ->
+            MovieProvider(
+                id = "phisher_prov_$idx",
+                name = item.first,
+                siteUrl = item.second,
+                description = item.third,
+                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
+                types = if (item.first.contains("Anime") || item.first.contains("Toon")) listOf("Anime", "Cartoons") else listOf("Movie", "Series"),
+                language = if (item.first.contains("Bio") || item.first.contains("Chorki") || item.first.contains("Bongo")) "Bangla" else "Multi / Hindi",
+                repoId = repoId,
+                repoName = repoName,
+                isCustom = false,
+                isEnabled = true
+            )
+        }
+    }
+
+    // -------------------------------------------------------------
+    // LOCAL PERSISTENCE FOR CLOUDSTREAM REPOSITORIES & MOVIE SITES
+    // -------------------------------------------------------------
+    fun getSavedCloudStreamRepos(): List<CloudStreamRepo> {
+        val json = prefs.getString("cloudstream_repos", "[]") ?: "[]"
+        val list = mutableListOf<CloudStreamRepo>()
+        try {
+            val arr = JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val provList = mutableListOf<MovieProvider>()
+                val pArr = obj.optJSONArray("providers")
+                if (pArr != null) {
+                    for (p in 0 until pArr.length()) {
+                        val po = pArr.getJSONObject(p)
+                        val typesList = mutableListOf<String>()
+                        val tArr = po.optJSONArray("types")
+                        if (tArr != null) {
+                            for (t in 0 until tArr.length()) typesList.add(tArr.optString(t))
+                        }
+                        provList.add(
+                            MovieProvider(
+                                id = po.optString("id", "p_$p"),
+                                name = po.optString("name", ""),
+                                description = po.optString("description", "").takeIf { it.isNotBlank() },
+                                iconUrl = po.optString("iconUrl", "").takeIf { it.isNotBlank() },
+                                siteUrl = po.optString("siteUrl", ""),
+                                searchUrl = po.optString("searchUrl", "").takeIf { it.isNotBlank() },
+                                types = typesList.ifEmpty { listOf("Movie", "Series") },
+                                language = po.optString("language", "Multi"),
+                                repoId = po.optString("repoId", ""),
+                                repoName = po.optString("repoName", ""),
+                                isCustom = po.optBoolean("isCustom", false),
+                                isEnabled = po.optBoolean("isEnabled", true)
+                            )
+                        )
+                    }
+                }
+                list.add(
+                    CloudStreamRepo(
+                        id = obj.optString("id", "repo_$i"),
+                        name = obj.optString("name", "Repo $i"),
+                        repoUrl = obj.optString("repoUrl", ""),
+                        description = obj.optString("description", "").takeIf { it.isNotBlank() },
+                        iconUrl = obj.optString("iconUrl", "").takeIf { it.isNotBlank() },
+                        providers = provList,
+                        isEnabled = obj.optBoolean("isEnabled", true),
+                        lastUpdated = obj.optLong("lastUpdated", System.currentTimeMillis())
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // If user has never added any repo, return default Phisher Repo preset
+        if (list.isEmpty()) {
+            val defaultPhisher = CloudStreamRepo(
+                id = "repo_phisher_default",
+                name = "Phisher Repo",
+                repoUrl = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json",
+                description = "Phisher Extensions: ২০+ মুভি, সিরিজ ও অ্যানিমে স্ট্রিমিং ওয়েবসাইট",
+                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
+                providers = getInitialPhisherProviders("repo_phisher_default", "Phisher Repo"),
+                isEnabled = true,
+                lastUpdated = System.currentTimeMillis()
+            )
+            list.add(defaultPhisher)
+            saveCloudStreamRepos(list)
+        }
+
+        return list
+    }
+
+    fun saveCloudStreamRepos(repos: List<CloudStreamRepo>) {
+        val arr = JSONArray()
+        repos.forEach { repo ->
+            val obj = JSONObject()
+            obj.put("id", repo.id)
+            obj.put("name", repo.name)
+            obj.put("repoUrl", repo.repoUrl)
+            obj.put("description", repo.description ?: "")
+            obj.put("iconUrl", repo.iconUrl ?: "")
+            obj.put("isEnabled", repo.isEnabled)
+            obj.put("lastUpdated", repo.lastUpdated)
+
+            val pArr = JSONArray()
+            repo.providers.forEach { prov ->
+                val po = JSONObject()
+                po.put("id", prov.id)
+                po.put("name", prov.name)
+                po.put("description", prov.description ?: "")
+                po.put("iconUrl", prov.iconUrl ?: "")
+                po.put("siteUrl", prov.siteUrl)
+                po.put("searchUrl", prov.searchUrl ?: "")
+                po.put("language", prov.language)
+                po.put("repoId", prov.repoId ?: repo.id)
+                po.put("repoName", prov.repoName ?: repo.name)
+                po.put("isCustom", prov.isCustom)
+                po.put("isEnabled", prov.isEnabled)
+
+                val tArr = JSONArray()
+                prov.types.forEach { tArr.put(it) }
+                po.put("types", tArr)
+                pArr.put(po)
+            }
+            obj.put("providers", pArr)
+            arr.put(obj)
+        }
+        prefs.edit().putString("cloudstream_repos", arr.toString()).apply()
+    }
+
+    fun saveCloudStreamRepo(repo: CloudStreamRepo) {
+        val current = getSavedCloudStreamRepos().toMutableList()
+        current.removeAll { it.id == repo.id || it.repoUrl.equals(repo.repoUrl, ignoreCase = true) }
+        current.add(0, repo)
+        saveCloudStreamRepos(current)
+    }
+
+    fun deleteCloudStreamRepo(repoId: String) {
+        val current = getSavedCloudStreamRepos().filterNot { it.id == repoId }
+        saveCloudStreamRepos(current)
+    }
+
+    fun getCustomMovieProviders(): List<MovieProvider> {
+        val json = prefs.getString("custom_movie_providers", "[]") ?: "[]"
+        val list = mutableListOf<MovieProvider>()
+        try {
+            val arr = JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val po = arr.getJSONObject(i)
+                val typesList = mutableListOf<String>()
+                val tArr = po.optJSONArray("types")
+                if (tArr != null) {
+                    for (t in 0 until tArr.length()) typesList.add(tArr.optString(t))
+                }
+                list.add(
+                    MovieProvider(
+                        id = po.optString("id", "cust_prov_$i"),
+                        name = po.optString("name", ""),
+                        description = po.optString("description", "").takeIf { it.isNotBlank() },
+                        iconUrl = po.optString("iconUrl", "").takeIf { it.isNotBlank() },
+                        siteUrl = po.optString("siteUrl", ""),
+                        searchUrl = po.optString("searchUrl", "").takeIf { it.isNotBlank() },
+                        types = typesList.ifEmpty { listOf("Movie", "Series") },
+                        language = po.optString("language", "Multi"),
+                        repoId = po.optString("repoId", "custom"),
+                        repoName = po.optString("repoName", "Custom Added"),
+                        isCustom = true,
+                        isEnabled = po.optBoolean("isEnabled", true)
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveCustomMovieProviders(providers: List<MovieProvider>) {
+        val arr = JSONArray()
+        providers.forEach { prov ->
+            val po = JSONObject()
+            po.put("id", prov.id)
+            po.put("name", prov.name)
+            po.put("description", prov.description ?: "")
+            po.put("iconUrl", prov.iconUrl ?: "")
+            po.put("siteUrl", prov.siteUrl)
+            po.put("searchUrl", prov.searchUrl ?: "")
+            po.put("language", prov.language)
+            po.put("repoId", prov.repoId ?: "custom")
+            po.put("repoName", prov.repoName ?: "Custom Added")
+            po.put("isCustom", true)
+            po.put("isEnabled", prov.isEnabled)
+
+            val tArr = JSONArray()
+            prov.types.forEach { tArr.put(it) }
+            po.put("types", tArr)
+            arr.put(po)
+        }
+        prefs.edit().putString("custom_movie_providers", arr.toString()).apply()
+    }
+
+    fun saveCustomMovieProvider(provider: MovieProvider) {
+        val current = getCustomMovieProviders().toMutableList()
+        current.removeAll { it.id == provider.id }
+        current.add(0, provider)
+        saveCustomMovieProviders(current)
+    }
+
+    fun deleteMovieProvider(providerId: String) {
+        val current = getCustomMovieProviders().filterNot { it.id == providerId }
+        saveCustomMovieProviders(current)
+    }
+
+    fun getAllMovieProviders(): List<MovieProvider> {
+        val repos = getSavedCloudStreamRepos().filter { it.isEnabled }
+        val repoProviders = repos.flatMap { repo ->
+            repo.providers.filter { it.isEnabled }.map { it.copy(repoName = repo.name) }
+        }
+        val customProviders = getCustomMovieProviders().filter { it.isEnabled }
+        return (repoProviders + customProviders).distinctBy { it.name.lowercase() }
+    }
+
+    // -------------------------------------------------------------
+    // FIREBASE SYNC FOR CLOUDSTREAM REPOSITORIES & MOVIE SITES
+    // -------------------------------------------------------------
+    suspend fun pushCloudStreamReposToFirebase(repos: List<CloudStreamRepo>, url: String = getSavedFirebaseUrl()): Boolean = withContext(Dispatchers.IO) {
+        var anySuccess = false
+        try {
+            val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+            val arr = JSONArray()
+            repos.forEach { repo ->
+                val obj = JSONObject()
+                obj.put("id", repo.id)
+                obj.put("name", repo.name)
+                obj.put("repoUrl", repo.repoUrl)
+                obj.put("description", repo.description ?: "")
+                obj.put("iconUrl", repo.iconUrl ?: "")
+                obj.put("isEnabled", repo.isEnabled)
+                obj.put("lastUpdated", repo.lastUpdated)
+
+                val pArr = JSONArray()
+                repo.providers.forEach { prov ->
+                    val po = JSONObject()
+                    po.put("id", prov.id)
+                    po.put("name", prov.name)
+                    po.put("description", prov.description ?: "")
+                    po.put("iconUrl", prov.iconUrl ?: "")
+                    po.put("siteUrl", prov.siteUrl)
+                    po.put("language", prov.language)
+                    po.put("repoId", prov.repoId ?: repo.id)
+                    po.put("repoName", prov.repoName ?: repo.name)
+                    po.put("isEnabled", prov.isEnabled)
+                    val tArr = JSONArray()
+                    prov.types.forEach { tArr.put(it) }
+                    po.put("types", tArr)
+                    pArr.put(po)
+                }
+                obj.put("providers", pArr)
+                arr.put(obj)
+            }
+
+            val body = arr.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+            val targetUrl = "$cleanUrl/cloudstream_repos.json"
+            val req = Request.Builder().url(targetUrl).put(body).build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                anySuccess = true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        anySuccess
+    }
+
+    suspend fun fetchCloudStreamReposFromFirebase(url: String = getSavedFirebaseUrl()): List<CloudStreamRepo> = withContext(Dispatchers.IO) {
+        try {
+            val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+            val targetUrl = "$cleanUrl/cloudstream_repos.json"
+            val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return@withContext emptyList()
+            val body = resp.body?.string() ?: return@withContext emptyList()
+            if (body.isBlank() || body == "null") return@withContext emptyList()
+
+            val list = mutableListOf<CloudStreamRepo>()
+            if (body.trim().startsWith("[")) {
+                val arr = JSONArray(body)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val provList = mutableListOf<MovieProvider>()
+                    val pArr = obj.optJSONArray("providers")
+                    if (pArr != null) {
+                        for (p in 0 until pArr.length()) {
+                            val po = pArr.optJSONObject(p) ?: continue
+                            val typesList = mutableListOf<String>()
+                            val tArr = po.optJSONArray("types")
+                            if (tArr != null) {
+                                for (t in 0 until tArr.length()) typesList.add(tArr.optString(t))
+                            }
+                            provList.add(
+                                MovieProvider(
+                                    id = po.optString("id", "p_$p"),
+                                    name = po.optString("name", ""),
+                                    description = po.optString("description", "").takeIf { it.isNotBlank() },
+                                    iconUrl = po.optString("iconUrl", "").takeIf { it.isNotBlank() },
+                                    siteUrl = po.optString("siteUrl", ""),
+                                    searchUrl = po.optString("searchUrl", "").takeIf { it.isNotBlank() },
+                                    types = typesList.ifEmpty { listOf("Movie", "Series") },
+                                    language = po.optString("language", "Multi"),
+                                    repoId = po.optString("repoId", ""),
+                                    repoName = po.optString("repoName", ""),
+                                    isCustom = po.optBoolean("isCustom", false),
+                                    isEnabled = po.optBoolean("isEnabled", true)
+                                )
+                            )
+                        }
+                    }
+                    list.add(
+                        CloudStreamRepo(
+                            id = obj.optString("id", "fb_repo_$i"),
+                            name = obj.optString("name", "Repo $i"),
+                            repoUrl = obj.optString("repoUrl", ""),
+                            description = obj.optString("description", "").takeIf { it.isNotBlank() },
+                            iconUrl = obj.optString("iconUrl", "").takeIf { it.isNotBlank() },
+                            providers = provList,
+                            isEnabled = obj.optBoolean("isEnabled", true),
+                            lastUpdated = obj.optLong("lastUpdated", System.currentTimeMillis())
+                        )
+                    )
+                }
+            }
+            if (list.isNotEmpty()) {
+                saveCloudStreamRepos(list)
+            }
+            list
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+}
