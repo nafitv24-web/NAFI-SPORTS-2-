@@ -8058,10 +8058,12 @@ fun PlaylistTabScreen(
                     }
                 }
 
-                // Channels Grid / List
-                LazyColumn(
+                // Channels Grid (Exact same uniform 3-column grid style as Live TV)
+                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 5 else 3),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(filteredChannels) { channel ->
@@ -8069,76 +8071,111 @@ fun PlaylistTabScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .scale(if (isChanFocused) 1.03f else 1.0f)
+                                .height(if (isTvMode) 145.dp else 135.dp)
+                                .scale(if (isChanFocused) 1.06f else 1.0f)
                                 .onFocusChanged { isChanFocused = it.isFocused }
                                 .focusable()
                                 .clickable { onSelectMedia(channel, playlistChannels) },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isChanFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
                             ),
                             border = when {
                                 isChanFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
-                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                             },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isChanFocused) 8.dp else 2.dp)
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isChanFocused) 10.dp else 2.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF0F172A)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!channel.logoUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = channel.logoUrl,
-                                            contentDescription = channel.title,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.fillMaxSize().padding(4.dp)
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // Focus badge on top left
+                                if (isChanFocused) {
+                                    Surface(
+                                        shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
+                                        color = Color(0xFF00E5FF),
+                                        modifier = Modifier.align(Alignment.TopStart)
+                                    ) {
+                                        Text(
+                                            text = "▶ PLAY",
+                                            color = Color.Black,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                         )
-                                    } else {
-                                        Icon(Icons.Rounded.LiveTv, contentDescription = null, tint = Color(0xFF00E5FF))
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = channel.title,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = channel.category,
-                                        color = if (isChanFocused) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                        fontSize = 11.sp,
-                                        maxLines = 1
-                                    )
-                                }
-
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (isChanFocused) Color(0xFF00E5FF) else Color(0xFF2563EB).copy(alpha = 0.2f),
-                                    modifier = Modifier.size(36.dp)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.PlayArrow,
-                                            contentDescription = "Play",
-                                            tint = if (isChanFocused) Color.Black else Color(0xFF00E5FF),
-                                            modifier = Modifier.size(20.dp)
+                                    // Channel Logo in White Circle
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (!channel.logoUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = channel.logoUrl,
+                                                contentDescription = channel.title,
+                                                contentScale = ContentScale.Fit,
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                            )
+                                        } else {
+                                            val initials = channel.title.take(3).uppercase()
+                                            Text(
+                                                text = initials,
+                                                color = Color(0xFF0F172A),
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    // Channel Title Container
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(28.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = channel.title,
+                                            color = if (isChanFocused) Color(0xFF00E5FF) else Color.White,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center,
+                                            lineHeight = 13.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    // Category / Country Badge Container
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF0F172A),
+                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
+                                    ) {
+                                        Text(
+                                            text = channel.country ?: channel.category.take(10).ifBlank { "Live TV" },
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }

@@ -1393,7 +1393,8 @@ fun VideoPlayerScreen(
                 }
 
                 // Related / Other Items in Portrait Mode
-                val isLiveEvent = currentMedia.type == MediaType.LIVE_EVENT || playlist.any { it.type == MediaType.LIVE_EVENT }
+                val isLiveEvent = (currentMedia.type == MediaType.LIVE_EVENT) &&
+                        (!currentMedia.team1.isNullOrBlank() && !currentMedia.team2.isNullOrBlank())
 
                 if (isLiveEvent) {
                     Text(
@@ -1672,7 +1673,7 @@ fun VideoPlayerScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(115.dp)
+                                    .height(130.dp)
                                     .clickable {
                                         isBuffering = true
                                         currentMedia = item
@@ -1682,16 +1683,16 @@ fun VideoPlayerScreen(
                                         errorMessage = null
                                         onSelectMedia(item)
                                     },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isCurrent) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E293B)
+                                    containerColor = if (isCurrent) Color(0xFF1E3A8A) else Color(0xFF1E293B)
                                 ),
-                                border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                                border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                             ) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(8.dp),
+                                        .padding(horizontal = 6.dp, vertical = 6.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
@@ -1702,29 +1703,52 @@ fun VideoPlayerScreen(
                                             .background(Color.White),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        AsyncImage(
-                                            model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
-                                            contentDescription = item.title,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.size(38.dp).clip(CircleShape)
-                                        )
+                                        if (!item.logoUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = item.logoUrl,
+                                                contentDescription = item.title,
+                                                contentScale = ContentScale.Fit,
+                                                modifier = Modifier.size(38.dp).clip(CircleShape)
+                                            )
+                                        } else {
+                                            val initials = item.title.take(3).uppercase()
+                                            Text(
+                                                text = initials,
+                                                color = Color(0xFF0F172A),
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = item.title,
-                                        color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    if (item.category.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(2.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(24.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         Text(
-                                            text = item.country ?: item.category.take(8),
+                                            text = item.title,
+                                            color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF0F172A),
+                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
+                                    ) {
+                                        Text(
+                                            text = item.country ?: item.category.take(8).ifBlank { "Live" },
                                             color = if (isCurrent) Color(0xFF00E5FF) else Color(0xFF94A3B8),
                                             fontSize = 9.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
