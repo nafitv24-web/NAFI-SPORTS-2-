@@ -221,7 +221,13 @@ fun NafiTvMainApp(
                 val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
                 val moviesM3uDeferred = async {
                     if (moviesM3uUrl.isNotBlank()) {
-                        repository.parseM3uFromUrl(moviesM3uUrl).map { it.copy(type = MediaType.MOVIE) }
+                        repository.parseM3uFromUrl(moviesM3uUrl).map {
+                            it.copy(
+                                type = MediaType.MOVIE,
+                                tournament = "NAFI_OTT",
+                                category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                            )
+                        }
                     } else emptyList()
                 }
 
@@ -333,6 +339,7 @@ fun NafiTvMainApp(
     } else if (activeMovieBrowserProvider != null) {
         // IN-APP MOVIE & CLOUDSTREAM WEBSITE BROWSER WITH AD-SHIELD & STREAM DETECTOR
         MovieBrowserScreen(
+            repository = repository,
             provider = activeMovieBrowserProvider!!,
             onClose = { activeMovieBrowserProvider = null },
             onPlayDirectMedia = { item ->

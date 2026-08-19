@@ -62,7 +62,7 @@ fun CloudStreamHomeScreen(
     var isLoading by remember { mutableStateOf(false) }
     var fetchErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    val categoryTabs = listOf("All", "Movies", "TV Series", "Anime", "Asian Dramas")
+    val categoryTabs = listOf("All", "NAFI OTT PLATFORM", "Movies", "TV Series", "Anime", "Asian Dramas")
 
     // Function to fetch live movies from provider endpoints
     fun loadLiveMovies() {
@@ -70,6 +70,14 @@ fun CloudStreamHomeScreen(
             isLoading = true
             fetchErrorMessage = null
             try {
+                if (searchQuery.isNotBlank() && (searchQuery.contains("csredirect") || searchQuery.contains("csshare:") || searchQuery.contains("aoneroom.com"))) {
+                    val resolved = repository.resolveCloudStreamShareLink(searchQuery)
+                    if (resolved != null) {
+                        liveMoviesList = listOf(resolved)
+                        isLoading = false
+                        return@launch
+                    }
+                }
                 val fetched = repository.fetchLiveProviderCatalog(
                     provider = activeProvider,
                     query = searchQuery,
@@ -456,8 +464,79 @@ fun CloudStreamHomeScreen(
                     }
                 }
 
+                // DEDICATED OTT SECTION 0: NAFI OTT PLATFORM (Your Provided Playlist Movies & Series)
+                val nafiOttItems = liveMoviesList.filter { it.tournament == "NAFI_OTT" || (it.category ?: "").contains("NAFI OTT", ignoreCase = true) }
+                if (nafiOttItems.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, bottom = 6.dp)
+                        ) {
+                            // Exclusive NAFI OTT PLATFORM Header Banner
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(
+                                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                                    listOf(Color(0xFFE50914), Color(0xFFFF3D00))
+                                                )
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(
+                                            text = "ORIGINAL",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "NAFI OTT PLATFORM",
+                                        color = Color.White,
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFE50914).copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE50914).copy(alpha = 0.4f))
+                                ) {
+                                    Text(
+                                        text = "${nafiOttItems.size} Movies",
+                                        color = Color(0xFFFF5252),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+
+                            LiveMovieRow(
+                                sectionTitle = "",
+                                movies = nafiOttItems,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+                }
+
                 // DYNAMIC CAROUSEL SECTION 1: Trending & Top Releases
-                val trendingItems = liveMoviesList.take(12)
+                val otherMovies = liveMoviesList.filterNot { it.tournament == "NAFI_OTT" || (it.category ?: "").contains("NAFI OTT", ignoreCase = true) }
+                val trendingItems = if (otherMovies.isNotEmpty()) otherMovies.take(12) else liveMoviesList.take(12)
                 if (trendingItems.isNotEmpty()) {
                     item {
                         LiveMovieRow(

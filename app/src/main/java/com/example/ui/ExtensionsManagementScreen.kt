@@ -65,9 +65,10 @@ fun ExtensionsManagementScreen(
 
     // Dialog states
     var showAddRepoDialog by remember { mutableStateOf(false) }
-    var newRepoUrl by remember { mutableStateOf("https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json") }
+    var newRepoUrl by remember { mutableStateOf("cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json") }
     var newRepoName by remember { mutableStateOf("Phisher Repo") }
     var isSyncing by remember { mutableStateOf(false) }
+    var isBatchInstalling by remember { mutableStateOf(false) }
 
     fun refreshExtensions() {
         repos = repository.getSavedCloudStreamRepos()
@@ -200,6 +201,151 @@ fun ExtensionsManagementScreen(
                     .padding(paddingValues),
                 contentPadding = PaddingValues(bottom = 90.dp)
             ) {
+                // 1-CLICK HERO INSTALL CARD FOR PHISHER REPO (User Requested)
+                item {
+                    val phisherRepoUrl = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json"
+                    val isPhisherInstalled = repos.any { it.url.contains("phisher", ignoreCase = true) || it.name.contains("Phisher", ignoreCase = true) }
+                    
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF0F172A),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF2563EB)))),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CloudDownload,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "Phisher Repo Hub",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF10B981).copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "20+ Providers",
+                                                color = Color(0xFF10B981),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "MovieBox, Microtv, MovieBlast, MPlayer, Loklok, YTS, Chorki, Kisskh ইত্যাদি সকল এক্সটেনশন",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isBatchInstalling = true
+                                            val res = repository.installExtensionFromUrl(phisherRepoUrl)
+                                            refreshExtensions()
+                                            isBatchInstalling = false
+                                            Toast.makeText(context, "✅ ${res.second}", Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    enabled = !isBatchInstalling,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00E5FF),
+                                        contentColor = Color.Black
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(40.dp)
+                                ) {
+                                    if (isBatchInstalling) {
+                                        CircularProgressIndicator(
+                                            color = Color.Black,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.DownloadDone, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            if (isPhisherInstalled) "Update All Extensions" else "Install All 20+ Extensions",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+
+                                if (isPhisherInstalled) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val target = repos.firstOrNull { it.url.contains("phisher", ignoreCase = true) || it.name.contains("Phisher", ignoreCase = true) }
+                                            if (target != null) {
+                                                selectedRepoForPlugins = target
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.height(40.dp)
+                                    ) {
+                                        Text("Open Repo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Header for Repositories
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Installed Repositories (${repos.size})",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+
                 // List of Repositories
                 items(repos, key = { it.id }) { repo ->
                     Surface(
@@ -447,6 +593,103 @@ fun ExtensionsManagementScreen(
                     .padding(paddingValues),
                 contentPadding = PaddingValues(bottom = 40.dp)
             ) {
+                // Repo Header Controls (Install All, Enable All, Open Movies)
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF0F172A),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = repo.name,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${plugins.size} টি প্লাগইন উপলব্ধ",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        onOpenMovieBrowser?.invoke(plugins.firstOrNull() ?: MovieProvider(id = "all", name = "All Movies", siteUrl = ""))
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("মুভি দেখুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isBatchInstalling = true
+                                            val updated = repository.getAllMovieProviders().map {
+                                                if (plugins.any { p -> p.id == it.id }) it.copy(isInstalled = true, isEnabled = true) else it
+                                            }
+                                            repository.saveMovieProviders(updated)
+                                            refreshExtensions()
+                                            isBatchInstalling = false
+                                            Toast.makeText(context, "✅ সকল প্লাগইন ইনস্টল ও সক্রিয় করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                    modifier = Modifier.weight(1f).height(36.dp)
+                                ) {
+                                    Icon(Icons.Rounded.DownloadDone, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("সব ইনস্টল করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        val updated = repository.getAllMovieProviders().map {
+                                            if (plugins.any { p -> p.id == it.id }) it.copy(isEnabled = true) else it
+                                        }
+                                        repository.saveMovieProviders(updated)
+                                        refreshExtensions()
+                                        Toast.makeText(context, "✅ সকল প্লাগইন সক্রিয় করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF10B981)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981)),
+                                    modifier = Modifier.weight(1f).height(36.dp)
+                                ) {
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("সব সক্রিয় করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Filter Tabs: All, Movies, TV Series, Anime, Asian Dramas (Screenshot 2)
                 item {
                     LazyRow(
@@ -526,12 +769,27 @@ fun ExtensionsManagementScreen(
 
                             // Provider Title, Details and Description
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = provider.name,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = provider.name,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (provider.isInstalled) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFF64748B).copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = if (provider.isInstalled) "Active" else "Available",
+                                            color = if (provider.isInstalled) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = "${provider.language} • ${provider.version ?: "v26"} • ${provider.size ?: "72 kB"}",
@@ -539,7 +797,7 @@ fun ExtensionsManagementScreen(
                                     fontSize = 11.sp
                                 )
                                 Text(
-                                    text = provider.description ?: "Multi Language Movies and Series Provider (Mostly Hindi)",
+                                    text = provider.description ?: "Multi Language Movies and Series Provider",
                                     color = Color(0xFF64748B),
                                     fontSize = 10.sp,
                                     maxLines = 1,
@@ -548,6 +806,31 @@ fun ExtensionsManagementScreen(
                             }
 
                             Spacer(modifier = Modifier.width(8.dp))
+
+                            // Quick Watch Button
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF00E5FF).copy(alpha = 0.15f),
+                                modifier = Modifier.clickable {
+                                    onOpenMovieBrowser?.invoke(provider)
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("মুভি", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
 
                             // Action button on right (Download Icon vs Checkmark/Trash)
                             if (isInstalling) {
@@ -623,10 +906,75 @@ fun ExtensionsManagementScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Enter the URL of the repository JSON:",
+                        "Enter or choose a repository URL:",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp
                     )
+
+                    // Quick Preset Chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF2563EB).copy(alpha = 0.3f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    newRepoName = "Phisher Repo"
+                                    newRepoUrl = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json"
+                                }
+                        ) {
+                            Text(
+                                "⚡ Phisher",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    newRepoName = "Hexated Streams"
+                                    newRepoUrl = "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json"
+                                }
+                        ) {
+                            Text(
+                                "Hexated",
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    newRepoName = "Bangla Hub"
+                                    newRepoUrl = "https://raw.githubusercontent.com/cloudstream-bangla/repo/main/repo.json"
+                                }
+                        ) {
+                            Text(
+                                "Bangla",
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
                     OutlinedTextField(
                         value = newRepoName,
                         onValueChange = { newRepoName = it },
@@ -660,16 +1008,27 @@ fun ExtensionsManagementScreen(
                     onClick = {
                         if (newRepoUrl.isNotBlank()) {
                             coroutineScope.launch {
-                                val result = repository.installExtensionFromUrl(newRepoUrl.trim())
-                                refreshExtensions()
-                                showAddRepoDialog = false
-                                Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
+                                val cleanUrl = newRepoUrl.trim()
+                                if (cleanUrl.contains("csredirect") || cleanUrl.contains("csshare:") || cleanUrl.contains("aoneroom.com")) {
+                                    val item = repository.resolveCloudStreamShareLink(cleanUrl)
+                                    showAddRepoDialog = false
+                                    if (item != null) {
+                                        Toast.makeText(context, "MovieBox: ${item.title} যুক্ত হয়েছে!", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(context, "CloudStream লিঙ্কটি সংরক্ষিত হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    val result = repository.installExtensionFromUrl(cleanUrl)
+                                    refreshExtensions()
+                                    showAddRepoDialog = false
+                                    Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
-                    Text("Add Repository", fontWeight = FontWeight.Bold)
+                    Text("Add Repository / Link", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {

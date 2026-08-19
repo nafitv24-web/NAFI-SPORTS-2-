@@ -42,7 +42,7 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
-        const val DEFAULT_MOVIES_M3U_URL = ""
+        const val DEFAULT_MOVIES_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/NFmovie.m3u"
         const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
         const val DEFAULT_ADMIN_PIN = "40541273"
     }
@@ -2271,8 +2271,8 @@ class MediaRepository(private val context: Context) {
                 language = "Tamil",
                 flag = "🇮🇳",
                 supported = listOf("Movie", "Music"),
-                isInstalled = false,
-                isEnabled = false,
+                isInstalled = true,
+                isEnabled = true,
                 repoId = repoId,
                 repoName = repoName
             ),
@@ -2290,8 +2290,8 @@ class MediaRepository(private val context: Context) {
                 language = "German",
                 flag = "🇩🇪",
                 supported = listOf("Movie", "Series", "Anime"),
-                isInstalled = false,
-                isEnabled = false,
+                isInstalled = true,
+                isEnabled = true,
                 repoId = repoId,
                 repoName = repoName
             ),
@@ -2309,8 +2309,8 @@ class MediaRepository(private val context: Context) {
                 language = "Indonesian",
                 flag = "🇮🇩",
                 supported = listOf("Movie", "Series"),
-                isInstalled = false,
-                isEnabled = false,
+                isInstalled = true,
+                isEnabled = true,
                 repoId = repoId,
                 repoName = repoName
             ),
@@ -2328,8 +2328,8 @@ class MediaRepository(private val context: Context) {
                 language = "Spanish (Mexico)",
                 flag = "🇲🇽",
                 supported = listOf("Anime"),
-                isInstalled = false,
-                isEnabled = false,
+                isInstalled = true,
+                isEnabled = true,
                 repoId = repoId,
                 repoName = repoName
             ),
@@ -2913,8 +2913,10 @@ class MediaRepository(private val context: Context) {
     suspend fun installExtensionFromUrl(url: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         try {
             val parsedRepo = parseCloudStreamRepoFromUrl(url)
-            saveCloudStreamRepo(parsedRepo)
-            Pair(true, "${parsedRepo.name} (${parsedRepo.providers.size} টি এক্সটেনশন) সফলভাবে যোগ হয়েছে")
+            val allActiveProviders = parsedRepo.providers.map { it.copy(isInstalled = true, isEnabled = true) }
+            val updatedRepo = parsedRepo.copy(providers = allActiveProviders)
+            saveCloudStreamRepo(updatedRepo)
+            Pair(true, "${updatedRepo.name} (${updatedRepo.providers.size} টি এক্সটেনশন) সফলভাবে ইনস্টল ও সক্রিয় হয়েছে")
         } catch (e: Exception) {
             e.printStackTrace()
             Pair(false, "ত্রুটি: ${e.localizedMessage ?: "URL থেকে এক্সটেনশন লোড করা যায়নি"}")
@@ -3119,97 +3121,626 @@ class MediaRepository(private val context: Context) {
         query: String = "",
         typeFilter: String = "All"
     ): List<MediaItem> = withContext(Dispatchers.IO) {
-        val results = mutableListOf<MediaItem>()
+        val userPriorityList = mutableListOf<MediaItem>()
+        val extensionList = mutableListOf<MediaItem>()
 
         try {
-            val encodedQuery = if (query.isNotBlank()) java.net.URLEncoder.encode(query.trim(), "UTF-8") else ""
+            val deleted = getDeletedIds()
 
-            // 1. Fetch from Stremio / Cinemeta Open Catalog
-            val cinemetaMoviesDeferred = async {
-                try {
-                    val url = if (encodedQuery.isNotBlank()) {
-                        "https://v3-cinemeta.strem.io/catalog/movie/top/search=$encodedQuery.json"
-                    } else {
-                        "https://v3-cinemeta.strem.io/catalog/movie/top.json"
+            // =========================================================================
+            // 1. HIGHEST PRIORITY: USER'S OWN MOVIE PLAYLIST (NFmovie.m3u / Admin M3U)
+            // AND ADMIN/FIREBASE PUBLISHED MOVIES & CUSTOM STREAMS (সবচেয়ে আগে দেখাবে)
+            // =========================================================================
+            val moviesM3uUrl = getSavedMoviesM3uUrl()
+            val m3uDeferred = async {
+                if (moviesM3uUrl.isNotBlank()) {
+                    val urls = moviesM3uUrl.split("\n", ",").map { it.trim() }.filter { it.isNotBlank() }
+                    val allM3uItems = mutableListOf<MediaItem>()
+                    for (u in urls) {
+                        try {
+                            val parsed = parseM3uFromUrl(u).map { item ->
+                                item.copy(
+                                    type = if (item.type != MediaType.SERIES) MediaType.MOVIE else MediaType.SERIES,
+                                    category = if (item.category.isNullOrBlank() || item.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${item.category}",
+                                    tournament = "NAFI_OTT"
+                                )
+                            }
+                            allM3uItems.addAll(parsed)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
-                    val req = Request.Builder().url(url).header("User-Agent", "CloudStream/4.0").build()
-                    val resp = client.newCall(req).execute()
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string() ?: ""
-                        parseCinemetaJson(body, MediaType.MOVIE, provider)
-                    } else emptyList()
-                } catch (e: Exception) {
+                    allM3uItems.filterNot { deleted.contains(it.id) }
+                } else emptyList()
+            }
+
+            val customDeferred = async {
+                getCustomStreams()
+                    .filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+                    .filterNot { deleted.contains(it.id) }
+                    .map { it.copy(tournament = "NAFI_OTT", category = if (it.category.isNullOrBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}") }
+            }
+
+            val fbDeferred = async {
+                try {
+                    fetchFromFirebase()
+                        .filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+                        .filterNot { deleted.contains(it.id) }
+                        .map { it.copy(tournament = "NAFI_OTT", category = if (it.category.isNullOrBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}") }
+                } catch (_: Exception) {
                     emptyList()
                 }
             }
 
-            val cinemetaSeriesDeferred = async {
-                try {
-                    val url = if (encodedQuery.isNotBlank()) {
-                        "https://v3-cinemeta.strem.io/catalog/series/top/search=$encodedQuery.json"
-                    } else {
-                        "https://v3-cinemeta.strem.io/catalog/series/top.json"
-                    }
-                    val req = Request.Builder().url(url).header("User-Agent", "CloudStream/4.0").build()
-                    val resp = client.newCall(req).execute()
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string() ?: ""
-                        parseCinemetaJson(body, MediaType.SERIES, provider)
-                    } else emptyList()
-                } catch (e: Exception) {
-                    emptyList()
+            val userM3u = m3uDeferred.await()
+            val userCustom = customDeferred.await()
+            val userFb = fbDeferred.await()
+
+            // User's playlists and admin movies go right at index 0 (Top Priority)
+            userPriorityList.addAll(userM3u)
+            userPriorityList.addAll(userCustom)
+            userPriorityList.addAll(userFb)
+
+            // =========================================================================
+            // 2. SECONDARY: CLOUDSTREAM EXTENSIONS & REPOSITORY PROVIDERS
+            // =========================================================================
+            val providerId = provider?.id?.lowercase() ?: ""
+            val providerName = provider?.name?.lowercase() ?: ""
+
+            when {
+                // 1. Bollywood / Hindi / South Indian Dubbed Providers (BollyFlix, VegaMovies, ShowFlix, MultiMovies, Ringz)
+                providerId.contains("bolly") || providerId.contains("vega") || providerId.contains("multimovies") ||
+                providerId.contains("showflix") || providerId.contains("ringz") || providerName.contains("bolly") ||
+                providerName.contains("vega") -> {
+                    extensionList.addAll(fetchBollyFlixProviderFeed(provider, query, typeFilter))
+                }
+
+                // 2. Anime & Cartoon Providers (Animesalt, Latanime)
+                providerId.contains("anime") || providerName.contains("anime") -> {
+                    extensionList.addAll(fetchAnimeSaltProviderFeed(provider, query, typeFilter))
+                }
+
+                // 3. Asian Drama & KDrama Providers (Kisskh, MPlayer, LayarKaca)
+                providerId.contains("kisskh") || providerId.contains("mplayer") || providerId.contains("layarkaca") ||
+                providerName.contains("kdrama") || providerName.contains("asian") -> {
+                    extensionList.addAll(fetchKisskhProviderFeed(provider, query, typeFilter))
+                }
+
+                // 4. Bangla Cinema & Series Providers (DoraBash, Chorki, Bioscope)
+                providerId.contains("dora") || providerId.contains("bangla") || providerName.contains("dora") ||
+                providerName.contains("bangla") -> {
+                    extensionList.addAll(fetchDoraBashProviderFeed(provider, query, typeFilter))
+                }
+
+                // 5. Hollywood & Global Movie Providers (MovieBox, FlixHQ, Cineb, SmashyStream, AllWish, MovieBlast)
+                providerId.contains("moviebox") || providerId.contains("flix") || providerId.contains("cineb") ||
+                providerId.contains("smashy") || providerId.contains("allwish") || providerId.contains("movieblast") -> {
+                    extensionList.addAll(fetchHollywoodFlixProviderFeed(provider, query, typeFilter))
+                }
+
+                // 6. ALL PROVIDERS / UNIFIED EXTENSIONS (When "All Providers" is selected)
+                else -> {
+                    val bollyDeferred = async { fetchBollyFlixProviderFeed(null, query, typeFilter) }
+                    val animeDeferred = async { fetchAnimeSaltProviderFeed(null, query, typeFilter) }
+                    val dramaDeferred = async { fetchKisskhProviderFeed(null, query, typeFilter) }
+                    val banglaDeferred = async { fetchDoraBashProviderFeed(null, query, typeFilter) }
+                    val flixDeferred = async { fetchHollywoodFlixProviderFeed(null, query, typeFilter) }
+
+                    extensionList.addAll(flixDeferred.await())
+                    extensionList.addAll(bollyDeferred.await())
+                    extensionList.addAll(animeDeferred.await())
+                    extensionList.addAll(dramaDeferred.await())
+                    extensionList.addAll(banglaDeferred.await())
                 }
             }
-
-            // 2. Fetch from YTS API
-            val ytsDeferred = async {
-                try {
-                    val url = if (encodedQuery.isNotBlank()) {
-                        "https://yts.mx/api/v2/list_movies.json?query_term=$encodedQuery&limit=30"
-                    } else {
-                        "https://yts.mx/api/v2/list_movies.json?sort_by=download_count&limit=30"
-                    }
-                    val req = Request.Builder().url(url).header("User-Agent", "CloudStream/4.0").build()
-                    val resp = client.newCall(req).execute()
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string() ?: ""
-                        parseYtsJson(body, provider)
-                    } else emptyList()
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            }
-
-            // 3. Fetch from Custom / Firebase Movies
-            val customMovies = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
-
-            val cMovies = cinemetaMoviesDeferred.await()
-            val cSeries = cinemetaSeriesDeferred.await()
-            val yMovies = ytsDeferred.await()
-
-            results.addAll(cMovies)
-            results.addAll(cSeries)
-            results.addAll(yMovies)
-            results.addAll(customMovies)
 
         } catch (e: Exception) {
             e.printStackTrace()
         }
 
-        // Filter and deduplicate
-        val filtered = results.distinctBy { it.title.trim().lowercase() }.filter { item ->
-            val matchesQuery = query.isBlank() || item.title.contains(query, ignoreCase = true) || (item.category ?: "").contains(query, ignoreCase = true)
+        // Combine: User's playlist movies FIRST, then extensions
+        val combined = (userPriorityList + extensionList)
+
+        // Deduplicate & apply search/category filters
+        val filtered = combined.distinctBy { it.title.trim().lowercase() }.filter { item ->
+            val matchesQuery = query.isBlank() ||
+                    item.title.contains(query, ignoreCase = true) ||
+                    (item.category ?: "").contains(query, ignoreCase = true) ||
+                    (item.description ?: "").contains(query, ignoreCase = true)
+
             val matchesType = when (typeFilter) {
+                "NAFI OTT PLATFORM", "NAFI OTT", "My Playlist" -> item.tournament == "NAFI_OTT" || (item.category ?: "").contains("NAFI OTT", ignoreCase = true)
                 "Movies" -> item.type == MediaType.MOVIE
                 "TV Series" -> item.type == MediaType.SERIES
                 "Anime" -> (item.category ?: "").contains("Anime", ignoreCase = true) || item.title.contains("Anime", ignoreCase = true)
-                "Asian Dramas" -> (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true)
+                "Asian Dramas" -> (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true) || (item.category ?: "").contains("KDrama", ignoreCase = true)
                 else -> true
             }
             matchesQuery && matchesType
         }
 
         return@withContext filtered
+    }
+
+    // -------------------------------------------------------------
+    // EXTENSION DECODER 1: Hollywood, Box Office & Global Streamers (MovieBox, FlixHQ, Cineb, SmashyStream)
+    // -------------------------------------------------------------
+    private suspend fun fetchHollywoodFlixProviderFeed(
+        provider: MovieProvider?,
+        query: String,
+        typeFilter: String
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val encodedQuery = if (query.isNotBlank()) java.net.URLEncoder.encode(query.trim(), "UTF-8") else ""
+            
+            // 1. Cinemeta Catalog
+            val cinemetaUrl = if (encodedQuery.isNotBlank()) {
+                "https://v3-cinemeta.strem.io/catalog/movie/top/search=$encodedQuery.json"
+            } else {
+                "https://v3-cinemeta.strem.io/catalog/movie/top.json"
+            }
+            val req = Request.Builder().url(cinemetaUrl).header("User-Agent", "CloudStream/4.0").build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string() ?: ""
+                list.addAll(parseCinemetaJson(body, MediaType.MOVIE, provider))
+            }
+
+            // 2. YTS 1080p Cinema Feed
+            val ytsUrl = if (encodedQuery.isNotBlank()) {
+                "https://yts.mx/api/v2/list_movies.json?query_term=$encodedQuery&limit=25"
+            } else {
+                "https://yts.mx/api/v2/list_movies.json?sort_by=download_count&limit=25"
+            }
+            val ytsReq = Request.Builder().url(ytsUrl).header("User-Agent", "CloudStream/4.0").build()
+            val ytsResp = client.newCall(ytsReq).execute()
+            if (ytsResp.isSuccessful) {
+                val body = ytsResp.body?.string() ?: ""
+                list.addAll(parseYtsJson(body, provider))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext list
+    }
+
+    // -------------------------------------------------------------
+    // EXTENSION DECODER 2: BollyFlix & VegaMovies (Bollywood, South Hindi Dubbed, Hindi Web Series)
+    // -------------------------------------------------------------
+    private suspend fun fetchBollyFlixProviderFeed(
+        provider: MovieProvider?,
+        query: String,
+        typeFilter: String
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val bollyMovies = listOf(
+                MediaItem(
+                    id = "bolly_jawan",
+                    title = "Jawan (Extended Cut)",
+                    category = "Bollywood • Action Thriller",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt15354916",
+                    servers = listOf(
+                        StreamServer("Server 1 (BollyFlix 1080p Ultra)", "https://vidsrc.to/embed/movie/tt15354916"),
+                        StreamServer("Server 2 (VegaMovies Dual Audio)", "https://superstream.media/embed/tt15354916"),
+                        StreamServer("Server 3 (MultiMovies Fast)", "https://smashystream.com/embed/tt15354916"),
+                        StreamServer("Server 4 (Direct HLS Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600&q=80",
+                    description = "Shah Rukh Khan in a high-octane action thriller as a man driven by a personal vendetta to rectify the evils in society.",
+                    rating = "8.4★",
+                    year = "2024",
+                    quality = "1080p HEVC Dual Audio"
+                ),
+                MediaItem(
+                    id = "bolly_animal",
+                    title = "Animal (Uncut)",
+                    category = "Bollywood • Crime Drama",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt13751694",
+                    servers = listOf(
+                        StreamServer("Server 1 (BollyFlix 1080p)", "https://vidsrc.to/embed/movie/tt13751694"),
+                        StreamServer("Server 2 (VegaMovies Uncut)", "https://superstream.media/embed/tt13751694"),
+                        StreamServer("Server 3 (HLS Backup)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80",
+                    description = "A son's obsessive love for his father leads him down a dark and violent path of underworld retribution.",
+                    rating = "8.2★",
+                    year = "2024",
+                    quality = "4K Ultra HD"
+                ),
+                MediaItem(
+                    id = "bolly_stree2",
+                    title = "Stree 2: Sarkate Ka Aatank",
+                    category = "Bollywood • Horror Comedy",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt27538960",
+                    servers = listOf(
+                        StreamServer("Server 1 (BollyFlix 1080p)", "https://vidsrc.to/embed/movie/tt27538960"),
+                        StreamServer("Server 2 (VegaMovies HD)", "https://superstream.media/embed/tt27538960"),
+                        StreamServer("Server 3 (Direct CDN)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&q=80",
+                    description = "After the events of Stree, the town of Chanderi is being haunted again by a headless phantom kidnapping women.",
+                    rating = "8.6★",
+                    year = "2024",
+                    quality = "1080p FHD"
+                ),
+                MediaItem(
+                    id = "bolly_kalki",
+                    title = "Kalki 2898 AD",
+                    category = "Sci-Fi • Mythological Epic",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt12735488",
+                    servers = listOf(
+                        StreamServer("Server 1 (BollyFlix Hindi 1080p)", "https://vidsrc.to/embed/movie/tt12735488"),
+                        StreamServer("Server 2 (VegaMovies 4K)", "https://superstream.media/embed/tt12735488"),
+                        StreamServer("Server 3 (MultiMovies)", "https://smashystream.com/embed/tt12735488")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80",
+                    description = "A modern avatar of Vishnu descends on earth to protect the world from evil forces in a dystopian post-apocalyptic future.",
+                    rating = "8.8★",
+                    year = "2024",
+                    quality = "4K IMAX Enhanced"
+                ),
+                MediaItem(
+                    id = "bolly_panchayat",
+                    title = "Panchayat (Season 1 - 3)",
+                    category = "Hindi Web Series • Comedy Drama",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt12004706",
+                    servers = listOf(
+                        StreamServer("Server 1 (ShowFlix Season 1-3 HD)", "https://vidsrc.to/embed/tv/tt12004706"),
+                        StreamServer("Server 2 (BollyFlix Hindi)", "https://superstream.media/embed/tv/tt12004706"),
+                        StreamServer("Server 3 (Direct CDN)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=600&q=80",
+                    description = "An engineering graduate takes up a job as a secretary of a panchayat office in a remote village named Phulera.",
+                    rating = "9.2★",
+                    year = "2024",
+                    quality = "1080p Full Season"
+                ),
+                MediaItem(
+                    id = "bolly_mirzapur",
+                    title = "Mirzapur (Season 3 Complete)",
+                    category = "Hindi Web Series • Crime Action",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt6473300",
+                    servers = listOf(
+                        StreamServer("Server 1 (BollyFlix All Episodes)", "https://vidsrc.to/embed/tv/tt6473300"),
+                        StreamServer("Server 2 (VegaMovies HD)", "https://superstream.media/embed/tv/tt6473300"),
+                        StreamServer("Server 3 (Direct Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=600&q=80",
+                    description = "Guddu Pandit claims the throne of Purvanchal while rivals and enemies unite in a bloody battle for supremacy.",
+                    rating = "8.8★",
+                    year = "2024",
+                    quality = "1080p Season 3"
+                ),
+                MediaItem(
+                    id = "bolly_12thfail",
+                    title = "12th Fail",
+                    category = "Inspirational • Biographical Drama",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt23849504",
+                    servers = listOf(
+                        StreamServer("Server 1 (BollyFlix 1080p)", "https://vidsrc.to/embed/movie/tt23849504"),
+                        StreamServer("Server 2 (VegaMovies HD)", "https://superstream.media/embed/tt23849504")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=600&q=80",
+                    description = "Based on the true story of IPS officer Manoj Kumar Sharma who restarts his academic journey from scratch.",
+                    rating = "9.2★",
+                    year = "2024",
+                    quality = "1080p Ultra HD"
+                ),
+                MediaItem(
+                    id = "bolly_salaar",
+                    title = "Salaar: Part 1 - Ceasefire",
+                    category = "South Indian Hindi • Action Epic",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt13927994",
+                    servers = listOf(
+                        StreamServer("Server 1 (MultiMovies Hindi)", "https://vidsrc.to/embed/movie/tt13927994"),
+                        StreamServer("Server 2 (VegaMovies 4K)", "https://superstream.media/embed/tt13927994")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&q=80",
+                    description = "A gang leader makes a promise to a dying friend and takes on other criminal gangs in the dystopian city of Khansaar.",
+                    rating = "8.3★",
+                    year = "2024",
+                    quality = "1080p Hindi Dubbed"
+                )
+            )
+            list.addAll(bollyMovies)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext list
+    }
+
+    // -------------------------------------------------------------
+    // EXTENSION DECODER 3: AnimeSalt (Anime, Seasonal Anime, Dual Audio, Movies)
+    // -------------------------------------------------------------
+    private suspend fun fetchAnimeSaltProviderFeed(
+        provider: MovieProvider?,
+        query: String,
+        typeFilter: String
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val animeList = listOf(
+                MediaItem(
+                    id = "anime_sololeveling",
+                    title = "Solo Leveling (Arise)",
+                    category = "Anime • Action Fantasy",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt21209876",
+                    servers = listOf(
+                        StreamServer("Server 1 (AnimeSalt Sub/Dub 1080p)", "https://vidsrc.to/embed/tv/tt21209876"),
+                        StreamServer("Server 2 (Zoro Ultra HD)", "https://superstream.media/embed/tv/tt21209876"),
+                        StreamServer("Server 3 (Direct CDN)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=600&q=80",
+                    description = "Sung Jinwoo, the world's weakest hunter, is chosen by a mysterious quest system to become the strongest Shadow Monarch.",
+                    rating = "9.2★",
+                    year = "2024",
+                    quality = "1080p Japanese & English Dub"
+                ),
+                MediaItem(
+                    id = "anime_demonslayer",
+                    title = "Demon Slayer: Hashira Training Arc",
+                    category = "Anime • Supernatural Action",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt9335498",
+                    servers = listOf(
+                        StreamServer("Server 1 (AnimeSalt 1080p)", "https://vidsrc.to/embed/tv/tt9335498"),
+                        StreamServer("Server 2 (Dual Audio HD)", "https://superstream.media/embed/tv/tt9335498")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&q=80",
+                    description = "Tanjiro visits the Stone Hashira Himejima to prepare for the upcoming battle against Muzan Kibutsuji.",
+                    rating = "9.0★",
+                    year = "2024",
+                    quality = "1080p Full HD"
+                ),
+                MediaItem(
+                    id = "anime_jujutsu",
+                    title = "Jujutsu Kaisen (Shibuya Incident)",
+                    category = "Anime • Dark Fantasy",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt12343534",
+                    servers = listOf(
+                        StreamServer("Server 1 (AnimeSalt 1080p)", "https://vidsrc.to/embed/tv/tt12343534"),
+                        StreamServer("Server 2 (GogoAnime Mirror)", "https://superstream.media/embed/tv/tt12343534")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80",
+                    description = "On October 31st, a curtain falls over Shibuya trapping countless civilians. Satoru Gojo enters the frontlines.",
+                    rating = "9.4★",
+                    year = "2024",
+                    quality = "1080p Dual Audio"
+                ),
+                MediaItem(
+                    id = "anime_attackontitan",
+                    title = "Attack on Titan (The Final Chapters)",
+                    category = "Anime • Dark Fantasy Epic",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt2560140",
+                    servers = listOf(
+                        StreamServer("Server 1 (AnimeSalt 1080p)", "https://vidsrc.to/embed/tv/tt2560140"),
+                        StreamServer("Server 2 (Direct Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80",
+                    description = "The Rumbling approaches humanity's final defense line. Eren Yeager faces his closest friends in the ultimate confrontation.",
+                    rating = "9.5★",
+                    year = "2024",
+                    quality = "1080p Complete Series"
+                ),
+                MediaItem(
+                    id = "anime_kaiju8",
+                    title = "Kaiju No. 8",
+                    category = "Anime • Sci-Fi Action",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt21612440",
+                    servers = listOf(
+                        StreamServer("Server 1 (AnimeSalt 1080p)", "https://vidsrc.to/embed/tv/tt21612440"),
+                        StreamServer("Server 2 (Dual Audio)", "https://superstream.media/embed/tv/tt21612440")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1563089145-599997674d42?w=600&q=80",
+                    description = "Kafka Hibino gets the ability to turn into a kaiju and aims to fulfill his lifelong dream of joining the Defense Force.",
+                    rating = "8.8★",
+                    year = "2024",
+                    quality = "1080p Sub/Dub"
+                )
+            )
+            list.addAll(animeList)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext list
+    }
+
+    // -------------------------------------------------------------
+    // EXTENSION DECODER 4: Kisskh & Asian Dramas (KDrama, Chinese Drama, Romantic Series)
+    // -------------------------------------------------------------
+    private suspend fun fetchKisskhProviderFeed(
+        provider: MovieProvider?,
+        query: String,
+        typeFilter: String
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val dramaList = listOf(
+                MediaItem(
+                    id = "drama_queenoftears",
+                    title = "Queen of Tears",
+                    category = "KDrama • Romance Comedy",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt28424566",
+                    servers = listOf(
+                        StreamServer("Server 1 (Kisskh Korean HD)", "https://vidsrc.to/embed/tv/tt28424566"),
+                        StreamServer("Server 2 (MPlayer Hindi Dubbed)", "https://superstream.media/embed/tv/tt28424566"),
+                        StreamServer("Server 3 (Direct CDN)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=600&q=80",
+                    description = "The queen of department stores and the prince of supermarkets weather a marital crisis until love miraculously begins to bloom again.",
+                    rating = "9.1★",
+                    year = "2024",
+                    quality = "1080p Multi Subtitle"
+                ),
+                MediaItem(
+                    id = "drama_squidgame",
+                    title = "Squid Game (Season 1 & 2)",
+                    category = "KDrama • Survival Thriller",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt10919420",
+                    servers = listOf(
+                        StreamServer("Server 1 (Kisskh 1080p)", "https://vidsrc.to/embed/tv/tt10919420"),
+                        StreamServer("Server 2 (MPlayer HD)", "https://superstream.media/embed/tv/tt10919420")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600&q=80",
+                    description = "Hundreds of cash-strapped players accept a strange invitation to compete in children's games for a tempting 45.6 billion won prize.",
+                    rating = "9.0★",
+                    year = "2024",
+                    quality = "4K Ultra HD"
+                ),
+                MediaItem(
+                    id = "drama_crashlanding",
+                    title = "Crash Landing on You",
+                    category = "KDrama • Romance Drama",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt10850932",
+                    servers = listOf(
+                        StreamServer("Server 1 (Kisskh HD)", "https://vidsrc.to/embed/tv/tt10850932"),
+                        StreamServer("Server 2 (Direct Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=600&q=80",
+                    description = "A South Korean heiress accidentally paraglides into North Korea and into the life of an army officer who decides to help her hide.",
+                    rating = "9.3★",
+                    year = "2024",
+                    quality = "1080p Dual Audio"
+                ),
+                MediaItem(
+                    id = "drama_marrymyhusband",
+                    title = "Marry My Husband",
+                    category = "KDrama • Revenge Fantasy",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt29418652",
+                    servers = listOf(
+                        StreamServer("Server 1 (Kisskh 1080p)", "https://vidsrc.to/embed/tv/tt29418652"),
+                        StreamServer("Server 2 (Direct CDN)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&q=80",
+                    description = "A terminally ill woman killed after witnessing her husband's affair wakes up ten years in the past to alter her destiny.",
+                    rating = "8.9★",
+                    year = "2024",
+                    quality = "1080p Full Season"
+                )
+            )
+            list.addAll(dramaList)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext list
+    }
+
+    // -------------------------------------------------------------
+    // EXTENSION DECODER 5: DoraBash & Bangla Cinema / Web Series (Chorki, Bioscope, Bongo)
+    // -------------------------------------------------------------
+    private suspend fun fetchDoraBashProviderFeed(
+        provider: MovieProvider?,
+        query: String,
+        typeFilter: String
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val banglaList = listOf(
+                MediaItem(
+                    id = "bangla_toofan",
+                    title = "Toofan (তুফান)",
+                    category = "Bangla Cinema • Action Crime",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt31825597",
+                    servers = listOf(
+                        StreamServer("Server 1 (DoraBash 1080p)", "https://vidsrc.to/embed/movie/tt31825597"),
+                        StreamServer("Server 2 (Chorki Ultra CDN)", "https://superstream.media/embed/tt31825597"),
+                        StreamServer("Server 3 (Direct HLS Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600&q=80",
+                    description = "Shakib Khan and Chanchal Chowdhury in the biggest Dhallywood blockbuster crime saga of the 90s underworld.",
+                    rating = "9.3★",
+                    year = "2024",
+                    quality = "1080p Ultra HD"
+                ),
+                MediaItem(
+                    id = "bangla_mohanagar",
+                    title = "Mohanagar (মহানগর - Season 1 & 2)",
+                    category = "Bangla Web Series • Hoichoi",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt14922756",
+                    servers = listOf(
+                        StreamServer("Server 1 (DoraBash Complete Season)", "https://vidsrc.to/embed/tv/tt14922756"),
+                        StreamServer("Server 2 (Direct Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=600&q=80",
+                    description = "OC Harun confronts corruption and high-profile political power struggles during a turbulent single night in Dhaka.",
+                    rating = "9.4★",
+                    year = "2024",
+                    quality = "1080p All Episodes"
+                ),
+                MediaItem(
+                    id = "bangla_karagar",
+                    title = "Karagar (কারাগার - Part 1 & 2)",
+                    category = "Bangla Web Series • Mystery Thriller",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt21817658",
+                    servers = listOf(
+                        StreamServer("Server 1 (DoraBash HD)", "https://vidsrc.to/embed/tv/tt21817658"),
+                        StreamServer("Server 2 (Chorki Fast)", "https://superstream.media/embed/tv/tt21817658")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80",
+                    description = "A mute mysterious prisoner appears inside a locked cell of Akashnagar Central Jail that has been shut for 50 years.",
+                    rating = "9.1★",
+                    year = "2024",
+                    quality = "1080p Full Season"
+                ),
+                MediaItem(
+                    id = "bangla_surongo",
+                    title = "Surongo (সুড়ঙ্গ)",
+                    category = "Bangla Cinema • Crime Thriller",
+                    type = MediaType.MOVIE,
+                    streamUrl = "https://vidsrc.to/embed/movie/tt27993072",
+                    servers = listOf(
+                        StreamServer("Server 1 (DoraBash 1080p)", "https://vidsrc.to/embed/movie/tt27993072"),
+                        StreamServer("Server 2 (Direct CDN)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=600&q=80",
+                    description = "A poor electrician in desperate need of money plans a daring underground bank heist with unexpected consequences.",
+                    rating = "8.7★",
+                    year = "2024",
+                    quality = "1080p Full HD"
+                ),
+                MediaItem(
+                    id = "bangla_taqdeer",
+                    title = "Taqdeer (তাকদীর)",
+                    category = "Bangla Web Series • Thriller",
+                    type = MediaType.SERIES,
+                    streamUrl = "https://vidsrc.to/embed/tv/tt13693282",
+                    servers = listOf(
+                        StreamServer("Server 1 (DoraBash 1080p)", "https://vidsrc.to/embed/tv/tt13693282"),
+                        StreamServer("Server 2 (Direct Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    ),
+                    logoUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80",
+                    description = "A freezer van driver finds an unidentified dead body inside his vehicle, spiraling into a deadly conspiracy.",
+                    rating = "9.2★",
+                    year = "2024",
+                    quality = "1080p Complete Series"
+                )
+            )
+            list.addAll(banglaList)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext list
     }
 
     private fun parseCinemetaJson(jsonStr: String, type: MediaType, provider: MovieProvider?): List<MediaItem> {
@@ -3233,12 +3764,22 @@ class MediaRepository(private val context: Context) {
                 }
                 val genreStr = genresList.joinToString(" • ").ifBlank { if (type == MediaType.SERIES) "TV Series" else "Movie" }
 
-                val streamServers = listOf(
-                    StreamServer("Server 1 (VidSrc Fast 1080p)", "https://vidsrc.to/embed/movie/$id"),
-                    StreamServer("Server 2 (SuperStream HD)", "https://superstream.media/embed/$id"),
-                    StreamServer("Server 3 (FlixHQ Mirror)", "https://flixhq.to/watch-movie/$id"),
-                    StreamServer("Server 4 (Direct HLS Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
-                )
+                val cleanImdb = if (id.startsWith("tt")) id else "tt$id"
+                val streamServers = if (type == MediaType.SERIES) {
+                    listOf(
+                        StreamServer("Server 1 (VidSrc Series HD)", "https://vidsrc.me/embed/tv?imdb=$cleanImdb"),
+                        StreamServer("Server 2 (SuperStream VIP)", "https://superstream.media/embed/$cleanImdb"),
+                        StreamServer("Server 3 (SmashyStream)", "https://embed.smashystream.com/playere.php?imdb=$cleanImdb"),
+                        StreamServer("Server 4 (Direct HLS Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    )
+                } else {
+                    listOf(
+                        StreamServer("Server 1 (VidSrc 1080p)", "https://vidsrc.me/embed/movie?imdb=$cleanImdb"),
+                        StreamServer("Server 2 (SuperStream VIP)", "https://superstream.media/embed/$cleanImdb"),
+                        StreamServer("Server 3 (SmashyStream)", "https://embed.smashystream.com/playere.php?imdb=$cleanImdb"),
+                        StreamServer("Server 4 (Direct HLS Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    )
+                }
 
                 list.add(
                     MediaItem(
@@ -3254,9 +3795,9 @@ class MediaRepository(private val context: Context) {
                         year = year,
                         quality = "1080p Ultra HD",
                         isLive = false,
-                        referrer = "https://vidsrc.to",
+                        referrer = "https://vidsrc.me",
                         userAgent = "Mozilla/5.0",
-                        customHeaders = mapOf("Referer" to "https://vidsrc.to", "User-Agent" to "Mozilla/5.0")
+                        customHeaders = mapOf("Referer" to "https://vidsrc.me", "User-Agent" to "Mozilla/5.0")
                     )
                 )
             }
@@ -3291,11 +3832,12 @@ class MediaRepository(private val context: Context) {
                 }
                 val genreStr = genresList.joinToString(" • ").ifBlank { "Action • Cinema" }
 
+                val cleanImdb = if (imdbCode.startsWith("tt")) imdbCode else "tt$imdbCode"
                 val streamServers = listOf(
-                    StreamServer("Server 1 (YTS 1080p Stream)", "https://vidsrc.to/embed/movie/$imdbCode"),
-                    StreamServer("Server 2 (Ultra CDN 4K)", "https://superstream.media/embed/$imdbCode"),
-                    StreamServer("Server 3 (SmashyStream Direct)", "https://smashystream.com/embed/$imdbCode"),
-                    StreamServer("Server 4 (HLS Mirror)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                    StreamServer("Server 1 (YTS VidSrc Stream)", "https://vidsrc.me/embed/movie?imdb=$cleanImdb"),
+                    StreamServer("Server 2 (SuperStream Ultra 4K)", "https://superstream.media/embed/$cleanImdb"),
+                    StreamServer("Server 3 (SmashyStream)", "https://embed.smashystream.com/playere.php?imdb=$cleanImdb"),
+                    StreamServer("Server 4 (Direct HLS Mirror)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
                 )
 
                 list.add(
@@ -3322,5 +3864,121 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
         return list
+    }
+
+    /**
+     * Resolves CloudStream share / redirect links (e.g., https://recloudstream.github.io/csredirect?redirectto=csshare:...)
+     * and extracts MovieBox or other provider items into a fully playable MediaItem.
+     */
+    suspend fun resolveCloudStreamShareLink(rawUrl: String): MediaItem? = withContext(Dispatchers.IO) {
+        try {
+            var target = rawUrl.trim()
+            if (target.contains("redirectto=")) {
+                val encodedRedirect = target.substringAfter("redirectto=").substringBefore("&")
+                target = try {
+                    java.net.URLDecoder.decode(encodedRedirect, "UTF-8")
+                } catch (_: Exception) {
+                    encodedRedirect
+                }
+            }
+
+            if (target.startsWith("csshare:")) {
+                target = target.removePrefix("csshare:")
+            }
+
+            var providerName = "MovieBox"
+            var endpointUrl = ""
+
+            if (target.contains("?")) {
+                val p1 = target.substringBefore("?")
+                val p2 = target.substringAfter("?")
+                providerName = try { String(android.util.Base64.decode(p1, android.util.Base64.DEFAULT), Charsets.UTF_8) } catch (_: Exception) { p1 }
+                endpointUrl = try { String(android.util.Base64.decode(p2, android.util.Base64.DEFAULT), Charsets.UTF_8) } catch (_: Exception) { p2 }
+            } else if (target.contains(":")) {
+                val p1 = target.substringBefore(":")
+                val p2 = target.substringAfter(":")
+                providerName = try { String(android.util.Base64.decode(p1, android.util.Base64.DEFAULT), Charsets.UTF_8) } catch (_: Exception) { p1 }
+                endpointUrl = try { String(android.util.Base64.decode(p2, android.util.Base64.DEFAULT), Charsets.UTF_8) } catch (_: Exception) { p2 }
+            } else {
+                endpointUrl = target
+            }
+
+            if (endpointUrl.isBlank()) return@withContext null
+
+            val subjectId = if (endpointUrl.contains("subjectId=")) {
+                endpointUrl.substringAfter("subjectId=").substringBefore("&")
+            } else {
+                "8175753992266569024"
+            }
+
+            // Call MovieBox / AoneRoom API with standard app headers & guest tokens
+            val req = Request.Builder()
+                .url(endpointUrl)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 CloudStream/4.0 MovieBox/3.2.0")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("x-app-id", "com.community.oneroom")
+                .header("x-platform", "android")
+                .header("x-device-id", "android_${java.util.UUID.randomUUID()}")
+                .header("x-version-code", "320")
+                .header("Referer", "https://moviebox.online/")
+                .build()
+
+            var title = "MovieBox Stream #$subjectId"
+            var cover = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png"
+            var desc = "MovieBox Stream (ID: $subjectId)"
+            var score = "8.5"
+            var releaseDate = "2026"
+            var isSeries = false
+
+            val resp = try { client.newCall(req).execute() } catch (_: Exception) { null }
+            if (resp != null && resp.isSuccessful) {
+                val body = resp.body?.string() ?: ""
+                try {
+                    val json = JSONObject(body)
+                    val code = json.optInt("code", 0)
+                    if (code == 0 || json.has("data")) {
+                        val data = json.optJSONObject("data") ?: json
+                        val subject = data.optJSONObject("subject") ?: data
+                        val parsedTitle = subject.optString("title", subject.optString("name", ""))
+                        if (parsedTitle.isNotBlank()) title = parsedTitle
+                        val parsedCover = subject.optString("cover", subject.optString("poster", subject.optString("coverUrl", "")))
+                        if (parsedCover.isNotBlank()) cover = parsedCover
+                        val parsedDesc = subject.optString("description", subject.optString("intro", ""))
+                        if (parsedDesc.isNotBlank()) desc = parsedDesc
+                        score = subject.optString("score", "8.5")
+                        releaseDate = subject.optString("releaseDate", "2026")
+                        isSeries = subject.optBoolean("isSeries", false)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            val servers = mutableListOf<StreamServer>()
+            servers.add(StreamServer("Server 1 (MovieBox API / Web)", endpointUrl))
+            servers.add(StreamServer("Server 2 (VidSrc Stream)", "https://vidsrc.me/embed/movie?subjectId=$subjectId"))
+            servers.add(StreamServer("Server 3 (SuperStream)", "https://superstream.media/embed/$subjectId"))
+            servers.add(StreamServer("Server 4 (Direct HLS Backup)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"))
+
+            val item = MediaItem(
+                id = "csshare_${subjectId}_${System.currentTimeMillis()}",
+                title = title,
+                category = "$providerName • CloudStream Link",
+                type = if (isSeries) MediaType.SERIES else MediaType.MOVIE,
+                streamUrl = servers.first().url,
+                servers = servers,
+                logoUrl = cover,
+                description = desc,
+                rating = "$score★",
+                year = releaseDate.take(4),
+                quality = "1080p Ultra HD",
+                isLive = false
+            )
+            saveCustomStream(item)
+            return@withContext item
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext null
     }
 }

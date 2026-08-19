@@ -90,6 +90,15 @@ fun VideoPlayerScreen(
         mutableStateOf(servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl)
     }
 
+    val isWebEmbedUrl = remember(currentUrl) {
+        val clean = currentUrl.lowercase().trim()
+        clean.contains("embed") || clean.contains("vidsrc") || clean.contains("superstream") ||
+        clean.contains("smashystream") || clean.contains("flixhq") || clean.contains("2embed") ||
+        clean.contains("autoembed") || (clean.startsWith("http") && !clean.contains(".m3u8") && !clean.contains(".mpd") && !clean.contains(".mp4") && !clean.contains(".mkv") && !clean.contains(".ts"))
+    }
+    var forceWebEngine by remember(currentMedia.id, currentUrl) { mutableStateOf(false) }
+    val useWebPlayer = isWebEmbedUrl || forceWebEngine
+
     var isFullscreen by rememberSaveable { mutableStateOf(isScreenLandscape || isTvMode) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isPlaying by remember { mutableStateOf(true) }
@@ -480,8 +489,11 @@ fun VideoPlayerScreen(
 
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
-                        // Auto-switch to next server if available
-                        if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
+                        // If error on stream, try Web Stream Engine or switch to next server
+                        if (!useWebPlayer && (currentUrl.contains("http") || servers.size > 1)) {
+                            forceWebEngine = true
+                            errorMessage = null
+                        } else if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
                             selectedServerIndex++
                             currentUrl = servers[selectedServerIndex].url
                             errorMessage = "সার্ভার পরিবর্তন হচ্ছে: ${servers[selectedServerIndex].name}..."
@@ -673,28 +685,41 @@ fun VideoPlayerScreen(
                 .background(Color.Black)
                 .clickable { showControls = !showControls }
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        this.resizeMode = resizeMode
-                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        setKeepContentOnPlayerReset(true)
-                        keepScreenOn = true
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { playerView ->
-                    playerView.player = exoPlayer
-                    playerView.resizeMode = resizeMode
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            if (useWebPlayer) {
+                WebStreamPlayer(
+                    embedUrl = currentUrl,
+                    title = currentMedia.title,
+                    modifier = Modifier.fillMaxSize(),
+                    onDirectStreamDetected = { directStream ->
+                        currentUrl = directStream
+                        forceWebEngine = false
+                    },
+                    onClose = { toggleFullscreen() }
+                )
+            } else {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            this.resizeMode = resizeMode
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            setKeepContentOnPlayerReset(true)
+                            keepScreenOn = true
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        }
+                    },
+                    update = { playerView ->
+                        playerView.player = exoPlayer
+                        playerView.resizeMode = resizeMode
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             // Buffering Indicator with NAFI TV Logo & Bengali Loading text
             if (isActuallyBuffering) {
@@ -962,28 +987,41 @@ fun VideoPlayerScreen(
                     .background(Color.Black)
                     .clickable { showControls = !showControls }
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            player = exoPlayer
-                            useController = false
-                            this.resizeMode = resizeMode
-                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                            setKeepContentOnPlayerReset(true)
-                            keepScreenOn = true
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                        }
-                    },
-                    update = { playerView ->
-                        playerView.player = exoPlayer
-                        playerView.resizeMode = resizeMode
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (useWebPlayer) {
+                    WebStreamPlayer(
+                        embedUrl = currentUrl,
+                        title = currentMedia.title,
+                        modifier = Modifier.fillMaxSize(),
+                        onDirectStreamDetected = { directStream ->
+                            currentUrl = directStream
+                            forceWebEngine = false
+                        },
+                        onClose = onBack
+                    )
+                } else {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                player = exoPlayer
+                                useController = false
+                                this.resizeMode = resizeMode
+                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                                setKeepContentOnPlayerReset(true)
+                                keepScreenOn = true
+                                layoutParams = FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            }
+                        },
+                        update = { playerView ->
+                            playerView.player = exoPlayer
+                            playerView.resizeMode = resizeMode
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 // Top bar overlay inside video player: Close (X) circle button + Server tag + HD Badge
                 Row(

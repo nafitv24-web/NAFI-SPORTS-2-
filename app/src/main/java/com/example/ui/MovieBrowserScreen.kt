@@ -116,6 +116,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.data.MediaRepository
 import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
@@ -146,6 +147,7 @@ data class ExtMovie(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovieBrowserScreen(
+    repository: MediaRepository,
     provider: MovieProvider,
     onClose: () -> Unit,
     onPlayDirectMedia: (MediaItem) -> Unit
@@ -182,18 +184,37 @@ fun MovieBrowserScreen(
     var selectedDetailMovie by remember { mutableStateOf<ExtMovie?>(null) }
     var isHeroInMyList by remember { mutableStateOf(false) }
 
-    // Loading simulation for fetching movies from the provider / repo
+    // Live remote catalog data
+    var liveMediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var isCatalogLoading by remember { mutableStateOf(true) }
+    var catalogError by remember { mutableStateOf<String?>(null) }
 
-    // Load Provider Movie Catalog dynamically
-    val providerMovies = remember(provider.name, selectedHost) {
-        generateProviderCatalog(provider, selectedHost)
+    fun refreshCatalog() {
+        coroutineScope.launch {
+            isCatalogLoading = true
+            catalogError = null
+            try {
+                val items = repository.fetchLiveProviderCatalog(
+                    provider = provider,
+                    query = searchQuery,
+                    typeFilter = selectedCategoryFilter
+                )
+                liveMediaItems = items
+            } catch (e: Exception) {
+                e.printStackTrace()
+                catalogError = e.localizedMessage
+            } finally {
+                isCatalogLoading = false
+            }
+        }
     }
 
-    LaunchedEffect(provider.name, selectedHost) {
-        isCatalogLoading = true
-        delay(400)
-        isCatalogLoading = false
+    LaunchedEffect(provider.id, selectedHost, searchQuery, selectedCategoryFilter) {
+        refreshCatalog()
+    }
+
+    val providerMovies = remember(liveMediaItems) {
+        liveMediaItems.map { mediaItemToExtMovie(it) }
     }
 
     // WEBVIEW STATE
@@ -468,8 +489,68 @@ fun MovieBrowserScreen(
                             )
                         }
                     }
+                } else if (providerMovies.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF020617))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF1E293B),
+                                modifier = Modifier.size(72.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Movie,
+                                        contentDescription = null,
+                                        tint = Color(0xFF8B5CF6),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "${provider.name} থেকে কোনো কন্টেন্ট লোড হয়নি",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "হোস্টিং সার্ভার থেকে সরাসরি ব্রাউজ করতে 'ওয়েব ভিউ' খুলুন অথবা রিফ্রেশ করুন।",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = { refreshCatalog() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("রিফ্রেশ (Retry)")
+                                }
+                                Button(
+                                    onClick = { isWebViewMode = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Web, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("ওয়েব ভিউ খুলুন")
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    val heroMovie = providerMovies.firstOrNull() ?: defaultHeroMovie
+                    val heroMovie = providerMovies.first()
                     val filteredList = providerMovies.filter { item ->
                         val matchesQuery = searchQuery.isBlank() ||
                                 item.title.contains(searchQuery, ignoreCase = true) ||
@@ -1513,9 +1594,7 @@ fun movieToMediaItem(movie: ExtMovie, provider: MovieProvider): MediaItem {
         movie.streamServers
     } else {
         listOf(
-            StreamServer("⚡ আল্ট্রা এইচডি সার্ভার ১", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
-            StreamServer("🚀 ফাস্ট 1080p সার্ভার ২", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"),
-            StreamServer("🌐 ক্লাউড HLS সার্ভার ৩", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+            StreamServer("Server 1 (${provider.name})", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
         )
     }
 
@@ -1528,7 +1607,7 @@ fun movieToMediaItem(movie: ExtMovie, provider: MovieProvider): MediaItem {
         backupUrl = servers.getOrNull(1)?.url,
         servers = servers,
         logoUrl = movie.posterUrl,
-        description = "মুভি প্রোভাইডার: ${provider.name} | রেটিং: ${movie.rating} | ${movie.description}",
+        description = if (movie.description.isNotBlank()) movie.description else "প্রোভাইডার: ${provider.name} | রেটিং: ${movie.rating}",
         quality = movie.quality,
         rating = movie.rating,
         year = movie.year,
@@ -1536,272 +1615,42 @@ fun movieToMediaItem(movie: ExtMovie, provider: MovieProvider): MediaItem {
     )
 }
 
-val defaultHeroMovie = ExtMovie(
-    id = "hero_helpless",
-    title = "Helpless Blind Girl",
-    category = "Nollywood Drama",
-    rating = "7.8",
-    year = "2024",
-    quality = "1080p",
-    genres = listOf("Drama", "Romance", "Emotional"),
-    posterUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=60",
-    backdropUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1000&auto=format&fit=crop&q=80",
-    description = "A touching narrative of hope, resilience, and unconditional love against insurmountable odds.",
-    streamServers = listOf(
-        StreamServer("⚡ Nollywood Server 1 (HD)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
-        StreamServer("🚀 Fast CDN Mirror 2", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4")
-    )
-)
-
 // -----------------------------------------------------------------------------
-// DYNAMIC CATALOG GENERATOR (Matching Screenshot 1 & 2 Phisher Extensions)
+// HELPER CONVERTER: MediaItem -> ExtMovie for Provider Screen UI
 // -----------------------------------------------------------------------------
-fun generateProviderCatalog(provider: MovieProvider, host: String): List<ExtMovie> {
-    val name = provider.name.lowercase()
-
-    return when {
-        name.contains("microtv") || name.contains("moviebox") -> {
-            listOf(
-                defaultHeroMovie,
-                ExtMovie(
-                    id = "mb_1",
-                    title = "Awarapan 2",
-                    rating = "6.8",
-                    year = "2025",
-                    quality = "1080p",
-                    category = "Bollywood",
-                    genres = listOf("Action", "Romance", "Hindi"),
-                    posterUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=60",
-                    backdropUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=1000&auto=format&fit=crop&q=80",
-                    description = "The thrilling saga of revenge, redemption, and unspoken love.",
-                    streamServers = listOf(StreamServer("Server 1 (Host: $host)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_2",
-                    title = "The Death of Robin Hood",
-                    rating = "6.1",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Hollywood",
-                    genres = listOf("Adventure", "Action", "Epic"),
-                    posterUrl = "https://images.unsplash.com/photo-1518676590629-3dcbd9c5a5c9?w=500&auto=format&fit=crop&q=60",
-                    description = "An aged Robin Hood reflects upon a lifetime of crime and murder.",
-                    streamServers = listOf(StreamServer("Server 1 (Host: $host)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_3",
-                    title = "The End of Oak Street",
-                    rating = "6.6",
-                    year = "2024",
-                    quality = "HD",
-                    category = "Horror",
-                    genres = listOf("Horror", "Mystery", "Thriller"),
-                    posterUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=500&auto=format&fit=crop&q=60",
-                    description = "A quiet suburban street harbors secrets too dark to imagine.",
-                    streamServers = listOf(StreamServer("Server 1 (Host: $host)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_4",
-                    title = "Batwara 1947",
-                    rating = "4.7",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Bollywood",
-                    genres = listOf("Historical", "Drama", "Hindi"),
-                    posterUrl = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=500&auto=format&fit=crop&q=60",
-                    description = "An epic tale of friendship and tragedy during the 1947 partition.",
-                    streamServers = listOf(StreamServer("Server 1 (Host: $host)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_5",
-                    title = "Ohh My Dog",
-                    rating = "9.1",
-                    year = "2024",
-                    quality = "HD",
-                    category = "Family",
-                    genres = listOf("Family", "Comedy", "Adventure"),
-                    posterUrl = "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=500&auto=format&fit=crop&q=60",
-                    description = "A blind Siberian husky puppy finds friendship and purpose with a kind boy.",
-                    streamServers = listOf(StreamServer("Server 1 (Host: $host)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_6",
-                    title = "Deadpool & Wolverine",
-                    rating = "8.9",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Hollywood",
-                    genres = listOf("Action", "Comedy", "Sci-Fi"),
-                    posterUrl = "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=500&auto=format&fit=crop&q=60",
-                    backdropUrl = "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=1000&auto=format&fit=crop&q=80",
-                    description = "Wade Wilson faces an existential crisis until a reluctant Wolverine joins him.",
-                    streamServers = listOf(StreamServer("Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_7",
-                    title = "Stree 2: Sarkate Ka Aatank",
-                    rating = "8.4",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Bollywood",
-                    genres = listOf("Horror", "Comedy", "Hindi"),
-                    posterUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&auto=format&fit=crop&q=60",
-                    description = "The town of Chanderi is haunted once again, this time by a headless entity.",
-                    streamServers = listOf(StreamServer("Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"))
-                ),
-                ExtMovie(
-                    id = "mb_8",
-                    title = "Panchayat Season 3",
-                    rating = "9.2",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Web Series",
-                    genres = listOf("Comedy", "Drama", "Hindi"),
-                    posterUrl = "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&auto=format&fit=crop&q=60",
-                    isSeries = true,
-                    episodes = listOf("Episode 1: Rangbaazi", "Episode 2: Ghamand", "Episode 3: Ghar Ka Bhedi", "Episode 4: Aatmamanthan", "Episode 5: Shanti", "Episode 6: Jung", "Episode 7: Samjhauta", "Episode 8: Hamla"),
-                    description = "Abhishek Tripathi navigates complex village politics as Phulera heads towards elections.",
-                    streamServers = listOf(StreamServer("Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"))
-                )
-            )
-        }
-        name.contains("showflix") || name.contains("multimovies") || name.contains("vegamovies") || name.contains("bollyflix") -> {
-            listOf(
-                ExtMovie(
-                    id = "sf_1",
-                    title = "Toofan (তুফান)",
-                    rating = "8.8",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Bangla",
-                    genres = listOf("Action", "Crime", "Bangla", "Blockbuster"),
-                    posterUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=60",
-                    backdropUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=1000&auto=format&fit=crop&q=80",
-                    description = "Shakib Khan stars as Galib, a 90s gangster who rises to become the underworld kingpin Toofan.",
-                    streamServers = listOf(StreamServer("ShowFlix Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                ),
-                ExtMovie(
-                    id = "sf_2",
-                    title = "Kalki 2898 AD",
-                    rating = "8.7",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Bollywood",
-                    genres = listOf("Sci-Fi", "Action", "Mythology", "Hindi Dubbed"),
-                    posterUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=500&auto=format&fit=crop&q=60",
-                    description = "In the post-apocalyptic city of Kasi in the year 2898 AD, Ashwatthama awaits the arrival of Kalki.",
-                    streamServers = listOf(StreamServer("MultiMovies Ultra Server", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"))
-                ),
-                ExtMovie(
-                    id = "sf_3",
-                    title = "Maharaja",
-                    rating = "8.9",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Bollywood",
-                    genres = listOf("Thriller", "Action", "Hindi Dubbed"),
-                    posterUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&auto=format&fit=crop&q=60",
-                    description = "A barber sets out for vengeance after his home is burglarized, uncovering a twisted crime ring.",
-                    streamServers = listOf(StreamServer("Fast Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"))
-                ),
-                ExtMovie(
-                    id = "sf_4",
-                    title = "Mirzapur Season 3",
-                    rating = "8.8",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Web Series",
-                    genres = listOf("Crime", "Drama", "Hindi"),
-                    posterUrl = "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&auto=format&fit=crop&q=60",
-                    isSeries = true,
-                    episodes = listOf("Episode 1: Tetua", "Episode 2: Manmaani", "Episode 3: Bhasad", "Episode 4: Gaddi", "Episode 5: Kangan", "Episode 6: Baawandar", "Episode 7: Jung-E-Mirzapur", "Episode 8: Badla"),
-                    description = "With Kaleen Bhaiya missing, Guddu Pandit and Golu fight to claim the throne of Purvanchal.",
-                    streamServers = listOf(StreamServer("Series Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                ),
-                ExtMovie(
-                    id = "sf_5",
-                    title = "Solo Leveling Season 1",
-                    rating = "9.4",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Anime",
-                    genres = listOf("Anime", "Action", "Fantasy", "Dual Audio"),
-                    posterUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&auto=format&fit=crop&q=60",
-                    isSeries = true,
-                    episodes = listOf("Episode 1: I'm Used to It", "Episode 2: If I Had One More Chance", "Episode 3: It's Like a Game", "Episode 4: I've Gotta Get Stronger", "Episode 5: A Pretty Good Deal", "Episode 6: The Real Hunt Begins"),
-                    description = "Sung Jinwoo, the weakest E-rank hunter, awakens with a mysterious player system.",
-                    streamServers = listOf(StreamServer("Anime Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"))
-                ),
-                ExtMovie(
-                    id = "sf_6",
-                    title = "Gladiator II",
-                    rating = "8.6",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Hollywood",
-                    genres = listOf("Action", "Drama", "Historical"),
-                    posterUrl = "https://images.unsplash.com/photo-1518676590629-3dcbd9c5a5c9?w=500&auto=format&fit=crop&q=60",
-                    description = "Years after the martyrdom of Maximus, Lucius must enter the Colosseum to restore Roman glory.",
-                    streamServers = listOf(StreamServer("4K Cinema Server", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                )
-            )
-        }
-        else -> {
-            // General multi-source catalog for all other Phisher extensions
-            listOf(
-                defaultHeroMovie,
-                ExtMovie(
-                    id = "gen_1",
-                    title = "Dune: Part Two",
-                    rating = "9.0",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Hollywood",
-                    genres = listOf("Sci-Fi", "Adventure", "Action"),
-                    posterUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=500&auto=format&fit=crop&q=60",
-                    backdropUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1000&auto=format&fit=crop&q=80",
-                    description = "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators.",
-                    streamServers = listOf(StreamServer("CloudStream Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                ),
-                ExtMovie(
-                    id = "gen_2",
-                    title = "Priyotoma (প্রিয়তমা)",
-                    rating = "8.6",
-                    year = "2023",
-                    quality = "1080p",
-                    category = "Bangla",
-                    genres = listOf("Romance", "Action", "Bangla"),
-                    posterUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=60",
-                    description = "An emotional romantic action blockbuster starring Shakib Khan and Idhika Paul.",
-                    streamServers = listOf(StreamServer("Bangla Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"))
-                ),
-                ExtMovie(
-                    id = "gen_3",
-                    title = "Demon Slayer: Hashira Training Arc",
-                    rating = "9.1",
-                    year = "2024",
-                    quality = "1080p",
-                    category = "Anime",
-                    genres = listOf("Anime", "Action", "Supernatural"),
-                    posterUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&auto=format&fit=crop&q=60",
-                    description = "Tanjiro visits Stone Hashira Himejima for grueling training to prepare for the final battle.",
-                    streamServers = listOf(StreamServer("Anime Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"))
-                ),
-                ExtMovie(
-                    id = "gen_4",
-                    title = "Squid Game Season 2",
-                    rating = "8.9",
-                    year = "2024",
-                    quality = "4K UHD",
-                    category = "Web Series",
-                    genres = listOf("Thriller", "Mystery", "Drama"),
-                    posterUrl = "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&auto=format&fit=crop&q=60",
-                    isSeries = true,
-                    episodes = listOf("Episode 1: Red Light Green Light Return", "Episode 2: The New 456", "Episode 3: The Maze", "Episode 4: Betrayal", "Episode 5: Final Floor"),
-                    description = "Seong Gi-hun returns to the deadly game to uncover the masterminds once and for all.",
-                    streamServers = listOf(StreamServer("Series Server 1", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"))
-                )
-            )
-        }
+fun mediaItemToExtMovie(item: MediaItem): ExtMovie {
+    val servers = if (item.servers.isNotEmpty()) {
+        item.servers
+    } else if (item.streamUrl.isNotBlank()) {
+        listOf(StreamServer("Server 1 (HD Live)", item.streamUrl))
+    } else {
+        listOf(StreamServer("Server 1 (Default)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"))
     }
+
+    val isSeries = item.type == MediaType.SERIES
+    val episodes = if (isSeries) {
+        listOf(
+            "Episode 1", "Episode 2", "Episode 3", "Episode 4",
+            "Episode 5", "Episode 6", "Episode 7", "Episode 8"
+        )
+    } else {
+        emptyList()
+    }
+
+    return ExtMovie(
+        id = item.id,
+        title = item.title,
+        posterUrl = item.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=60",
+        backdropUrl = item.logoUrl,
+        rating = item.rating?.replace("★", "")?.trim() ?: "8.5",
+        year = item.year ?: "2024",
+        quality = item.quality ?: "1080p HD",
+        duration = "2h 15m",
+        category = item.category ?: "Movie",
+        genres = listOf(item.category ?: "Cinema", "HD Stream"),
+        description = item.description ?: "",
+        streamServers = servers,
+        isSeries = isSeries,
+        episodes = episodes
+    )
 }
