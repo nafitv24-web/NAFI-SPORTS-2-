@@ -86,7 +86,10 @@ enum class AdminTab(val label: String) {
 }
 
 @Composable
-fun NafiTvMainApp() {
+fun NafiTvMainApp(
+    deepLinkRepoUrl: String? = null,
+    onClearDeepLink: () -> Unit = {}
+) {
     val context = LocalContext.current
     val activity = context as? Activity
     val repository = remember { MediaRepository(context) }
@@ -101,6 +104,23 @@ fun NafiTvMainApp() {
     var isExtensionsManagementActive by remember { mutableStateOf(false) }
     var cloudStreamRepos by remember { mutableStateOf(repository.getSavedCloudStreamRepos()) }
     var allMovieProviders by remember { mutableStateOf(repository.getAllMovieProviders()) }
+
+    // Deep link repository handler
+    LaunchedEffect(deepLinkRepoUrl) {
+        if (!deepLinkRepoUrl.isNullOrBlank()) {
+            Toast.makeText(context, "রিপোজিটরি প্রসেস করা হচ্ছে...", Toast.LENGTH_SHORT).show()
+            val result = repository.installExtensionFromUrl(deepLinkRepoUrl)
+            if (result.first) {
+                cloudStreamRepos = repository.getSavedCloudStreamRepos()
+                allMovieProviders = repository.getAllMovieProviders()
+                Toast.makeText(context, result.second, Toast.LENGTH_LONG).show()
+                currentTab = AppTab.MOVIES
+            } else {
+                Toast.makeText(context, result.second, Toast.LENGTH_LONG).show()
+            }
+            onClearDeepLink()
+        }
+    }
 
     // App Exit Confirmation State
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
@@ -329,6 +349,13 @@ fun NafiTvMainApp() {
                 cloudStreamRepos = repository.getSavedCloudStreamRepos()
                 allMovieProviders = repository.getAllMovieProviders()
                 refreshAllData()
+            },
+            onOpenMovieBrowser = { provider ->
+                activeMovieBrowserProvider = provider
+                isExtensionsManagementActive = false
+                currentTab = AppTab.MOVIES
+                cloudStreamRepos = repository.getSavedCloudStreamRepos()
+                allMovieProviders = repository.getAllMovieProviders()
             }
         )
     } else if (isAdminViewActive) {
@@ -657,21 +684,18 @@ fun NafiTvMainApp() {
                                 }
                             )
 
-                            AppTab.MOVIES -> MoviesTabScreen(
-                                movies = (moviesList + customList.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES } + m3uList.filter { it.type == MediaType.MOVIE }).distinctBy { it.id },
+                            AppTab.MOVIES -> CloudStreamHomeScreen(
+                                repository = repository,
                                 movieProviders = allMovieProviders,
-                                cloudStreamRepos = cloudStreamRepos,
-                                onOpenMovieProvider = { activeMovieBrowserProvider = it },
-                                onOpenExtensionManager = { isExtensionsManagementActive = true },
-                                favoriteIds = favoriteIds,
-                                isTvMode = isTvMode,
-                                onSelectMedia = {
-                                    selectedMediaItem = it
-                                    activePlaybackPlaylist = (moviesList + customList.filter { mv -> mv.type == MediaType.MOVIE || mv.type == MediaType.SERIES } + m3uList.filter { mv -> mv.type == MediaType.MOVIE }).distinctBy { mv -> mv.id }
+                                activeProvider = activeMovieBrowserProvider,
+                                onSelectProvider = { activeMovieBrowserProvider = it },
+                                onOpenExtensions = { isExtensionsManagementActive = true },
+                                onPlayMovie = { item ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = listOf(item)
                                 },
-                                onToggleFavorite = { id ->
-                                    repository.toggleFavorite(id)
-                                    favoriteIds = repository.getFavoriteIds()
+                                onOpenMovieBrowser = { provider ->
+                                    activeMovieBrowserProvider = provider
                                 }
                             )
 
@@ -962,21 +986,18 @@ fun NafiTvMainApp() {
                             }
                         )
 
-                        AppTab.MOVIES -> MoviesTabScreen(
-                            movies = (moviesList + customList.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES } + m3uList.filter { it.type == MediaType.MOVIE }).distinctBy { it.id },
+                        AppTab.MOVIES -> CloudStreamHomeScreen(
+                            repository = repository,
                             movieProviders = allMovieProviders,
-                            cloudStreamRepos = cloudStreamRepos,
-                            onOpenMovieProvider = { activeMovieBrowserProvider = it },
-                            onOpenExtensionManager = { isExtensionsManagementActive = true },
-                            favoriteIds = favoriteIds,
-                            isTvMode = isTvMode,
-                            onSelectMedia = {
-                                selectedMediaItem = it
-                                activePlaybackPlaylist = (moviesList + customList.filter { mv -> mv.type == MediaType.MOVIE || mv.type == MediaType.SERIES } + m3uList.filter { mv -> mv.type == MediaType.MOVIE }).distinctBy { mv -> mv.id }
+                            activeProvider = activeMovieBrowserProvider,
+                            onSelectProvider = { activeMovieBrowserProvider = it },
+                            onOpenExtensions = { isExtensionsManagementActive = true },
+                            onPlayMovie = { item ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = listOf(item)
                             },
-                            onToggleFavorite = { id ->
-                                repository.toggleFavorite(id)
-                                favoriteIds = repository.getFavoriteIds()
+                            onOpenMovieBrowser = { provider ->
+                                activeMovieBrowserProvider = provider
                             }
                         )
 

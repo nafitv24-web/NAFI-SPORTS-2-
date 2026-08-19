@@ -393,17 +393,11 @@ class MediaRepository(private val context: Context) {
                     if (currentOrigin.isNullOrBlank()) currentOrigin = "https://toffeelive.com"
                 }
 
-                val isSport = currentGroup.contains("sport", ignoreCase = true) ||
-                        currentTitle.contains("sport", ignoreCase = true) ||
-                        currentTitle.contains("cricket", ignoreCase = true) ||
-                        currentTitle.contains("football", ignoreCase = true)
-
                 val isMovie = currentGroup.contains("movie", ignoreCase = true) ||
                         currentGroup.contains("cinema", ignoreCase = true) ||
                         currentGroup.contains("vod", ignoreCase = true)
 
                 val mediaType = when {
-                    isSport -> MediaType.LIVE_EVENT
                     isMovie -> MediaType.MOVIE
                     else -> MediaType.LIVE_TV
                 }
@@ -1180,7 +1174,7 @@ class MediaRepository(private val context: Context) {
                                 id = "xtream_live_${streamId}",
                                 title = name,
                                 category = categoryName,
-                                type = if (isSport) MediaType.LIVE_EVENT else MediaType.LIVE_TV,
+                                type = MediaType.LIVE_TV,
                                 streamUrl = playUrl,
                                 backupUrl = directPlayUrl,
                                 servers = listOf(
@@ -1974,8 +1968,46 @@ class MediaRepository(private val context: Context) {
 
     fun cleanRepoUrl(url: String): String {
         var clean = url.trim()
-        if (clean.startsWith("cloudstreamrepo://")) {
-            clean = "https://" + clean.removePrefix("cloudstreamrepo://")
+        try {
+            // Handle cloudstreamrepo:// or cloudstream:// schemes
+            if (clean.startsWith("cloudstreamrepo://", ignoreCase = true)) {
+                clean = clean.substring("cloudstreamrepo://".length)
+            } else if (clean.startsWith("cloudstream://", ignoreCase = true)) {
+                clean = clean.substring("cloudstream://".length)
+            }
+
+            // Handle cs.repo host (e.g. https://cs.repo/?url=... or https://cs.repo/add?url=...)
+            if (clean.contains("cs.repo", ignoreCase = true)) {
+                val uri = Uri.parse(if (clean.startsWith("http")) clean else "https://$clean")
+                val urlParam = uri.getQueryParameter("url") ?: uri.getQueryParameter("repo")
+                if (!urlParam.isNullOrBlank()) {
+                    clean = urlParam
+                } else {
+                    val path = uri.path?.removePrefix("/") ?: ""
+                    if (path.startsWith("http")) {
+                        clean = path
+                    }
+                }
+            }
+
+            // Handle query string url parameter e.g. ?url=https%3A%2F%2F...
+            if (clean.contains("url=", ignoreCase = true)) {
+                val extracted = clean.substringAfter("url=").substringBefore("&")
+                if (extracted.isNotBlank()) {
+                    clean = extracted
+                }
+            }
+
+            // URL Decode if encoded
+            if (clean.contains("%3A", ignoreCase = true) || clean.contains("%2F", ignoreCase = true)) {
+                clean = java.net.URLDecoder.decode(clean, "UTF-8")
+            }
+
+            if (!clean.startsWith("http://", ignoreCase = true) && !clean.startsWith("https://", ignoreCase = true)) {
+                clean = "https://$clean"
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
         return clean
     }
@@ -1987,7 +2019,7 @@ class MediaRepository(private val context: Context) {
         try {
             val req = Request.Builder()
                 .url(finalUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("User-Agent", "CloudStream/4.0")
                 .build()
 
             val resp = client.newCall(req).execute()
@@ -2003,20 +2035,26 @@ class MediaRepository(private val context: Context) {
 
             val providersList = mutableListOf<MovieProvider>()
 
-            // 1. Direct pluginLists (URLs pointing to plugins.json)
+            // 1. Direct pluginLists (URLs or relative paths pointing to plugins.json)
             val pluginLists = json.optJSONArray("pluginLists")
             if (pluginLists != null && pluginLists.length() > 0) {
                 for (i in 0 until pluginLists.length()) {
                     val pListUrl = pluginLists.optString(i, "")
                     if (pListUrl.isNotBlank()) {
-                        val parsedProviders = fetchPluginsFromJsonUrl(pListUrl, repoId, repoName)
+                        val resolvedPListUrl = if (pListUrl.startsWith("http", ignoreCase = true)) {
+                            pListUrl
+                        } else {
+                            val base = finalUrl.substringBeforeLast("/")
+                            "$base/${pListUrl.removePrefix("/")}"
+                        }
+                        val parsedProviders = fetchPluginsFromJsonUrl(resolvedPListUrl, repoId, repoName)
                         providersList.addAll(parsedProviders)
                     }
                 }
             }
 
             // 2. Direct plugins array in repo.json
-            val directPlugins = json.optJSONArray("plugins")
+            val directPlugins = json.optJSONArray("plugins") ?: json.optJSONArray("providers")
             if (directPlugins != null && directPlugins.length() > 0) {
                 val parsed = parsePluginsJsonArray(directPlugins, repoId, repoName)
                 providersList.addAll(parsed)
@@ -2041,7 +2079,7 @@ class MediaRepository(private val context: Context) {
                     val known = KNOWN_PROVIDER_DOMAINS.entries.firstOrNull { cleanKey.contains(it.key) }?.value
                     site = known ?: "https://${cleanKey}.com"
                 }
-                provider.copy(siteUrl = site)
+                provider.copy(siteUrl = site, isInstalled = true, isEnabled = true)
             }
 
             CloudStreamRepo(
@@ -2869,79 +2907,7 @@ class MediaRepository(private val context: Context) {
     }
 
     suspend fun parseCloudStreamRepoFromUrl(rawUrl: String): CloudStreamRepo = withContext(Dispatchers.IO) {
-        val httpUrl = when {
-            rawUrl.startsWith("cloudstreamrepo://") -> "https://" + rawUrl.removePrefix("cloudstreamrepo://")
-            rawUrl.startsWith("cloudstream://") -> "https://" + rawUrl.removePrefix("cloudstream://")
-            !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://") -> "https://$rawUrl"
-            else -> rawUrl
-        }
-        val request = okhttp3.Request.Builder()
-            .url(httpUrl)
-            .header("User-Agent", "CloudStream/4.0")
-            .build()
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw java.io.IOException("HTTP ${response.code}: ${response.message}")
-        }
-        val body = response.body?.string() ?: throw java.io.IOException("Empty response from repository URL")
-        val trimmed = body.trim()
-        val repoId = "repo_${System.currentTimeMillis()}"
-        if (trimmed.startsWith("{")) {
-            val obj = JSONObject(trimmed)
-            val repoName = obj.optString("name", "CloudStream Repo")
-            val plugins = mutableListOf<MovieProvider>()
-            val pArr = obj.optJSONArray("pluginLists") ?: obj.optJSONArray("plugins") ?: obj.optJSONArray("providers")
-            if (pArr != null) {
-                for (i in 0 until pArr.length()) {
-                    val pItem = pArr.opt(i)
-                    if (pItem is JSONObject) {
-                        plugins.add(
-                            MovieProvider(
-                                id = "p_${repoId}_$i",
-                                name = pItem.optString("name", "Plugin $i"),
-                                description = pItem.optString("description", "CloudStream Extension"),
-                                siteUrl = pItem.optString("url", pItem.optString("siteUrl", "https://google.com")),
-                                iconUrl = pItem.optString("iconUrl", pItem.optString("icon", null)),
-                                version = pItem.optString("version", "v1.0"),
-                                types = listOf("Movie", "Series"),
-                                language = pItem.optString("language", "Multi"),
-                                repoId = repoId,
-                                repoName = repoName,
-                                isInstalled = true,
-                                isEnabled = true
-                            )
-                        )
-                    }
-                }
-            }
-            if (plugins.isEmpty()) {
-                plugins.addAll(getInitialPhisherProviders(repoId, repoName))
-            }
-            CloudStreamRepo(
-                id = repoId,
-                name = repoName,
-                repoUrl = rawUrl,
-                description = obj.optString("description", "Remote CloudStream Repository"),
-                iconUrl = obj.optString("iconUrl", obj.optString("icon", null)),
-                providers = plugins,
-                isEnabled = true,
-                lastUpdated = System.currentTimeMillis()
-            )
-        } else if (trimmed.startsWith("[")) {
-            val arr = JSONArray(trimmed)
-            val plugins = parsePluginsJsonArray(arr, repoId, "Remote Plugins")
-            CloudStreamRepo(
-                id = repoId,
-                name = "CloudStream Repo",
-                repoUrl = rawUrl,
-                description = "Remote CloudStream Repository",
-                providers = plugins.ifEmpty { getInitialPhisherProviders(repoId, "CloudStream Repo") },
-                isEnabled = true,
-                lastUpdated = System.currentTimeMillis()
-            )
-        } else {
-            throw java.io.IOException("Invalid JSON format from URL")
-        }
+        parseCloudStreamRepo(rawUrl)
     }
 
     suspend fun installExtensionFromUrl(url: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
@@ -3143,5 +3109,218 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
             emptyList()
         }
+    }
+
+    // -------------------------------------------------------------
+    // LIVE STREAMING PROVIDER & EXTENSION CATALOG FETCHER
+    // -------------------------------------------------------------
+    suspend fun fetchLiveProviderCatalog(
+        provider: MovieProvider? = null,
+        query: String = "",
+        typeFilter: String = "All"
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<MediaItem>()
+
+        try {
+            val encodedQuery = if (query.isNotBlank()) java.net.URLEncoder.encode(query.trim(), "UTF-8") else ""
+
+            // 1. Fetch from Stremio / Cinemeta Open Catalog
+            val cinemetaMoviesDeferred = async {
+                try {
+                    val url = if (encodedQuery.isNotBlank()) {
+                        "https://v3-cinemeta.strem.io/catalog/movie/top/search=$encodedQuery.json"
+                    } else {
+                        "https://v3-cinemeta.strem.io/catalog/movie/top.json"
+                    }
+                    val req = Request.Builder().url(url).header("User-Agent", "CloudStream/4.0").build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        parseCinemetaJson(body, MediaType.MOVIE, provider)
+                    } else emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+
+            val cinemetaSeriesDeferred = async {
+                try {
+                    val url = if (encodedQuery.isNotBlank()) {
+                        "https://v3-cinemeta.strem.io/catalog/series/top/search=$encodedQuery.json"
+                    } else {
+                        "https://v3-cinemeta.strem.io/catalog/series/top.json"
+                    }
+                    val req = Request.Builder().url(url).header("User-Agent", "CloudStream/4.0").build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        parseCinemetaJson(body, MediaType.SERIES, provider)
+                    } else emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+
+            // 2. Fetch from YTS API
+            val ytsDeferred = async {
+                try {
+                    val url = if (encodedQuery.isNotBlank()) {
+                        "https://yts.mx/api/v2/list_movies.json?query_term=$encodedQuery&limit=30"
+                    } else {
+                        "https://yts.mx/api/v2/list_movies.json?sort_by=download_count&limit=30"
+                    }
+                    val req = Request.Builder().url(url).header("User-Agent", "CloudStream/4.0").build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        parseYtsJson(body, provider)
+                    } else emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+
+            // 3. Fetch from Custom / Firebase Movies
+            val customMovies = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+
+            val cMovies = cinemetaMoviesDeferred.await()
+            val cSeries = cinemetaSeriesDeferred.await()
+            val yMovies = ytsDeferred.await()
+
+            results.addAll(cMovies)
+            results.addAll(cSeries)
+            results.addAll(yMovies)
+            results.addAll(customMovies)
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Filter and deduplicate
+        val filtered = results.distinctBy { it.title.trim().lowercase() }.filter { item ->
+            val matchesQuery = query.isBlank() || item.title.contains(query, ignoreCase = true) || (item.category ?: "").contains(query, ignoreCase = true)
+            val matchesType = when (typeFilter) {
+                "Movies" -> item.type == MediaType.MOVIE
+                "TV Series" -> item.type == MediaType.SERIES
+                "Anime" -> (item.category ?: "").contains("Anime", ignoreCase = true) || item.title.contains("Anime", ignoreCase = true)
+                "Asian Dramas" -> (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true)
+                else -> true
+            }
+            matchesQuery && matchesType
+        }
+
+        return@withContext filtered
+    }
+
+    private fun parseCinemetaJson(jsonStr: String, type: MediaType, provider: MovieProvider?): List<MediaItem> {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val obj = JSONObject(jsonStr)
+            val metas = obj.optJSONArray("metas") ?: return list
+            for (i in 0 until metas.length()) {
+                val item = metas.optJSONObject(i) ?: continue
+                val id = item.optString("id", "cm_$i")
+                val name = item.optString("name", "").ifBlank { continue }
+                val poster = item.optString("poster", "")
+                val background = item.optString("background", poster)
+                val description = item.optString("description", "HD Cinema stream with multiple high-speed servers.")
+                val year = item.optString("year", item.optString("releaseInfo", "2026"))
+                val rating = item.optString("imdbRating", "8.2")
+                val genresArr = item.optJSONArray("genres")
+                val genresList = mutableListOf<String>()
+                if (genresArr != null) {
+                    for (g in 0 until genresArr.length()) genresList.add(genresArr.optString(g))
+                }
+                val genreStr = genresList.joinToString(" • ").ifBlank { if (type == MediaType.SERIES) "TV Series" else "Movie" }
+
+                val streamServers = listOf(
+                    StreamServer("Server 1 (VidSrc Fast 1080p)", "https://vidsrc.to/embed/movie/$id"),
+                    StreamServer("Server 2 (SuperStream HD)", "https://superstream.media/embed/$id"),
+                    StreamServer("Server 3 (FlixHQ Mirror)", "https://flixhq.to/watch-movie/$id"),
+                    StreamServer("Server 4 (Direct HLS Stream)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                )
+
+                list.add(
+                    MediaItem(
+                        id = "meta_${id}_${type.name}",
+                        title = name,
+                        category = genreStr,
+                        type = type,
+                        streamUrl = streamServers.first().url,
+                        servers = streamServers,
+                        logoUrl = poster.ifBlank { background },
+                        description = description,
+                        rating = if (rating.isNotBlank()) "$rating★" else "8.0★",
+                        year = year,
+                        quality = "1080p Ultra HD",
+                        isLive = false,
+                        referrer = "https://vidsrc.to",
+                        userAgent = "Mozilla/5.0",
+                        customHeaders = mapOf("Referer" to "https://vidsrc.to", "User-Agent" to "Mozilla/5.0")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    private fun parseYtsJson(jsonStr: String, provider: MovieProvider?): List<MediaItem> {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val obj = JSONObject(jsonStr)
+            val data = obj.optJSONObject("data") ?: return list
+            val movies = data.optJSONArray("movies") ?: return list
+            for (i in 0 until movies.length()) {
+                val item = movies.optJSONObject(i) ?: continue
+                val id = item.optString("id", "yts_$i")
+                val imdbCode = item.optString("imdb_code", id)
+                val title = item.optString("title", "").ifBlank { continue }
+                val year = item.optString("year", "2026")
+                val rating = item.optDouble("rating", 7.8).toString()
+                val summary = item.optString("summary", item.optString("synopsis", "Official YTS HD Release.")).ifBlank { "Full HD movie release." }
+                val mediumCover = item.optString("medium_cover_image", "")
+                val largeCover = item.optString("large_cover_image", mediumCover)
+                val bgImage = item.optString("background_image_original", largeCover)
+
+                val genresArr = item.optJSONArray("genres")
+                val genresList = mutableListOf<String>()
+                if (genresArr != null) {
+                    for (g in 0 until genresArr.length()) genresList.add(genresArr.optString(g))
+                }
+                val genreStr = genresList.joinToString(" • ").ifBlank { "Action • Cinema" }
+
+                val streamServers = listOf(
+                    StreamServer("Server 1 (YTS 1080p Stream)", "https://vidsrc.to/embed/movie/$imdbCode"),
+                    StreamServer("Server 2 (Ultra CDN 4K)", "https://superstream.media/embed/$imdbCode"),
+                    StreamServer("Server 3 (SmashyStream Direct)", "https://smashystream.com/embed/$imdbCode"),
+                    StreamServer("Server 4 (HLS Mirror)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+                )
+
+                list.add(
+                    MediaItem(
+                        id = "yts_$imdbCode",
+                        title = title,
+                        category = genreStr,
+                        type = MediaType.MOVIE,
+                        streamUrl = streamServers.first().url,
+                        servers = streamServers,
+                        logoUrl = largeCover.ifBlank { bgImage },
+                        description = summary,
+                        rating = "$rating★",
+                        year = year,
+                        quality = "1080p / 4K",
+                        isLive = false,
+                        referrer = "https://yts.mx",
+                        userAgent = "Mozilla/5.0",
+                        customHeaders = mapOf("Referer" to "https://yts.mx", "User-Agent" to "Mozilla/5.0")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
     }
 }

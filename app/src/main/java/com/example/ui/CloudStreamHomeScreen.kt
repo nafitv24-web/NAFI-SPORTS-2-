@@ -35,24 +35,7 @@ import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
 import com.example.model.StreamServer
-
-data class MovieCatalogItem(
-    val id: String,
-    val title: String,
-    val rating: String = "8.5",
-    val year: String = "2026",
-    val category: String = "Movie",
-    val posterUrl: String,
-    val backdropUrl: String,
-    val description: String = "An exciting blockbuster streaming experience with full multi-server playback.",
-    val streamUrl: String = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-    val servers: List<StreamServer> = listOf(
-        StreamServer("Server 1 (Ultra HD Fast)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
-        StreamServer("Server 2 (1080p Stream)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
-        StreamServer("Server 3 (HLS Backup)", "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8")
-    ),
-    val episodes: List<Pair<String, String>> = emptyList()
-)
+import kotlinx.coroutines.launch
 
 @Composable
 fun CloudStreamHomeScreen(
@@ -65,503 +48,519 @@ fun CloudStreamHomeScreen(
     onOpenMovieBrowser: (MovieProvider) -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
-    var selectedMovieForDetail by remember { mutableStateOf<MovieCatalogItem?>(null) }
+    var selectedCategoryFilter by remember { mutableStateOf("All") }
+    var selectedMovieForDetail by remember { mutableStateOf<MediaItem?>(null) }
     var showProviderFilterMenu by remember { mutableStateOf(false) }
     var myWatchlistIds by remember { mutableStateOf(setOf<String>()) }
 
-    // Curated catalog matching exact Screenshot 3
-    val heroMovie = MovieCatalogItem(
-        id = "hero_blind_girl",
-        title = "Helpless Blind Girl",
-        category = "Nollywood",
-        rating = "7.8",
-        year = "2026",
-        posterUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&q=80",
-        backdropUrl = "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=1000&q=80",
-        description = "A gripping emotional drama about resilience, love, and finding hope in the darkest situations against all odds.",
-        streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        servers = listOf(
-            StreamServer("Server 1 (MovieBox 4K)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
-            StreamServer("Server 2 (1080p HD)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
-            StreamServer("Server 3 (Fast HLS)", "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8")
-        )
-    )
+    // Live Dynamic Movies fetched in real-time from Extension / Provider APIs
+    var liveMoviesList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var fetchErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    val trendingMovies = listOf(
-        MovieCatalogItem(
-            id = "trend_1",
-            title = "Awarapan 2",
-            rating = "6.8★",
-            year = "2026",
-            category = "Bollywood",
-            posterUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1000&q=80",
-            description = "High octane Indian action romance saga returning to screens with unmatched intensity.",
-            streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "trend_2",
-            title = "The Death of Robin Hood",
-            rating = "6.1★",
-            year = "2026",
-            category = "Hollywood",
-            posterUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=1000&q=80",
-            description = "He was no hero. A dark reimagining of the legendary outlaw fighting his final battle.",
-            streamUrl = "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "trend_3",
-            title = "The End of Oak Street",
-            rating = "6.6★",
-            year = "2026",
-            category = "Thriller",
-            posterUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1000&q=80",
-            description = "A quiet suburban neighborhood unravels when secrets buried for twenty years come to light.",
-            streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-        ),
-        MovieCatalogItem(
-            id = "trend_4",
-            title = "Batwara 1947",
-            rating = "4.7★",
-            year = "2026",
-            category = "Historical Drama",
-            posterUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=1000&q=80",
-            description = "The partition day. An epic saga depicting the struggles and triumphs during 1947.",
-            streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "trend_5",
-            title = "Deadpool & Wolverine",
-            rating = "8.2★",
-            year = "2026",
-            category = "Marvel Action",
-            posterUrl = "https://images.unsplash.com/photo-1563089145-599997674d42?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1563089145-599997674d42?w=1000&q=80",
-            description = "The iconic Marvel duo unites to save the multiverse with comedy, chaos, and action.",
-            streamUrl = "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8"
-        )
-    )
+    val categoryTabs = listOf("All", "Movies", "TV Series", "Anime", "Asian Dramas")
 
-    val trendingCinema = listOf(
-        MovieCatalogItem(
-            id = "cinema_1",
-            title = "Awarapan 2",
-            rating = "6.8★",
-            year = "2026",
-            category = "In Cinemas",
-            posterUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1000&q=80",
-            description = "High octane action romance returning to cinema.",
-            streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "cinema_2",
-            title = "Batwara 1947",
-            rating = "4.7★",
-            year = "2026",
-            category = "In Cinemas",
-            posterUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=1000&q=80",
-            description = "Partition day epic cinematic journey.",
-            streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-        ),
-        MovieCatalogItem(
-            id = "cinema_3",
-            title = "The End of Oak Street",
-            rating = "6.6★",
-            year = "2026",
-            category = "In Cinemas",
-            posterUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1000&q=80",
-            description = "Mysterious thriller in theater screenings.",
-            streamUrl = "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "cinema_4",
-            title = "Ohh My Dog",
-            rating = "9.1★",
-            year = "2026",
-            category = "Family Comedy",
-            posterUrl = "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=1000&q=80",
-            description = "A heartwarming tale of a boy and a blind pup who conquer every hurdle.",
-            streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        )
-    )
-
-    val bollywoodSeries = listOf(
-        MovieCatalogItem(
-            id = "bolly_1",
-            title = "Toofan (তুফান)",
-            rating = "8.9★",
-            year = "2026",
-            category = "Bangla & Hindi Dub",
-            posterUrl = "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=1000&q=80",
-            description = "Shakib Khan starrer blockbuster 90s gangster drama that took box offices by storm.",
-            streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "bolly_2",
-            title = "Panchayat Season 3",
-            rating = "9.2★",
-            year = "2026",
-            category = "Hindi Comedy Series",
-            posterUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=1000&q=80",
-            description = "The beloved Phulera panchayat returns with fresh elections, comedy, and village charm.",
-            streamUrl = "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8",
-            episodes = listOf(
-                "Episode 1 - Rangbaazi" to "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-                "Episode 2 - Gaddha" to "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8",
-                "Episode 3 - Ghar Ka Bhedi" to "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-            )
-        ),
-        MovieCatalogItem(
-            id = "bolly_3",
-            title = "Mirzapur Season 3",
-            rating = "8.7★",
-            year = "2026",
-            category = "Crime Series",
-            posterUrl = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1000&q=80",
-            description = "The throne of Purvanchal is contested in a violent power struggle.",
-            streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        ),
-        MovieCatalogItem(
-            id = "bolly_4",
-            title = "Jawan Extended Cut",
-            rating = "8.4★",
-            year = "2026",
-            category = "Bollywood 4K",
-            posterUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&q=80",
-            backdropUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=1000&q=80",
-            description = "A high-voltage emotional action thriller driven by a man on a mission to rectify societal wrongs.",
-            streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-        )
-    )
-
-    fun playItem(item: MovieCatalogItem) {
-        val mediaItem = MediaItem(
-            id = item.id,
-            title = item.title,
-            category = item.category,
-            type = if (item.episodes.isNotEmpty()) MediaType.SERIES else MediaType.MOVIE,
-            streamUrl = item.streamUrl,
-            servers = item.servers,
-            logoUrl = item.posterUrl,
-            description = item.description,
-            rating = item.rating,
-            year = item.year
-        )
-        onPlayMovie(mediaItem)
+    // Function to fetch live movies from provider endpoints
+    fun loadLiveMovies() {
+        coroutineScope.launch {
+            isLoading = true
+            fetchErrorMessage = null
+            try {
+                val fetched = repository.fetchLiveProviderCatalog(
+                    provider = activeProvider,
+                    query = searchQuery,
+                    typeFilter = selectedCategoryFilter
+                )
+                liveMoviesList = fetched
+            } catch (e: Exception) {
+                e.printStackTrace()
+                fetchErrorMessage = e.localizedMessage ?: "মুভি লোড করতে সমস্যা হয়েছে"
+            } finally {
+                isLoading = false
+            }
+        }
     }
+
+    // Load data dynamically when screen appears or when provider/category/search changes
+    LaunchedEffect(activeProvider, selectedCategoryFilter, searchQuery) {
+        loadLiveMovies()
+    }
+
+    // Top Live Hero Movie (first dynamic movie from the real list)
+    val heroMovie: MediaItem? = liveMoviesList.firstOrNull()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 80.dp)
-        ) {
-            // HERO BANNER (Exact UI from Screenshot 3)
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(430.dp)
-                ) {
-                    // Backdrop Poster
-                    AsyncImage(
-                        model = heroMovie.backdropUrl,
-                        contentDescription = heroMovie.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Gradient Overlay on bottom & top
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.6f),
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.85f),
-                                        Color.Black
-                                    )
-                                )
-                            )
-                    )
-
-                    // Top Action Bar Header (Search icon on left, Profile Avatar on right)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+        if (isLoading && liveMoviesList.isEmpty()) {
+            // Authentic Loading State
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(
+                    color = Color(0xFF00E5FF),
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = if (activeProvider != null) "${activeProvider.name} থেকে লাইভ মুভি লোড হচ্ছে..." else "এক্সটেনশন ও রিপোজিটরি থেকে মুভি ফেচ হচ্ছে...",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else if (liveMoviesList.isEmpty()) {
+            // Clean Empty State with Action Button to Extensions
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MovieFilter,
+                    contentDescription = null,
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = if (searchQuery.isNotBlank()) "কোনো মুভি বা সিরিজ পাওয়া যায়নি" else "কোনো এক্সটেনশন ডেটা পাওয়া যায়নি",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (searchQuery.isNotBlank()) "অন্য কি-ওয়ার্ড দিয়ে আবার সার্চ করুন" else "CloudStream রিপোজিটরি ও এক্সটেনশন ইনস্টল করে আসল মুভি উপভোগ করুন।",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = { onOpenExtensions() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        IconButton(
-                            onClick = { isSearchActive = !isSearchActive },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.4f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Search,
-                                contentDescription = "Search",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        // Provider Pill Indicator (e.g. MovieBox / Phisher Repo)
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
-                            modifier = Modifier.clickable { onOpenExtensions() }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = activeProvider?.name ?: "Phisher • MovieBox",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = null,
-                                    tint = Color(0xFF38BDF8),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
-
-                        // Profile Avatar
+                        Icon(Icons.Rounded.Extension, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("এক্সটেনশন ম্যানেজার")
+                    }
+                    OutlinedButton(
+                        onClick = { loadLiveMovies() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E5FF)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("রিফ্রেশ")
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 80.dp)
+            ) {
+                // HERO BANNER (Dynamic from real top movie)
+                if (heroMovie != null) {
+                    item {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF2563EB))
-                                .clickable { onOpenExtensions() },
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .height(420.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Person,
-                                contentDescription = "Profile",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                            // Backdrop Poster
+                            AsyncImage(
+                                model = heroMovie.logoUrl,
+                                contentDescription = heroMovie.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
                             )
-                        }
-                    }
 
-                    // Hero Content Text & Action Buttons
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = heroMovie.title,
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = heroMovie.category,
-                            color = Color(0xFFE2E8F0),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // 3 Action Buttons matching Screenshot 3: [+ None / My List], [▶ Play], [ⓘ Info]
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Button 1: [+ None / My List]
-                            val inList = myWatchlistIds.contains(heroMovie.id)
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                            // Gradient Overlay on bottom & top
+                            Box(
                                 modifier = Modifier
-                                    .clickable {
-                                        myWatchlistIds = if (inList) myWatchlistIds - heroMovie.id else myWatchlistIds + heroMovie.id
-                                        Toast.makeText(context, if (inList) "Removed from My List" else "Added to My List!", Toast.LENGTH_SHORT).show()
-                                    }
-                                    .padding(horizontal = 8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (inList) Icons.Rounded.Check else Icons.Rounded.Add,
-                                    contentDescription = "My List",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (inList) "Added" else "None",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.Black.copy(alpha = 0.55f),
+                                                Color.Transparent,
+                                                Color.Black.copy(alpha = 0.85f),
+                                                Color.Black
+                                            )
+                                        )
+                                    )
+                            )
 
-                            // Button 2: [▶ Play] (Pill White Button)
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color.White,
+                            // Top Action Bar Header
+                            Row(
                                 modifier = Modifier
-                                    .clickable { playItem(heroMovie) }
+                                    .fillMaxWidth()
+                                    .statusBarsPadding()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                IconButton(
+                                    onClick = { isSearchActive = !isSearchActive },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.5f))
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.PlayArrow,
-                                        contentDescription = "Play",
-                                        tint = Color.Black,
+                                        imageVector = if (isSearchActive) Icons.Rounded.Close else Icons.Rounded.Search,
+                                        contentDescription = "Search",
+                                        tint = Color.White,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Play",
-                                        color = Color.Black,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
+                                }
+
+                                // Provider Switcher Pill Indicator
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color.Black.copy(alpha = 0.7f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.7f)),
+                                    modifier = Modifier.clickable { showProviderFilterMenu = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981))
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = activeProvider?.name ?: "All Providers (Phisher)",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+
+                                // Extensions Management Action Button
+                                IconButton(
+                                    onClick = { onOpenExtensions() },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF2563EB))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Extension,
+                                        contentDescription = "Extensions Manager",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
 
-                            // Button 3: [ⓘ Info]
+                            // Hero Content Text & Action Buttons
                             Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .clickable { selectedMovieForDetail = heroMovie }
-                                    .padding(horizontal = 8.dp)
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 14.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Info,
-                                    contentDescription = "Info",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Info",
+                                    text = heroMovie.title,
                                     color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${heroMovie.category ?: "Cinema"} • ${heroMovie.year ?: "2026"} • ${heroMovie.quality ?: "HD 1080p"}",
+                                    color = Color(0xFFE2E8F0),
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // 3 Action Buttons: [+ My List], [▶ Play], [ⓘ Info]
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val inList = myWatchlistIds.contains(heroMovie.id)
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .clickable {
+                                                myWatchlistIds = if (inList) myWatchlistIds - heroMovie.id else myWatchlistIds + heroMovie.id
+                                                Toast.makeText(context, if (inList) "Removed from My List" else "Added to My List!", Toast.LENGTH_SHORT).show()
+                                            }
+                                            .padding(horizontal = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (inList) Icons.Rounded.Check else Icons.Rounded.Add,
+                                            contentDescription = "My List",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (inList) "Added" else "None",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    // Play Pill Button
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color.White,
+                                        modifier = Modifier.clickable { onPlayMovie(heroMovie) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.PlayArrow,
+                                                contentDescription = "Play",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Play",
+                                                color = Color.Black,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    // Info Button
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .clickable { selectedMovieForDetail = heroMovie }
+                                            .padding(horizontal = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Info,
+                                            contentDescription = "Info",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Info",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Search Bar
+                if (isSearchActive) {
+                    item {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search movies, series across extensions...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF38BDF8)) },
+                            trailingIcon = {
+                                if (searchQuery.isNotBlank()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White)
+                                    }
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF38BDF8),
+                                unfocusedBorderColor = Color(0xFF334155),
+                                focusedContainerColor = Color(0xFF0F172A),
+                                unfocusedContainerColor = Color(0xFF0F172A),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
+                // Category Filter Pills
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(categoryTabs) { tab ->
+                            val isSelected = selectedCategoryFilter == tab
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF00E5FF) else Color(0xFF334155)
+                                ),
+                                modifier = Modifier.clickable { selectedCategoryFilter = tab }
+                            ) {
+                                Text(
+                                    text = tab,
+                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                 )
                             }
                         }
                     }
                 }
-            }
 
-            // Search Bar (Shown when search toggled)
-            if (isSearchActive) {
-                item {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search movies, anime, or series...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF38BDF8)) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF38BDF8),
-                            unfocusedBorderColor = Color(0xFF334155),
-                            focusedContainerColor = Color(0xFF0F172A),
-                            unfocusedContainerColor = Color(0xFF0F172A),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
+                // DYNAMIC CAROUSEL SECTION 1: Trending & Top Releases
+                val trendingItems = liveMoviesList.take(12)
+                if (trendingItems.isNotEmpty()) {
+                    item {
+                        LiveMovieRow(
+                            sectionTitle = "Trending & New Releases",
+                            movies = trendingItems,
+                            onMovieClick = { selectedMovieForDetail = it },
+                            onPlayClick = { onPlayMovie(it) }
+                        )
+                    }
                 }
-            }
 
-            // SECTION 1: Trending (Exact row from Screenshot 3)
-            item {
-                MovieCatalogRow(
-                    sectionTitle = "Trending",
-                    movies = trendingMovies.filter { searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) },
-                    onMovieClick = { selectedMovieForDetail = it },
-                    onPlayClick = { playItem(it) }
-                )
-            }
+                // DYNAMIC CAROUSEL SECTION 2: Action & Cinema
+                val actionItems = liveMoviesList.filter { (it.category ?: "").contains("Action", ignoreCase = true) || (it.description ?: "").contains("Action", ignoreCase = true) }
+                if (actionItems.isNotEmpty()) {
+                    item {
+                        LiveMovieRow(
+                            sectionTitle = "Action & Adventure",
+                            movies = actionItems,
+                            onMovieClick = { selectedMovieForDetail = it },
+                            onPlayClick = { onPlayMovie(it) }
+                        )
+                    }
+                }
 
-            // SECTION 2: Trending in Cinema (Exact row from Screenshot 3)
-            item {
-                MovieCatalogRow(
-                    sectionTitle = "Trending in Cinema",
-                    movies = trendingCinema.filter { searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) },
-                    onMovieClick = { selectedMovieForDetail = it },
-                    onPlayClick = { playItem(it) }
-                )
-            }
+                // DYNAMIC CAROUSEL SECTION 3: TV Series & Seasons
+                val seriesItems = liveMoviesList.filter { it.type == MediaType.SERIES || (it.category ?: "").contains("Series", ignoreCase = true) }
+                if (seriesItems.isNotEmpty()) {
+                    item {
+                        LiveMovieRow(
+                            sectionTitle = "Popular TV Series & Shows",
+                            movies = seriesItems,
+                            onMovieClick = { selectedMovieForDetail = it },
+                            onPlayClick = { onPlayMovie(it) }
+                        )
+                    }
+                }
 
-            // SECTION 3: Latest Bollywood & Web Series
-            item {
-                MovieCatalogRow(
-                    sectionTitle = "Latest Bollywood & Series",
-                    movies = bollywoodSeries.filter { searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) },
-                    onMovieClick = { selectedMovieForDetail = it },
-                    onPlayClick = { playItem(it) }
-                )
+                // DYNAMIC CAROUSEL SECTION 4: Drama & Romance
+                val dramaItems = liveMoviesList.filter { (it.category ?: "").contains("Drama", ignoreCase = true) || (it.category ?: "").contains("Romance", ignoreCase = true) }
+                if (dramaItems.isNotEmpty()) {
+                    item {
+                        LiveMovieRow(
+                            sectionTitle = "Drama & Cinema Originals",
+                            movies = dramaItems,
+                            onMovieClick = { selectedMovieForDetail = it },
+                            onPlayClick = { onPlayMovie(it) }
+                        )
+                    }
+                }
+
+                // DYNAMIC CAROUSEL SECTION 5: All Dynamic Movies
+                val remainingItems = liveMoviesList.drop(12)
+                if (remainingItems.isNotEmpty()) {
+                    item {
+                        LiveMovieRow(
+                            sectionTitle = "Explore More Movies & Series",
+                            movies = remainingItems,
+                            onMovieClick = { selectedMovieForDetail = it },
+                            onPlayClick = { onPlayMovie(it) }
+                        )
+                    }
+                }
             }
         }
 
-        // Floating Filter Button (Matching Screenshot 3 bottom right ☰ icon)
-        FloatingActionButton(
-            onClick = { showProviderFilterMenu = true },
-            containerColor = Color(0xFF1E293B),
-            contentColor = Color.White,
-            shape = RoundedCornerShape(16.dp),
+        // Floating Filter & Refresh Button
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 24.dp)
-                .size(52.dp)
+                .padding(end = 16.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = Icons.Rounded.MenuOpen,
-                contentDescription = "Providers Filter",
-                modifier = Modifier.size(24.dp)
-            )
+            FloatingActionButton(
+                onClick = { loadLiveMovies() },
+                containerColor = Color(0xFF1E293B),
+                contentColor = Color(0xFF00E5FF),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = "Refresh Live Feed",
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            FloatingActionButton(
+                onClick = { showProviderFilterMenu = true },
+                containerColor = Color(0xFF2563EB),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MenuOpen,
+                    contentDescription = "Providers Filter",
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 
-    // Provider Selector Modal Sheet / Dialog
+    // Provider Selector Modal Sheet
     if (showProviderFilterMenu) {
         AlertDialog(
             onDismissRequest = { showProviderFilterMenu = false },
@@ -573,7 +572,7 @@ fun CloudStreamHomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Select Movie Provider", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Select Movie Source", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     IconButton(onClick = { onOpenExtensions(); showProviderFilterMenu = false }) {
                         Icon(Icons.Rounded.Extension, contentDescription = "Extensions", tint = Color(0xFF38BDF8))
                     }
@@ -585,12 +584,39 @@ fun CloudStreamHomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "Choose which Phisher extension to source movies & series from:",
+                        "Choose which CloudStream extension to source live movies from:",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
 
+                    // Option 1: All Providers
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (activeProvider == null) Color(0xFF2563EB) else Color(0xFF1E293B),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelectProvider(null)
+                                showProviderFilterMenu = false
+                                Toast.makeText(context, "Sourcing from All Extensions", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("⚡", fontSize = 14.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("All Installed Extensions", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Text("All", color = Color(0xFF00E5FF), fontSize = 11.sp)
+                        }
+                    }
+
+                    // Installed Providers List
                     val installedProviders = movieProviders.filter { it.isInstalled }
                     installedProviders.take(8).forEach { prov ->
                         val isSelected = activeProvider?.id == prov.id
@@ -631,7 +657,7 @@ fun CloudStreamHomeScreen(
                     ) {
                         Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Manage Extensions & Repos", fontSize = 12.sp)
+                        Text("Manage Extensions & Repositories", fontSize = 12.sp)
                     }
                 }
             },
@@ -643,7 +669,7 @@ fun CloudStreamHomeScreen(
         )
     }
 
-    // Movie Detail Sheet / Modal
+    // Movie Detail Dialog / Modal
     if (selectedMovieForDetail != null) {
         val movie = selectedMovieForDetail!!
         AlertDialog(
@@ -663,20 +689,20 @@ fun CloudStreamHomeScreen(
                             .clip(RoundedCornerShape(14.dp))
                     ) {
                         AsyncImage(
-                            model = movie.backdropUrl,
+                            model = movie.logoUrl,
                             contentDescription = movie.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = Color.Black.copy(alpha = 0.7f),
+                            color = Color.Black.copy(alpha = 0.75f),
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(8.dp)
                         ) {
                             Text(
-                                text = movie.rating,
+                                text = movie.rating ?: "8.0★",
                                 color = Color(0xFFFFD700),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -693,39 +719,39 @@ fun CloudStreamHomeScreen(
                     )
 
                     Text(
-                        text = "${movie.category} • ${movie.year} • Multi-Server Fast Streaming",
+                        text = "${movie.category ?: "Cinema"} • ${movie.year ?: "2026"} • ${movie.quality ?: "1080p"}",
                         color = Color(0xFF38BDF8),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
 
                     Text(
-                        text = movie.description,
+                        text = movie.description ?: "Full high-speed streaming available across multiple backup servers.",
                         color = Color(0xFFCBD5E1),
                         fontSize = 12.sp,
                         lineHeight = 16.sp
                     )
 
-                    // Episode selector if series
-                    if (movie.episodes.isNotEmpty()) {
-                        Text("Episodes:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        movie.episodes.forEach { (epName, epUrl) ->
+                    // Multi-Server selector
+                    if (movie.servers.isNotEmpty()) {
+                        Text("Available Streaming Servers:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        movie.servers.forEach { server ->
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color(0xFF1E293B),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        playItem(movie.copy(streamUrl = epUrl))
+                                        onPlayMovie(movie.copy(streamUrl = server.url))
                                         selectedMovieForDetail = null
                                     }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(epName, color = Color.White, fontSize = 12.sp)
+                                    Text(server.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                                     Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
                                 }
                             }
@@ -736,7 +762,7 @@ fun CloudStreamHomeScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        playItem(movie)
+                        onPlayMovie(movie)
                         selectedMovieForDetail = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
@@ -745,7 +771,7 @@ fun CloudStreamHomeScreen(
                 ) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Watch Now (এখনই দেখুন)", fontWeight = FontWeight.Bold)
+                    Text("Watch Now (সরাসরি দেখুন)", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -758,14 +784,13 @@ fun CloudStreamHomeScreen(
 }
 
 @Composable
-private fun MovieCatalogRow(
+private fun LiveMovieRow(
     sectionTitle: String,
-    movies: List<MovieCatalogItem>,
-    onMovieClick: (MovieCatalogItem) -> Unit,
-    onPlayClick: (MovieCatalogItem) -> Unit
+    movies: List<MediaItem>,
+    onMovieClick: (MediaItem) -> Unit,
+    onPlayClick: (MediaItem) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        // Section Header with Title & Arrow (Exact UI from Screenshot 3)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -787,7 +812,6 @@ private fun MovieCatalogRow(
             )
         }
 
-        // Horizontal Card Carousel
         LazyRow(
             contentPadding = PaddingValues(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -811,20 +835,19 @@ private fun MovieCatalogRow(
                             .background(Color(0xFF1E293B))
                     ) {
                         AsyncImage(
-                            model = item.posterUrl,
+                            model = item.logoUrl,
                             contentDescription = item.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        // Rating Badge on top right (e.g. 6.8★)
                         Surface(
                             shape = RoundedCornerShape(bottomStart = 6.dp),
                             color = Color.Black.copy(alpha = 0.85f),
                             modifier = Modifier.align(Alignment.TopEnd)
                         ) {
                             Text(
-                                text = item.rating,
+                                text = item.rating ?: "8.0★",
                                 color = Color.White,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,

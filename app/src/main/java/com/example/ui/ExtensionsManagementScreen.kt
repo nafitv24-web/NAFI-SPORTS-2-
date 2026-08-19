@@ -2,12 +2,11 @@ package com.example.ui
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -38,6 +37,7 @@ import coil.compose.AsyncImage
 import com.example.data.MediaRepository
 import com.example.model.CloudStreamRepo
 import com.example.model.MovieProvider
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -54,69 +54,44 @@ fun ExtensionsManagementScreen(
 
     var repos by remember { mutableStateOf(repository.getSavedCloudStreamRepos()) }
     var allProviders by remember { mutableStateOf(repository.getAllMovieProviders()) }
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("All") }
-    var isSearchOpen by remember { mutableStateOf(false) }
-    var expandedProviderId by remember { mutableStateOf<String?>("phisher_moviebox") }
     
-    // Dialog States
+    // Navigation State: null = Screen 1 (Repo list), non-null = Screen 2 (Repo plugins)
+    var selectedRepoForPlugins by remember { mutableStateOf<CloudStreamRepo?>(null) }
+    
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchOpen by remember { mutableStateOf(false) }
+    var selectedPluginCategory by remember { mutableStateOf("All") }
+    var installingProviderId by remember { mutableStateOf<String?>(null) }
+
+    // Dialog states
     var showAddRepoDialog by remember { mutableStateOf(false) }
-    var showPasteJsonDialog by remember { mutableStateOf(false) }
     var newRepoUrl by remember { mutableStateOf("https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json") }
     var newRepoName by remember { mutableStateOf("Phisher Repo") }
-    var pastedJsonContent by remember { mutableStateOf("") }
     var isSyncing by remember { mutableStateOf(false) }
-    var isUpdatingAll by remember { mutableStateOf(false) }
 
     fun refreshExtensions() {
         repos = repository.getSavedCloudStreamRepos()
         allProviders = repository.getAllMovieProviders()
     }
 
-    // Local JSON File Picker
-    val jsonFilePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val reader = BufferedReader(InputStreamReader(inputStream))
-                val sb = java.lang.StringBuilder()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    sb.append(line)
-                }
-                reader.close()
-                val jsonString = sb.toString()
-                val result = repository.installExtensionFromJson(jsonString)
-                refreshExtensions()
-                Toast.makeText(context, result.second, Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(context, "ফাইল পড়তে সমস্যা হয়েছে: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+    val pluginCategories = listOf("All", "Movies", "TV Series", "Anime", "Asian Dramas")
+
+    // Stats calculations for bottom progress bar
+    val totalCount = allProviders.size.coerceAtLeast(1)
+    val downloadedCount = allProviders.count { it.isInstalled }
+    val disabledCount = allProviders.count { it.isInstalled && !it.isEnabled }
+    val notDownloadedCount = allProviders.count { !it.isInstalled }
+
+    val downloadedRatio = (downloadedCount - disabledCount).toFloat() / totalCount.toFloat()
+    val disabledRatio = disabledCount.toFloat() / totalCount.toFloat()
+
+    // Back handler: if in Screen 2, go back to Screen 1; else onBack()
+    BackHandler {
+        if (selectedRepoForPlugins != null) {
+            selectedRepoForPlugins = null
+        } else {
+            onBack()
         }
-    }
-
-    val filterChips = listOf("All", "Installed", "Bangla", "Hindi", "English", "Anime", "Asian Drama")
-
-    val filteredProviders = allProviders.filter { provider ->
-        val matchesSearch = searchQuery.isBlank() ||
-                provider.name.contains(searchQuery, ignoreCase = true) ||
-                (provider.description != null && provider.description.contains(searchQuery, ignoreCase = true)) ||
-                provider.language.contains(searchQuery, ignoreCase = true)
-
-        val matchesFilter = when (selectedFilter) {
-            "Installed" -> provider.isInstalled
-            "Bangla" -> provider.language.contains("Bangla", ignoreCase = true) || provider.name.contains("Bongo", ignoreCase = true) || provider.name.contains("Chorki", ignoreCase = true) || provider.name.contains("Bioscope", ignoreCase = true) || provider.name.contains("DoraBash", ignoreCase = true)
-            "Hindi" -> provider.language.contains("Hindi", ignoreCase = true) || provider.name.contains("Vegamovies", ignoreCase = true) || provider.name.contains("BollyFlix", ignoreCase = true) || provider.name.contains("ShowFlix", ignoreCase = true)
-            "English" -> provider.language.contains("English", ignoreCase = true) || provider.name.contains("Cineb", ignoreCase = true) || provider.name.contains("FlixHQ", ignoreCase = true) || provider.name.contains("YTS", ignoreCase = true)
-            "Anime" -> provider.types.contains("Anime") || provider.language.contains("Japanese", ignoreCase = true) || provider.name.contains("Anime", ignoreCase = true)
-            "Asian Drama" -> provider.types.contains("KDrama") || provider.language.contains("Korean", ignoreCase = true) || provider.name.contains("Kisskh", ignoreCase = true) || provider.name.contains("Loklok", ignoreCase = true)
-            else -> true
-        }
-
-        matchesSearch && matchesFilter
     }
 
     Scaffold(
@@ -127,9 +102,15 @@ fun ExtensionsManagementScreen(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("এক্সটেনশন বা সোর্স খুঁজুন...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                            placeholder = {
+                                Text(
+                                    if (selectedRepoForPlugins != null) "Search plugins (${selectedRepoForPlugins!!.name})..." else "Search repositories or extensions...",
+                                    color = Color(0xFF64748B),
+                                    fontSize = 13.sp
+                                )
+                            },
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF00E5FF),
+                                focusedBorderColor = Color(0xFF38BDF8),
                                 unfocusedBorderColor = Color(0xFF334155),
                                 focusedContainerColor = Color(0xFF0F172A),
                                 unfocusedContainerColor = Color(0xFF0F172A),
@@ -143,23 +124,22 @@ fun ExtensionsManagementScreen(
                                 .height(48.dp)
                         )
                     } else {
-                        Column {
-                            Text(
-                                text = "Extensions Manager",
-                                color = Color.White,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Phisher Repo • ${allProviders.count { it.isInstalled }} ইনস্টল্ড (${filteredProviders.size} উপলব্ধ)",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 11.sp
-                            )
-                        }
+                        Text(
+                            text = selectedRepoForPlugins?.name ?: "Extensions",
+                            color = Color.White,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        if (selectedRepoForPlugins != null) {
+                            selectedRepoForPlugins = null
+                        } else {
+                            onBack()
+                        }
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
@@ -175,297 +155,349 @@ fun ExtensionsManagementScreen(
                             tint = Color.White
                         )
                     }
-                    IconButton(onClick = { showAddRepoDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.AddLink,
-                            contentDescription = "Add Repo",
-                            tint = Color(0xFF00E5FF)
-                        )
-                    }
-                    IconButton(
-                        onClick = {
+                    if (selectedRepoForPlugins != null) {
+                        IconButton(onClick = {
                             isSyncing = true
                             coroutineScope.launch {
-                                kotlinx.coroutines.delay(600)
+                                delay(600)
                                 refreshExtensions()
                                 isSyncing = false
-                                Toast.makeText(context, "এক্সটেনশন তালিকা রিফ্রেশ সম্পন্ন!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Plugins updated!", Toast.LENGTH_SHORT).show()
                             }
-                        }
-                    ) {
-                        if (isSyncing) {
-                            CircularProgressIndicator(
-                                color = Color(0xFF00E5FF),
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.Refresh,
-                                contentDescription = "Refresh",
-                                tint = Color.White
-                            )
+                        }) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(color = Color(0xFF38BDF8), strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                            } else {
+                                Icon(Icons.Rounded.Refresh, contentDescription = "Refresh", tint = Color.White)
+                            }
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF020617)
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF020617))
             )
+        },
+        floatingActionButton = {
+            if (selectedRepoForPlugins == null) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddRepoDialog = true },
+                    containerColor = Color(0xFF2563EB),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                    icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                    text = { Text("Add repository", fontWeight = FontWeight.Bold) }
+                )
+            }
         },
         containerColor = Color(0xFF020617)
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(bottom = 32.dp)
-        ) {
-            // Action Panel: Auto-Update, Local JSON File, Add Repo
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+        if (selectedRepoForPlugins == null) {
+            // ==========================================
+            // SCREEN 1: REPOSITORIES OVERVIEW (Screenshot 1)
+            // ==========================================
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(bottom = 90.dp)
+            ) {
+                // List of Repositories
+                items(repos, key = { it.id }) { repo ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0F172A),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .clickable {
+                                selectedRepoForPlugins = repo
+                            }
                     ) {
-                        // Repo Info Row
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF2563EB).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(Color(0xFF2563EB), Color(0xFF00E5FF))
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Extension,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = "Phisher Repo v7.2 (Official)",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                    Text(
-                                        text = "github.com/phisher98 • ২০+ স্ট্রিমিং সাইট",
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = 10.sp
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.FolderZip,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
 
-                            // Active Tag
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF10B981).copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF10B981))
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "ACTIVE",
-                                        color = Color(0xFF10B981),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
+                            Spacer(modifier = Modifier.width(12.dp))
 
-                        HorizontalDivider(color = Color(0xFF1E293B), thickness = 1.dp)
-
-                        // 3 Quick Action Buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // 1. Auto-Update Feature
-                            Button(
-                                onClick = {
-                                    isUpdatingAll = true
-                                    coroutineScope.launch {
-                                        kotlinx.coroutines.delay(1000)
-                                        // Update all providers to latest version
-                                        val updated = repository.getAllMovieProviders().map {
-                                            it.copy(version = "v${(it.version?.removePrefix("v")?.toIntOrNull() ?: 1) + 1}", status = "Ok")
-                                        }
-                                        repository.saveMovieProviders(updated)
-                                        refreshExtensions()
-                                        isUpdatingAll = false
-                                        Toast.makeText(context, "✅ সকল এক্সটেনশন স্বয়ংক্রিয়ভাবে লেটেস্ট ভার্সনে আপডেট হয়েছে!", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(10.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
-                            ) {
-                                if (isUpdatingAll) {
-                                    CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-                                } else {
-                                    Icon(Icons.Rounded.Update, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(14.dp))
-                                }
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("অটো আপডেট", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = repo.name,
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = repo.url,
+                                    color = Color(0xFF64748B),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
 
-                            // 2. Local File / JSON Install
-                            Button(
-                                onClick = { jsonFilePickerLauncher.launch("application/json") },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(10.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("ফাইল ইনস্টল", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            }
-
-                            // 3. Paste Link / JSON
-                            Button(
-                                onClick = { showPasteJsonDialog = true },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(10.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Rounded.AddCircleOutline, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("লিংক যোগ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Category Filter Chips
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filterChips) { chip ->
-                        val isSelected = selectedFilter == chip
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (isSelected) Color(0xFF2563EB) else Color(0xFF0F172A),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFF00E5FF) else Color(0xFF334155)
-                            ),
-                            modifier = Modifier.clickable { selectedFilter = chip }
-                        ) {
-                            Text(
-                                text = chip,
-                                color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            Icon(
+                                imageVector = Icons.Rounded.ChevronRight,
+                                contentDescription = "View Plugins",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
-            }
 
-            // Section Header
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                // Preset Repository Suggestions (Phisher, MegaRepo, Bangla Hub)
+                item {
+                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "প্রোভাইডার ও এক্সটেনশন তালিকা (${filteredProviders.size})",
-                        color = Color.White,
+                        text = "Popular Repositories",
+                        color = Color(0xFF94A3B8),
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "ক্লিক করে কন্টেন্ট দেখুন",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 11.sp
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                     )
                 }
+
+                item {
+                    val presets = listOf(
+                        Triple("Phisher Repo", "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json", "Multi-Language, Bangla, Hindi & Anime Extensions"),
+                        Triple("Hexated Streams Repo", "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json", "Ultra Fast Hollywood & 4K Multi-Server Cinema"),
+                        Triple("Bangla & Bollywood Hub", "https://raw.githubusercontent.com/cloudstream-bangla/repo/main/repo.json", "Chorki, Bioscope, Bongo & Indian HD Media")
+                    )
+
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presets.forEach { (name, url, desc) ->
+                            val isAlreadyAdded = repos.any { it.url == url }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.6f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(desc, color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                    }
+                                    if (isAlreadyAdded) {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF10B981).copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "Added",
+                                                color = Color(0xFF10B981),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    val res = repository.installExtensionFromUrl(url)
+                                                    refreshExtensions()
+                                                    Toast.makeText(context, res.second, Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text("Install", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // BOTTOM STATISTICS BAR (Screenshot 1)
+                // ==========================================
+                item {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF0B1120),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Extensions",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Colored Multi-Segment Progress Bar
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(Color(0xFF334155))
+                            ) {
+                                if (downloadedRatio > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .weight(downloadedRatio.coerceAtLeast(0.01f))
+                                            .background(Color(0xFF10B981))
+                                    )
+                                }
+                                if (disabledRatio > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .weight(disabledRatio.coerceAtLeast(0.01f))
+                                            .background(Color(0xFFEF4444))
+                                    )
+                                }
+                                val notDownloadedRatio = 1f - (downloadedRatio + disabledRatio)
+                                if (notDownloadedRatio > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .weight(notDownloadedRatio.coerceAtLeast(0.01f))
+                                            .background(Color(0xFF475569))
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Stats labels: Downloaded, Disabled, Not downloaded
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Downloaded: $downloadedCount", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                Text("Disabled: $disabledCount", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                Text("Not downloaded: $notDownloadedCount", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // ==========================================
+            // SCREEN 2: REPOSITORY EXTENSION LIST (Screenshot 2)
+            // ==========================================
+            val repo = selectedRepoForPlugins!!
+
+            val plugins = allProviders.filter { prov ->
+                val matchesSearch = searchQuery.isBlank() ||
+                        prov.name.contains(searchQuery, ignoreCase = true) ||
+                        (prov.description != null && prov.description.contains(searchQuery, ignoreCase = true)) ||
+                        prov.language.contains(searchQuery, ignoreCase = true)
+
+                val matchesCat = when (selectedPluginCategory) {
+                    "All" -> true
+                    "Movies" -> prov.types.contains("Movie") || prov.category.contains("Movie", ignoreCase = true)
+                    "TV Series" -> prov.types.contains("Series") || prov.types.contains("Tv") || prov.category.contains("Series", ignoreCase = true)
+                    "Anime" -> prov.types.contains("Anime") || prov.name.contains("Anime", ignoreCase = true) || prov.category.contains("Anime", ignoreCase = true)
+                    "Asian Dramas" -> prov.types.contains("KDrama") || prov.name.contains("Kisskh", ignoreCase = true) || prov.name.contains("Loklok", ignoreCase = true)
+                    else -> true
+                }
+
+                matchesSearch && matchesCat
             }
 
-            // Extensions List Items
-            items(filteredProviders, key = { it.id }) { provider ->
-                val isExpanded = expandedProviderId == provider.id
-                var isRowFocused by remember { mutableStateOf(false) }
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
-                        .scale(if (isRowFocused) 1.02f else 1.0f)
-                        .onFocusChanged { isRowFocused = it.isFocused }
-                        .focusable()
-                        .animateContentSize(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isExpanded) Color(0xFF0F172A) else if (isRowFocused) Color(0xFF1E293B) else Color(0xFF0A0F1D)
-                    ),
-                    border = when {
-                        isExpanded -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF))
-                        isRowFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
-                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(bottom = 40.dp)
+            ) {
+                // Filter Tabs: All, Movies, TV Series, Anime, Asian Dramas (Screenshot 2)
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(pluginCategories) { cat ->
+                            val isSelected = selectedPluginCategory == cat
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)),
+                                modifier = Modifier.clickable { selectedPluginCategory = cat }
+                            ) {
+                                Text(
+                                    text = cat,
+                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
                     }
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Standard Collapsed Row
+                }
+
+                // Providers / Plugins items
+                items(plugins, key = { it.id }) { provider ->
+                    val isInstalling = installingProviderId == provider.id
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0F172A),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                            .clickable {
+                                onOpenMovieBrowser?.invoke(provider)
+                            }
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    expandedProviderId = if (isExpanded) null else provider.id
-                                }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Icon
+                            // Provider Icon
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
+                                    .size(44.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(Color(0xFF1E293B)),
                                 contentAlignment = Alignment.Center
@@ -481,11 +513,10 @@ fun ExtensionsManagementScreen(
                                     Icon(
                                         imageVector = when {
                                             provider.types.contains("Anime") -> Icons.Rounded.AutoAwesome
-                                            provider.types.contains("Music") -> Icons.Rounded.MusicNote
                                             else -> Icons.Rounded.Movie
                                         },
                                         contentDescription = null,
-                                        tint = Color(0xFF00E5FF),
+                                        tint = Color(0xFF38BDF8),
                                         modifier = Modifier.size(22.dp)
                                     )
                                 }
@@ -493,153 +524,84 @@ fun ExtensionsManagementScreen(
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            // Name & Language / Version / Size Details
+                            // Provider Title, Details and Description
                             Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = provider.name,
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    if (provider.isInstalled) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color(0xFF10B981).copy(alpha = 0.2f)
-                                        ) {
-                                            Text(
-                                                text = "ইনস্টল্ড",
-                                                color = Color(0xFF10B981),
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    }
-                                }
+                                Text(
+                                    text = provider.name,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "${provider.flag ?: "🌐"} ${provider.language} • ${provider.version ?: "v1"} • ${provider.size ?: "30 kB"}",
+                                    text = "${provider.language} • ${provider.version ?: "v26"} • ${provider.size ?: "72 kB"}",
                                     color = Color(0xFF94A3B8),
                                     fontSize = 11.sp
                                 )
-                                if (!provider.description.isNullOrBlank() && !isExpanded) {
-                                    Text(
-                                        text = provider.description,
-                                        color = Color(0xFF64748B),
-                                        fontSize = 10.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                Text(
+                                    text = provider.description ?: "Multi Language Movies and Series Provider (Mostly Hindi)",
+                                    color = Color(0xFF64748B),
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
 
-                            // Active / Inactive Toggle Switch
-                            Switch(
-                                checked = provider.isEnabled,
-                                onCheckedChange = { isEnabled ->
-                                    val updated = provider.copy(isEnabled = isEnabled)
-                                    val currentList = repository.getAllMovieProviders().toMutableList()
-                                    val idx = currentList.indexOfFirst { it.id == provider.id }
-                                    if (idx >= 0) {
-                                        currentList[idx] = updated
-                                        repository.saveMovieProviders(currentList)
-                                        refreshExtensions()
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Action button on right (Download Icon vs Checkmark/Trash)
+                            if (isInstalling) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF38BDF8),
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            } else if (provider.isInstalled) {
+                                // Installed: Show Trash to uninstall or Checkmark
+                                IconButton(
+                                    onClick = {
+                                        val updated = provider.copy(isInstalled = false, isEnabled = false)
+                                        val currentList = repository.getAllMovieProviders().toMutableList()
+                                        val idx = currentList.indexOfFirst { it.id == provider.id }
+                                        if (idx >= 0) {
+                                            currentList[idx] = updated
+                                            repository.saveMovieProviders(currentList)
+                                            refreshExtensions()
+                                            Toast.makeText(context, "${provider.name} uninstalled", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color(0xFF00E5FF),
-                                    checkedTrackColor = Color(0xFF00E5FF).copy(alpha = 0.3f),
-                                    uncheckedThumbColor = Color(0xFF64748B),
-                                    uncheckedTrackColor = Color(0xFF1E293B)
-                                ),
-                                modifier = Modifier.scale(0.8f)
-                            )
-                        }
-
-                        // Expanded View with Full Details and "Browse Content" button
-                        AnimatedVisibility(visible = isExpanded) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF0B1120))
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.5.dp)
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                TagInfoRow(label = "বিবরণ", value = provider.description ?: "${provider.name} থেকে সিনেমা ও সিরিজ স্ট্রিমিং")
-                                TagInfoRow(label = "ডেভেলপার", value = provider.authors ?: "Phisher98")
-                                TagInfoRow(label = "ভার্সন", value = provider.version ?: "v7.0")
-                                TagInfoRow(label = "স্ট্যাটাস", value = "সক্রিয় (Ok / 1080p Stream)")
-                                TagInfoRow(label = "সাইজ", value = provider.size ?: "45 kB")
-                                TagInfoRow(label = "ভাষা", value = "${provider.flag ?: "🌐"} ${provider.language}")
-                                TagInfoRow(label = "সাপোর্ট", value = provider.supported.ifEmpty { listOf("Movie", "Series") }.joinToString(", "))
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Bottom Action Row: Browse Catalog / Install / Uninstall
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Primary Button: Enter provider to load movies
-                                    Button(
-                                        onClick = { onOpenMovieBrowser?.invoke(provider) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Icon(Icons.Rounded.PlayCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF00E5FF))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("মুভি ও সিরিজ লোড করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                    }
-
-                                    // Install / Uninstall Toggle
-                                    if (provider.isInstalled) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                val updated = provider.copy(isInstalled = false, isEnabled = false)
-                                                val currentList = repository.getAllMovieProviders().toMutableList()
-                                                val idx = currentList.indexOfFirst { it.id == provider.id }
-                                                if (idx >= 0) {
-                                                    currentList[idx] = updated
-                                                    repository.saveMovieProviders(currentList)
-                                                    refreshExtensions()
-                                                    Toast.makeText(context, "${provider.name} আনইনস্টল করা হয়েছে", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
-                                        }
-                                    } else {
-                                        Button(
-                                            onClick = {
-                                                val updated = provider.copy(isInstalled = true, isEnabled = true)
-                                                val currentList = repository.getAllMovieProviders().toMutableList()
-                                                val idx = currentList.indexOfFirst { it.id == provider.id }
-                                                if (idx >= 0) {
-                                                    currentList[idx] = updated
-                                                    repository.saveMovieProviders(currentList)
-                                                    refreshExtensions()
-                                                    Toast.makeText(context, "${provider.name} ইনস্টল সম্পন্ন!", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                            shape = RoundedCornerShape(10.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(Icons.Rounded.FileDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("ইনস্টল", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Icon(
+                                        imageVector = Icons.Rounded.DeleteOutline,
+                                        contentDescription = "Uninstall",
+                                        tint = Color(0xFFEF4444)
+                                    )
+                                }
+                            } else {
+                                // Not Downloaded: Show Download Icon (📥)
+                                IconButton(
+                                    onClick = {
+                                        installingProviderId = provider.id
+                                        coroutineScope.launch {
+                                            delay(500)
+                                            val updated = provider.copy(isInstalled = true, isEnabled = true)
+                                            val currentList = repository.getAllMovieProviders().toMutableList()
+                                            val idx = currentList.indexOfFirst { it.id == provider.id }
+                                            if (idx >= 0) {
+                                                currentList[idx] = updated
+                                                repository.saveMovieProviders(currentList)
+                                                refreshExtensions()
+                                            }
+                                            installingProviderId = null
+                                            Toast.makeText(context, "${provider.name} installed successfully!", Toast.LENGTH_SHORT).show()
                                         }
                                     }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.FileDownload,
+                                        contentDescription = "Download Extension",
+                                        tint = Color(0xFF38BDF8)
+                                    )
                                 }
                             }
                         }
@@ -649,34 +611,30 @@ fun ExtensionsManagementScreen(
         }
     }
 
-    // Modal Dialog: Add Repository URL
+    // Dialog: Add Custom Repo URL
     if (showAddRepoDialog) {
         AlertDialog(
             onDismissRequest = { showAddRepoDialog = false },
             containerColor = Color(0xFF0F172A),
             shape = RoundedCornerShape(18.dp),
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.AddLink, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("রিপোজিটরি বা সোর্স লিংক যোগ করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
+                Text("Add repository", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "CloudStream এক্সটেনশন repo.json এর গিটহাব বা অনলাইন লিংক পেস্ট করুন:",
+                        "Enter the URL of the repository JSON:",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp
                     )
                     OutlinedTextField(
                         value = newRepoName,
                         onValueChange = { newRepoName = it },
-                        label = { Text("রিপোজিটরির নাম", color = Color(0xFF94A3B8)) },
+                        label = { Text("Repository Name", color = Color(0xFF94A3B8)) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00E5FF),
+                            focusedBorderColor = Color(0xFF38BDF8),
                             unfocusedBorderColor = Color(0xFF334155)
                         ),
                         singleLine = true,
@@ -689,7 +647,7 @@ fun ExtensionsManagementScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00E5FF),
+                            focusedBorderColor = Color(0xFF38BDF8),
                             unfocusedBorderColor = Color(0xFF334155)
                         ),
                         singleLine = true,
@@ -711,105 +669,14 @@ fun ExtensionsManagementScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
-                    Text("সংরক্ষণ ও লোড করুন", fontWeight = FontWeight.Bold)
+                    Text("Add Repository", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAddRepoDialog = false }) {
-                    Text("বাতিল", color = Color(0xFF94A3B8))
+                    Text("Cancel", color = Color(0xFF94A3B8))
                 }
             }
-        )
-    }
-
-    // Modal Dialog: Paste JSON Content Directly
-    if (showPasteJsonDialog) {
-        AlertDialog(
-            onDismissRequest = { showPasteJsonDialog = false },
-            containerColor = Color(0xFF0F172A),
-            shape = RoundedCornerShape(18.dp),
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.DataObject, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("JSON বা প্লাগইন কোড পেস্ট করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "প্লাগইন অবজেক্ট বা রিপোজিটরির JSON টেক্সট পেস্ট করুন:",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 12.sp
-                    )
-                    OutlinedTextField(
-                        value = pastedJsonContent,
-                        onValueChange = { pastedJsonContent = it },
-                        placeholder = { Text("{\n  \"name\": \"Custom Repo\",\n  \"pluginLists\": [...]\n}", color = Color(0xFF64748B), fontSize = 11.sp) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00E5FF),
-                            unfocusedBorderColor = Color(0xFF334155)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (pastedJsonContent.isNotBlank()) {
-                            val result = repository.installExtensionFromJson(pastedJsonContent)
-                            refreshExtensions()
-                            showPasteJsonDialog = false
-                            Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                ) {
-                    Text("ইনস্টল করুন", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPasteJsonDialog = false }) {
-                    Text("বাতিল", color = Color(0xFF94A3B8))
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun TagInfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            color = Color(0xFF1E293B),
-            shape = RoundedCornerShape(4.dp),
-            modifier = Modifier.padding(end = 8.dp)
-        ) {
-            Text(
-                text = label,
-                color = Color(0xFF00E5FF),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-            )
-        }
-        Text(
-            text = value,
-            color = Color(0xFFF1F5F9),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
         )
     }
 }
