@@ -60,9 +60,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.foundation.basicMarquee
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.model.MediaItem as AppMediaItem
+import com.example.model.MediaType
 import com.example.model.StreamServer
 import kotlinx.coroutines.delay
 
@@ -1390,69 +1392,344 @@ fun VideoPlayerScreen(
                     Spacer(modifier = Modifier.height(14.dp))
                 }
 
-                // Related / Other Channels Grid in Portrait
-                Text(
-                    text = "📺 অন্যান্য চ্যানেলসমূহ (${playlist.size}):",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+                // Related / Other Items in Portrait Mode
+                val isLiveEvent = currentMedia.type == MediaType.LIVE_EVENT || playlist.any { it.type == MediaType.LIVE_EVENT }
 
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(playlist) { item ->
-                        val isCurrent = item.id == currentMedia.id || item.streamUrl == currentMedia.streamUrl
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    isBuffering = true
-                                    currentMedia = item
-                                    selectedServerIndex = 0
-                                    val newServers = item.getAllServers()
-                                    currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                    errorMessage = null
-                                    onSelectMedia(item)
-                                },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isCurrent) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E293B)
-                            ),
-                            border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                if (isLiveEvent) {
+                    Text(
+                        text = "🏆 অন্যান্য লাইভ ম্যাচসমূহ (${playlist.size}):",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(playlist) { sport ->
+                            val isCurrent = sport.id == currentMedia.id || sport.streamUrl == currentMedia.streamUrl
+                            val matchFullTitle = when {
+                                !sport.tournament.isNullOrBlank() -> sport.tournament!!
+                                !sport.title.isNullOrBlank() && !sport.title.equals("Live Match", ignoreCase = true) -> sport.title
+                                !sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank() -> "${sport.category} 🏏 || ${sport.team1} vs ${sport.team2}"
+                                else -> "${sport.category} || Live Match"
+                            }
+                            val sportServers = sport.getAllServers()
+                            val isLiveNow = sport.status.equals("Live Now", ignoreCase = true) || sport.isLive
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (!isCurrent) {
+                                            isBuffering = true
+                                            currentMedia = sport
+                                            selectedServerIndex = 0
+                                            val newServers = sport.getAllServers()
+                                            currentUrl = newServers.firstOrNull()?.url ?: sport.streamUrl
+                                            errorMessage = null
+                                            onSelectMedia(sport)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isCurrent) Color(0xFF1E3A8A).copy(alpha = 0.95f) else Color(0xFF131D33)
+                                ),
+                                border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                                         else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.35f))
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White),
-                                    contentAlignment = Alignment.Center
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    AsyncImage(
-                                        model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
-                                        contentDescription = item.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(38.dp).clip(CircleShape)
-                                    )
+                                    // Top Title Banner
+                                    Surface(
+                                        color = Color(0xFF1E293B),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.45f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (sport.category.contains("Football", ignoreCase = true)) Icons.Rounded.SportsSoccer else Icons.Rounded.SportsCricket,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E5FF),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = matchFullTitle,
+                                                color = Color(0xFFE2E8F0),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 800),
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                            Surface(
+                                                color = if (isLiveNow) Color(0xFFEF4444).copy(alpha = 0.2f) else Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(6.dp),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isLiveNow) Color(0xFFEF4444).copy(alpha = 0.6f) else Color(0xFFF59E0B).copy(alpha = 0.6f))
+                                            ) {
+                                                Text(
+                                                    text = if (isLiveNow) "LIVE" else "UPCOMING",
+                                                    color = if (isLiveNow) Color(0xFFEF4444) else Color(0xFFFBBF24),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Teams & Score Row
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Team 1
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.Start
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                AsyncImage(
+                                                    model = sport.team1Logo ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
+                                                    contentDescription = sport.team1,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.size(28.dp).clip(CircleShape)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = sport.team1 ?: "Team 1",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        // Middle VS / Score
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFF0F172A),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f))
+                                        ) {
+                                            Text(
+                                                text = if (!sport.score1.isNullOrBlank() && !sport.score2.isNullOrBlank()) "${sport.score1} - ${sport.score2}" else "VS",
+                                                color = Color(0xFF00E5FF),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+
+                                        // Team 2
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            Text(
+                                                text = sport.team2 ?: "Team 2",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                AsyncImage(
+                                                    model = sport.team2Logo ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
+                                                    contentDescription = sport.team2,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.size(28.dp).clip(CircleShape)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Servers Chips & Play Button
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        LazyRow(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            items(sportServers) { srv ->
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = Color(0xFF1E293B),
+                                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                                    modifier = Modifier.clickable {
+                                                        isBuffering = true
+                                                        currentMedia = sport.copy(streamUrl = srv.url)
+                                                        currentUrl = srv.url
+                                                        selectedServerIndex = sportServers.indexOf(srv).coerceAtLeast(0)
+                                                        errorMessage = null
+                                                        onSelectMedia(sport.copy(streamUrl = srv.url))
+                                                    }
+                                                ) {
+                                                    Text(
+                                                        text = srv.name,
+                                                        color = Color.White,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isCurrent) Color(0xFF00E5FF) else if (isLiveNow) Color(0xFFDC2626) else Color(0xFF2563EB),
+                                            modifier = Modifier.clickable {
+                                                if (!isCurrent) {
+                                                    isBuffering = true
+                                                    currentMedia = sport
+                                                    selectedServerIndex = 0
+                                                    val newServers = sport.getAllServers()
+                                                    currentUrl = newServers.firstOrNull()?.url ?: sport.streamUrl
+                                                    errorMessage = null
+                                                    onSelectMedia(sport)
+                                                }
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isCurrent) Icons.Rounded.Equalizer else Icons.Rounded.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = if (isCurrent) Color.Black else Color.White,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Text(
+                                                    text = if (isCurrent) "Playing" else if (isLiveNow) "Watch Live" else "Play",
+                                                    color = if (isCurrent) Color.Black else Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = item.title,
-                                    color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center
-                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Live TV Channels Grid (Clean, symmetrical, and uniform)
+                    Text(
+                        text = "📺 অন্যান্য টিভি চ্যানেলসমূহ (${playlist.size}):",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(playlist) { item ->
+                            val isCurrent = item.id == currentMedia.id || item.streamUrl == currentMedia.streamUrl
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(115.dp)
+                                    .clickable {
+                                        isBuffering = true
+                                        currentMedia = item
+                                        selectedServerIndex = 0
+                                        val newServers = item.getAllServers()
+                                        currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                        errorMessage = null
+                                        onSelectMedia(item)
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isCurrent) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E293B)
+                                ),
+                                border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        AsyncImage(
+                                            model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
+                                            contentDescription = item.title,
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.size(38.dp).clip(CircleShape)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = item.title,
+                                        color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    if (item.category.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = item.country ?: item.category.take(8),
+                                            color = if (isCurrent) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            fontSize = 9.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

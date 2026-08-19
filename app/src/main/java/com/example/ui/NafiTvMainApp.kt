@@ -98,6 +98,7 @@ fun NafiTvMainApp() {
     var isTvMode by remember { mutableStateOf(false) }
     var isAdminViewActive by remember { mutableStateOf(false) }
     var activeMovieBrowserProvider by remember { mutableStateOf<MovieProvider?>(null) }
+    var isExtensionsManagementActive by remember { mutableStateOf(false) }
     var cloudStreamRepos by remember { mutableStateOf(repository.getSavedCloudStreamRepos()) }
     var allMovieProviders by remember { mutableStateOf(repository.getAllMovieProviders()) }
 
@@ -317,6 +318,17 @@ fun NafiTvMainApp() {
             onPlayDirectMedia = { item ->
                 activePlaybackPlaylist = listOf(item)
                 selectedMediaItem = item
+            }
+        )
+    } else if (isExtensionsManagementActive) {
+        // CLOUDSTREAM EXTENSIONS & REPOSITORIES MANAGEMENT SCREEN
+        ExtensionsManagementScreen(
+            repository = repository,
+            onBack = {
+                isExtensionsManagementActive = false
+                cloudStreamRepos = repository.getSavedCloudStreamRepos()
+                allMovieProviders = repository.getAllMovieProviders()
+                refreshAllData()
             }
         )
     } else if (isAdminViewActive) {
@@ -650,6 +662,7 @@ fun NafiTvMainApp() {
                                 movieProviders = allMovieProviders,
                                 cloudStreamRepos = cloudStreamRepos,
                                 onOpenMovieProvider = { activeMovieBrowserProvider = it },
+                                onOpenExtensionManager = { isExtensionsManagementActive = true },
                                 favoriteIds = favoriteIds,
                                 isTvMode = isTvMode,
                                 onSelectMedia = {
@@ -677,6 +690,7 @@ fun NafiTvMainApp() {
                                 repository = repository,
                                 customList = customList,
                                 onOpenAdminApp = { isAdminViewActive = true },
+                                onOpenExtensionManager = { isExtensionsManagementActive = true },
                                 onCheckForUpdates = { checkForUpdates(isManualCheck = true) },
                                 availableUpdateInfo = availableUpdateInfo,
                                 onPlayDirectStream = { url, title ->
@@ -953,6 +967,7 @@ fun NafiTvMainApp() {
                             movieProviders = allMovieProviders,
                             cloudStreamRepos = cloudStreamRepos,
                             onOpenMovieProvider = { activeMovieBrowserProvider = it },
+                            onOpenExtensionManager = { isExtensionsManagementActive = true },
                             favoriteIds = favoriteIds,
                             isTvMode = isTvMode,
                             onSelectMedia = {
@@ -980,6 +995,7 @@ fun NafiTvMainApp() {
                             repository = repository,
                             customList = customList,
                             onOpenAdminApp = { isAdminViewActive = true },
+                            onOpenExtensionManager = { isExtensionsManagementActive = true },
                             onCheckForUpdates = { checkForUpdates(isManualCheck = true) },
                             availableUpdateInfo = availableUpdateInfo,
                             onPlayDirectStream = { url, title ->
@@ -5441,6 +5457,7 @@ fun MenuScreen(
     repository: MediaRepository,
     customList: List<MediaItem>,
     onOpenAdminApp: () -> Unit,
+    onOpenExtensionManager: () -> Unit = {},
     onPlayDirectStream: (url: String, title: String) -> Unit,
     onM3uLoaded: (List<MediaItem>) -> Unit,
     onCustomAdded: (MediaItem) -> Unit,
@@ -5810,7 +5827,82 @@ fun MenuScreen(
             }
         }
 
-        // CARD 4: এডমিন অ্যাপ (Admin Control Panel) 🔒 (Privacy Protected)
+        // CARD 4: এক্সটেনশন ম্যানেজার (CloudStream Extensions & Repositories)
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF8B5CF6).copy(alpha = 0.25f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Extension,
+                                contentDescription = "Extensions",
+                                tint = Color(0xFFC084FC),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "এক্সটেনশন ও রিপোজিটরি ম্যানেজার",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Phisher, CloudStream রিপো, কাস্টম URL ও লোকাল JSON প্লাগইন ম্যানেজ করুন",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                maxLines = 2
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Button(
+                        onClick = onOpenExtensionManager,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF8B5CF6),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SettingsSuggest,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Manage",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // CARD 5: এডমিন অ্যাপ (Admin Control Panel) 🔒 (Privacy Protected)
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -6957,7 +7049,7 @@ fun LiveTvTabScreen(
         } else {
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                 columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 5 else 3),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
@@ -6968,34 +7060,35 @@ fun LiveTvTabScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .scale(if (isCardFocused) 1.08f else 1.0f)
+                            .height(if (isTvMode) 145.dp else 135.dp)
+                            .scale(if (isCardFocused) 1.06f else 1.0f)
                             .onFocusChanged { isCardFocused = it.isFocused }
                             .focusable()
                             .clickable { onSelectMedia(channel) },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isCardFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
                         ),
                         border = when {
-                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                         },
-                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 10.dp else 2.dp)
                     ) {
-                        Box(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.fillMaxSize()) {
                             // Focus badge on top left
                             if (isCardFocused) {
                                 Surface(
-                                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                                    shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
                                     color = Color(0xFF00E5FF),
                                     modifier = Modifier.align(Alignment.TopStart)
                                 ) {
                                     Text(
-                                        text = "▶ OK",
+                                        text = "▶ PLAY",
                                         color = Color.Black,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                     )
                                 }
                             }
@@ -7006,7 +7099,7 @@ fun LiveTvTabScreen(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .size(28.dp)
-                                    .padding(4.dp)
+                                    .padding(2.dp)
                             ) {
                                 Icon(
                                     imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -7018,14 +7111,15 @@ fun LiveTvTabScreen(
 
                             Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
                                 // Channel Logo in White Circle
                                 Box(
                                     modifier = Modifier
-                                        .size(54.dp)
+                                        .size(48.dp)
                                         .clip(CircleShape)
                                         .background(Color.White),
                                     contentAlignment = Alignment.Center
@@ -7036,7 +7130,7 @@ fun LiveTvTabScreen(
                                             contentDescription = channel.title,
                                             contentScale = ContentScale.Fit,
                                             modifier = Modifier
-                                                .size(46.dp)
+                                                .size(40.dp)
                                                 .clip(CircleShape)
                                         )
                                     } else {
@@ -7046,37 +7140,48 @@ fun LiveTvTabScreen(
                                             text = initials,
                                             color = Color(0xFF0F172A),
                                             fontWeight = FontWeight.Black,
-                                            fontSize = 13.sp
+                                            fontSize = 12.sp
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
 
-                                // Channel Title
-                                Text(
-                                    text = channel.title,
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center
-                                )
+                                // Channel Title Container
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(28.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = channel.title,
+                                        color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 13.sp
+                                    )
+                                }
 
                                 Spacer(modifier = Modifier.height(4.dp))
 
-                                // Category / Country Badge
+                                // Category / Country Badge Container
                                 Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF0F172A)
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF0F172A),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
                                 ) {
                                     Text(
-                                        text = channel.country ?: channel.category.take(8),
+                                        text = channel.country ?: channel.category.take(10),
                                         color = Color(0xFF00E5FF),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -7100,6 +7205,7 @@ fun MoviesTabScreen(
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit,
     onOpenMovieProvider: (MovieProvider) -> Unit = {},
+    onOpenExtensionManager: () -> Unit = {},
     onToggleFavorite: (String) -> Unit
 ) {
     var movieSectionType by remember { mutableStateOf(if (movieProviders.isNotEmpty()) "REPOS_SITES" else "DIRECT_MOVIES") }
@@ -7208,6 +7314,33 @@ fun MoviesTabScreen(
                         text = "🎬 সরাসরি সিনেমা (${movies.size})",
                         color = if (movieSectionType == "DIRECT_MOVIES") Color.White else Color(0xFF94A3B8),
                         fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF1E293B),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f)),
+                modifier = Modifier.clickable { onOpenExtensionManager() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Extension,
+                        contentDescription = "Extensions",
+                        tint = Color(0xFFC084FC),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "প্লাগইন",
+                        color = Color(0xFFC084FC),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }

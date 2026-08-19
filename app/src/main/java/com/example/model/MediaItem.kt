@@ -97,11 +97,18 @@ data class MovieProvider(
     val searchUrl: String? = null,
     val types: List<String> = listOf("Movie", "Series"), // "Movie", "Series", "Anime", "Live"
     val language: String = "Multi",
+    val flag: String? = null,
+    val authors: String? = "NivinCNC,Phisher98",
+    val version: String? = "26",
+    val status: String = "Ok",
+    val size: String? = "72.43 kB",
+    val supported: List<String> = listOf("Movie", "TvSeries"),
+    val githubUrl: String? = "https://github.com/phisher98/cloudstream-extensions-phisher",
+    val isInstalled: Boolean = true,
     val repoId: String? = null,
     val repoName: String? = null,
     val isCustom: Boolean = false,
-    val isEnabled: Boolean = true,
-    val status: String = "Active"
+    val isEnabled: Boolean = true
 ) {
     val url: String get() = siteUrl
     val logoUrl: String? get() = iconUrl
