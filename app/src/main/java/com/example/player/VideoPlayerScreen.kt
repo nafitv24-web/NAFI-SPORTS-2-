@@ -92,9 +92,9 @@ fun VideoPlayerScreen(
 
     val isWebEmbedUrl = remember(currentUrl) {
         val clean = currentUrl.lowercase().trim()
-        clean.contains("embed") || clean.contains("vidsrc") || clean.contains("superstream") ||
-        clean.contains("smashystream") || clean.contains("flixhq") || clean.contains("2embed") ||
-        clean.contains("autoembed") || (clean.startsWith("http") && !clean.contains(".m3u8") && !clean.contains(".mpd") && !clean.contains(".mp4") && !clean.contains(".mkv") && !clean.contains(".ts"))
+        clean.contains("vidsrc.to") || clean.contains("vidsrc.me") || clean.contains("vidsrc.net") ||
+        clean.contains("superstream.tv") || clean.contains("autoembed.to") || clean.contains("2embed.cc") ||
+        clean.contains("/embed/") || clean.contains("embed.html")
     }
     var forceWebEngine by remember(currentMedia.id, currentUrl) { mutableStateOf(false) }
     val useWebPlayer = isWebEmbedUrl || forceWebEngine
@@ -489,16 +489,15 @@ fun VideoPlayerScreen(
 
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
-                        // If error on stream, try Web Stream Engine or switch to next server
-                        if (!useWebPlayer && (currentUrl.contains("http") || servers.size > 1)) {
-                            forceWebEngine = true
-                            errorMessage = null
-                        } else if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
+                        if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
                             selectedServerIndex++
                             currentUrl = servers[selectedServerIndex].url
                             errorMessage = "সার্ভার পরিবর্তন হচ্ছে: ${servers[selectedServerIndex].name}..."
+                        } else if (isWebEmbedUrl) {
+                            forceWebEngine = true
+                            errorMessage = null
                         } else {
-                            errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা স্ট্রিম লিঙ্ক চেক করুন।"
+                            errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }
                 })
@@ -1316,13 +1315,25 @@ fun VideoPlayerScreen(
                 }
             }
 
-            // Below Player Content in Portrait: Info, Servers, and Channel Switcher
+            // Below Player Content in Portrait: Info, Servers, and Media Switcher
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                // Channel Title & Details
+                val isMovieOrSeries = currentMedia.type == MediaType.MOVIE ||
+                        currentMedia.type == MediaType.SERIES ||
+                        currentMedia.tournament == "NAFI_OTT" ||
+                        (currentMedia.category ?: "").contains("Movie", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Cinema", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("OTT", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Series", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Film", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Anime", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Drama", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("প্লেলিস্ট", ignoreCase = true)
+
+                // Title & Details Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1333,33 +1344,61 @@ fun VideoPlayerScreen(
                             text = currentMedia.title,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            maxLines = 1,
+                            fontSize = 18.sp,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (currentMedia.isLive) {
+                            if (isMovieOrSeries) {
                                 Box(
                                     modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Red)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                                listOf(Color(0xFFE50914), Color(0xFFFF3D00))
+                                            )
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (currentMedia.tournament == "NAFI_OTT" || (currentMedia.category ?: "").contains("OTT", ignoreCase = true)) "NAFI OTT" else "MOVIE",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "LIVE NOW",
-                                    color = Color.Red,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "${currentMedia.category ?: "Cinema"} • ${if (!currentMedia.quality.isNullOrBlank() && currentMedia.quality != "Default") currentMedia.quality else "1080p Full HD"}",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                            } else {
+                                if (currentMedia.isLive) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Red)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "LIVE NOW",
+                                        color = Color.Red,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = "${currentMedia.category} • ${currentMedia.quality}",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp
+                                )
                             }
-                            Text(
-                                text = "${currentMedia.category} • ${currentMedia.quality}",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 12.sp
-                            )
                         }
                     }
 
@@ -1378,7 +1417,7 @@ fun VideoPlayerScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Multi-Server Chips (Only display when the channel actually has more than 1 server available)
+                // Multi-Server Chips (Only display when more than 1 server available)
                 if (servers.size > 1) {
                     Text(
                         text = "সার্ভার নির্বাচন (${servers.size} টি সার্ভার উপলব্ধ):",
@@ -1411,7 +1450,7 @@ fun VideoPlayerScreen(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Icon(
-                                        imageVector = if (isSelected) Icons.Rounded.CheckCircle else Icons.Rounded.Dns,
+                                        imageVector = if (isSelected) Icons.Rounded.CheckCircle else if (isMovieOrSeries) Icons.Rounded.Movie else Icons.Rounded.Dns,
                                         contentDescription = null,
                                         tint = if (isSelected) Color.Black else Color(0xFF00E5FF),
                                         modifier = Modifier.size(14.dp)
@@ -1685,6 +1724,186 @@ fun VideoPlayerScreen(
                                                 )
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (isMovieOrSeries) {
+                    // DEDICATED MOVIE & OTT PLATFORM DETAILS & POSTER GRID VIEW
+                    val moviePlaylist = playlist.filter {
+                        it.type == MediaType.MOVIE ||
+                        it.type == MediaType.SERIES ||
+                        it.tournament == "NAFI_OTT" ||
+                        (it.category ?: "").contains("Movie", ignoreCase = true) ||
+                        (it.category ?: "").contains("OTT", ignoreCase = true) ||
+                        (it.category ?: "").contains("Series", ignoreCase = true) ||
+                        (it.category ?: "").contains("Drama", ignoreCase = true) ||
+                        (it.category ?: "").contains("Anime", ignoreCase = true)
+                    }
+
+                    // Synopsis / Storyline
+                    if (!currentMedia.description.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "📖 কাহিনী সংক্ষেপ (Storyline):",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = currentMedia.description!!,
+                                    color = Color(0xFFCBD5E1),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = if (currentMedia.tournament == "NAFI_OTT" || (currentMedia.category ?: "").contains("OTT", ignoreCase = true))
+                            "🎬 NAFI OTT প্ল্যাটফর্ম মুভি সমূহ (${moviePlaylist.size}):"
+                        else
+                            "🎬 আরও মুভি ও সিরিজসমূহ (${moviePlaylist.size}):",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(if (moviePlaylist.isNotEmpty()) moviePlaylist else playlist) { movie ->
+                            val isCurrent = movie.id == currentMedia.id || movie.streamUrl == currentMedia.streamUrl
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (!isCurrent) {
+                                            isBuffering = true
+                                            currentMedia = movie
+                                            selectedServerIndex = 0
+                                            val newServers = movie.getAllServers()
+                                            currentUrl = newServers.firstOrNull()?.url ?: movie.streamUrl
+                                            errorMessage = null
+                                            onSelectMedia(movie)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isCurrent) Color(0xFF1E3A8A) else Color(0xFF131D33)
+                                ),
+                                border = if (isCurrent)
+                                    androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                                else
+                                    androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    // Movie Vertical Poster Box
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(135.dp)
+                                            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                                            .background(Color(0xFF1E293B)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (!movie.logoUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = movie.logoUrl,
+                                                contentDescription = movie.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Movie,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E5FF),
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        }
+
+                                        // Quality / OTT Badge on top left
+                                        Surface(
+                                            color = if (movie.tournament == "NAFI_OTT" || (movie.category ?: "").contains("OTT", ignoreCase = true)) Color(0xFFE50914) else Color(0xFF0F172A).copy(alpha = 0.85f),
+                                            shape = RoundedCornerShape(bottomEnd = 6.dp),
+                                            modifier = Modifier.align(Alignment.TopStart)
+                                        ) {
+                                            Text(
+                                                text = if (movie.tournament == "NAFI_OTT") "OTT" else (movie.quality ?: "HD"),
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            )
+                                        }
+
+                                        // Currently Playing Indicator Overlay
+                                        if (isCurrent) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(Color(0xFF00E5FF).copy(alpha = 0.25f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = Color(0xFF00E5FF)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.PlayArrow,
+                                                        contentDescription = null,
+                                                        tint = Color.Black,
+                                                        modifier = Modifier
+                                                            .padding(6.dp)
+                                                            .size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Movie Title & Category below poster
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 6.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = movie.title,
+                                            color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = movie.category ?: "Cinema",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 9.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
