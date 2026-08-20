@@ -63,7 +63,7 @@ fun CloudStreamHomeScreen(
     var fetchErrorMessage by remember { mutableStateOf<String?>(null) }
 
     val categoryTabs = listOf(
-        "All", "Bongo BD", "MLSBD", "Trending", "Popular", "Top Rated", "Now Playing",
+        "All", "Trending", "Popular", "Top Rated", "Now Playing",
         "Bollywood", "Bangla", "South Indian", "Action", "Sci-Fi",
         "Horror", "Comedy", "Animation", "Drama", "NAFI OTT PLATFORM"
     )
