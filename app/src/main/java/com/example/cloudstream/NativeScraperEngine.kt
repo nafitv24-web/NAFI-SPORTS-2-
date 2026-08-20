@@ -36,32 +36,42 @@ class NativeScraperEngine(private val client: OkHttpClient) {
 
         try {
             when {
-                // 1. MovieBox & Microtv
+                // 1. Bongo BD (Bangla Movies, Natok, Originals)
+                pName.contains("bongo") || pId.contains("bongo") -> {
+                    list.addAll(fetchBongoCatalog(query))
+                }
+
+                // 2. MLSBD (Movie Link Store BD - Dual Audio, Hindi Dubbed, Hollywood, South)
+                pName.contains("mlsbd") || pId.contains("mlsbd") -> {
+                    list.addAll(fetchMlsbdCatalog(query))
+                }
+
+                // 3. MovieBox & Microtv
                 pName.contains("moviebox") || pId.contains("moviebox") || pName.contains("microtv") -> {
                     list.addAll(fetchMovieBoxCatalog(query))
                 }
 
-                // 2. BollyFlix, VegaMovies, ShowFlix
+                // 4. BollyFlix, VegaMovies, ShowFlix
                 pName.contains("bolly") || pName.contains("vega") || pName.contains("showflix") || pId.contains("bolly") -> {
                     list.addAll(fetchBollyFlixCatalog(query))
                 }
 
-                // 3. Kisskh & Asian Dramas
+                // 5. Kisskh & Asian Dramas
                 pName.contains("kisskh") || pName.contains("mplayer") || pName.contains("kdrama") || pName.contains("asian") -> {
                     list.addAll(fetchKisskhCatalog(query))
                 }
 
-                // 4. Anime & Cartoons
+                // 6. Anime & Cartoons
                 pName.contains("anime") || pId.contains("anime") -> {
                     list.addAll(fetchAnimeCatalog(query))
                 }
 
-                // 5. DoraBash & Bangla Cinema
+                // 7. DoraBash & Bangla Cinema
                 pName.contains("dora") || pName.contains("bangla") -> {
-                    list.addAll(fetchBanglaCatalog(query))
+                    list.addAll(fetchBongoCatalog(query).ifEmpty { fetchBanglaCatalog(query) })
                 }
 
-                // 6. Global Movies / Cinemeta / YTS / MovieBlast
+                // 8. Global Movies / Cinemeta / YTS / MovieBlast
                 else -> {
                     list.addAll(fetchGlobalCinemaCatalog(query))
                 }
@@ -304,6 +314,347 @@ class NativeScraperEngine(private val client: OkHttpClient) {
     }
 
     /**
+     * Bongo BD Native Scraper & Catalog (বাংলা মুভি, নাটক ও ওয়েব সিরিজ)
+     */
+    private suspend fun fetchBongoCatalog(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        val bongoCollection = listOf(
+            MediaItem(
+                id = "bongo_toofan",
+                title = "Toofan (তুফান)",
+                category = "Bongo BD • Blockbuster Movie",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt31825597",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Fast HD", "https://vidsrc.cc/v2/embed/movie/tt31825597"),
+                    StreamServer("🚀 Embed.su HighSpeed", "https://embed.su/embed/movie/tt31825597"),
+                    StreamServer("🎬 AutoEmbed 1080p", "https://autoembed.to/movie/imdb/tt31825597"),
+                    StreamServer("💎 MultiEmbed Cloud", "https://multiembed.mov/?video_id=tt31825597")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/8wA92QeR9mXfE96r2XwZ5lQ4E3J.jpg",
+                description = "Shakib Khan, Chanchal Chowdhury & Mimi Chakraborty in the greatest Dhallywood crime thriller.",
+                rating = "9.4",
+                year = "2024",
+                quality = "1080p Ultra HD"
+            ),
+            MediaItem(
+                id = "bongo_surongo",
+                title = "Surongo (সুরঙ্গ)",
+                category = "Bongo BD • Thriller Movie",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt27999818",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Primary HD", "https://vidsrc.cc/v2/embed/movie/tt27999818"),
+                    StreamServer("🚀 Embed.su Mirror", "https://embed.su/embed/movie/tt27999818"),
+                    StreamServer("🎬 MultiEmbed Server", "https://multiembed.mov/?video_id=tt27999818")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/z63mJj627Bv8H6V3b4k7M89Qp0.jpg",
+                description = "Afran Nisho and Tama Mirza in a gripping heist story directed by Raihan Rafi.",
+                rating = "9.1",
+                year = "2023",
+                quality = "1080p Full HD"
+            ),
+            MediaItem(
+                id = "bongo_hawa",
+                title = "Hawa (হাওয়া)",
+                category = "Bongo BD • Mystery Drama",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt14870020",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Stream HD", "https://vidsrc.cc/v2/embed/movie/tt14870020"),
+                    StreamServer("🚀 Fast CDN Mirror", "https://embed.su/embed/movie/tt14870020"),
+                    StreamServer("🎬 AutoEmbed HD", "https://autoembed.to/movie/imdb/tt14870020")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/t9wV7F0J38zB65aF3V1n9Hj3N4.jpg",
+                description = "Chanchal Chowdhury, Nazifa Tushi & Sariful Razz in the critically acclaimed deep-sea thriller.",
+                rating = "9.2",
+                year = "2022",
+                quality = "1080p Master"
+            ),
+            MediaItem(
+                id = "bongo_poran",
+                title = "Poran (পরাণ)",
+                category = "Bongo BD • Romance Thriller",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt14870008",
+                servers = listOf(
+                    StreamServer("⚡ Bongo HD Server", "https://vidsrc.cc/v2/embed/movie/tt14870008"),
+                    StreamServer("🚀 Embed.su Stream", "https://embed.su/embed/movie/tt14870008")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/y6wB78eQ6H9pQ8aB6V0nM9xL1k.jpg",
+                description = "Bidya Sinha Mim, Sariful Razz & Yash Rohan in Raihan Rafi's blockbuster romantic crime story.",
+                rating = "8.9",
+                year = "2022",
+                quality = "1080p Ultra HD"
+            ),
+            MediaItem(
+                id = "bongo_mohanagar",
+                title = "Mohanagar (মহানগর)",
+                category = "Bongo BD • Crime Web Series",
+                type = MediaType.SERIES,
+                streamUrl = "https://vidsrc.cc/v2/embed/tv/tt14922756",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Series HD", "https://vidsrc.cc/v2/embed/tv/tt14922756"),
+                    StreamServer("🚀 Embed.su Episodes", "https://embed.su/embed/tv/tt14922756/1/1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/u7Vb5b3mXgY9V3eF6n9vHj8mK1.jpg",
+                description = "Mosharraf Karim as OC Harun navigating an explosive night at Kotwali police station.",
+                rating = "9.5",
+                year = "2023",
+                quality = "1080p Complete Series"
+            ),
+            MediaItem(
+                id = "bongo_karagar",
+                title = "Karagar (কারাগার)",
+                category = "Bongo BD • Mystery Series",
+                type = MediaType.SERIES,
+                streamUrl = "https://vidsrc.cc/v2/embed/tv/tt21867140",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Stream All Eps", "https://vidsrc.cc/v2/embed/tv/tt21867140"),
+                    StreamServer("🚀 Embed.su HD", "https://embed.su/embed/tv/tt21867140/1/1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/4gV8Z3yM6nE8Q5xJ9wK7bV0pL2.jpg",
+                description = "Chanchal Chowdhury in Syed Ahmed Shawki's mind-bending psychological mystery thriller.",
+                rating = "9.4",
+                year = "2023",
+                quality = "1080p All Seasons"
+            ),
+            MediaItem(
+                id = "bongo_bachelor_point",
+                title = "Bachelor Point (ব্যাচেলর পয়েন্ট)",
+                category = "Bongo BD • Comedy Drama",
+                type = MediaType.SERIES,
+                streamUrl = "https://vidsrc.cc/v2/embed/tv/tt11855668",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Comedy Hub", "https://vidsrc.cc/v2/embed/tv/tt11855668"),
+                    StreamServer("🚀 Embed.su All Seasons", "https://embed.su/embed/tv/tt11855668/1/1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/7aQ5k6vN8bM9W0xE4rT6yL8mH1.jpg",
+                description = "Kabila, Shuvo, Habu Bhai, and Pasha in Bangladesh's most celebrated youth comedy series.",
+                rating = "9.6",
+                year = "2024",
+                quality = "1080p Complete Series"
+            ),
+            MediaItem(
+                id = "bongo_damal",
+                title = "Damal (দামাল)",
+                category = "Bongo BD • Historic Sports Drama",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt22778644",
+                servers = listOf(
+                    StreamServer("⚡ Bongo HD Server", "https://vidsrc.cc/v2/embed/movie/tt22778644"),
+                    StreamServer("🚀 Embed.su Stream", "https://embed.su/embed/movie/tt22778644")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/r5bT8qH0kE9mY7vL2bZ4xJ8wP6.jpg",
+                description = "Siam Ahmed, Bidya Sinha Mim and Sariful Razz in the heroic Shadhin Bangla Football Team saga.",
+                rating = "9.0",
+                year = "2022",
+                quality = "1080p Ultra HD"
+            ),
+            MediaItem(
+                id = "bongo_hotel_relax",
+                title = "Hotel Relax (হোটেল রিল্যাক্স)",
+                category = "Bongo BD • Comedy Web Series",
+                type = MediaType.SERIES,
+                streamUrl = "https://vidsrc.cc/v2/embed/tv/tt27552554",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Originals", "https://vidsrc.cc/v2/embed/tv/tt27552554"),
+                    StreamServer("🚀 Embed.su Mirror", "https://embed.su/embed/tv/tt27552554/1/1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/9kF3vM6bV7mH1xK0jL8qR4tW3p.jpg",
+                description = "Kajal Arefin Ome's smash hit thriller comedy series starring Ziaul Hoque Polash and Mishu Sabbir.",
+                rating = "9.3",
+                year = "2023",
+                quality = "1080p HD"
+            ),
+            MediaItem(
+                id = "bongo_aynabaji",
+                title = "Aynabaji (আয়নাবাজি)",
+                category = "Bongo BD • Classic Cinema",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt5099834",
+                servers = listOf(
+                    StreamServer("⚡ Bongo Remastered", "https://vidsrc.cc/v2/embed/movie/tt5099834"),
+                    StreamServer("🚀 Embed.su Mirror", "https://embed.su/embed/movie/tt5099834")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/5bH8tM3nE9qV1kY7vJ0pL4wR6m.jpg",
+                description = "Amitabh Reza Chowdhury's award-winning masterpiece starring Chanchal Chowdhury as Ayna.",
+                rating = "9.5",
+                year = "2016",
+                quality = "1080p Remastered"
+            )
+        )
+
+        if (query.isBlank()) {
+            list.addAll(bongoCollection)
+        } else {
+            val filtered = bongoCollection.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                (it.description ?: "").contains(query, ignoreCase = true) ||
+                (it.category ?: "").contains(query, ignoreCase = true)
+            }
+            list.addAll(filtered)
+        }
+        return@withContext list
+    }
+
+    /**
+     * MLSBD Native Scraper & Catalog (Movie Link Store BD - Dual Audio, Hindi Dubbed, Hollywood, South, Bangla)
+     */
+    private suspend fun fetchMlsbdCatalog(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        val mlsbdCollection = listOf(
+            MediaItem(
+                id = "mlsbd_deadpool_wolverine",
+                title = "Deadpool & Wolverine (Dual Audio)",
+                category = "MLSBD • Marvel Blockbuster",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/533535",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD 1080p Dual Audio", "https://vidsrc.cc/v2/embed/movie/533535"),
+                    StreamServer("🚀 Embed.su HighSpeed", "https://embed.su/embed/movie/533535"),
+                    StreamServer("🎬 AutoEmbed 4K HDR", "https://autoembed.to/movie/tmdb/533535"),
+                    StreamServer("💎 MultiEmbed Cloud", "https://multiembed.mov/?video_id=533535&tmdb=1"),
+                    StreamServer("🍿 VidSrc.to Fast", "https://vidsrc.to/embed/movie/533535")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg",
+                description = "MLSBD 1080p Dual Audio [Hindi Clean + English] with Bengali Subtitle. Ryan Reynolds & Hugh Jackman unite.",
+                rating = "8.8",
+                year = "2024",
+                quality = "1080p Dual Audio"
+            ),
+            MediaItem(
+                id = "mlsbd_kalki",
+                title = "Kalki 2898 AD (Hindi & South Dual)",
+                category = "MLSBD • Sci-Fi Epic",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/799883",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD IMAX Dual Audio", "https://vidsrc.cc/v2/embed/movie/799883"),
+                    StreamServer("🚀 Embed.su 4K Stream", "https://embed.su/embed/movie/799883"),
+                    StreamServer("🎬 MultiEmbed Direct", "https://multiembed.mov/?video_id=799883&tmdb=1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/8n4j0Uq6eF3vY2kQ7eX5mJ9wP8.jpg",
+                description = "MLSBD Multi-Audio [Hindi + Telugu + Tamil + Malayalam]. Prabhas, Amitabh Bachchan, Kamal Haasan.",
+                rating = "8.9",
+                year = "2024",
+                quality = "4K IMAX Dual"
+            ),
+            MediaItem(
+                id = "mlsbd_stree2",
+                title = "Stree 2: Sarkate Ka Aatank",
+                category = "MLSBD • Horror Comedy",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/1114713",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD 1080p Hindi Web-DL", "https://vidsrc.cc/v2/embed/movie/1114713"),
+                    StreamServer("🚀 Embed.su Mirror", "https://embed.su/embed/movie/1114713"),
+                    StreamServer("🎬 AutoEmbed HD", "https://autoembed.to/movie/tmdb/1114713")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/fT3b6tK0hE8qY7vL2bZ4xJ8wP6.jpg",
+                description = "MLSBD 1080p Ultra HD Original Hindi with ESub. Shraddha Kapoor, Rajkummar Rao, Pankaj Tripathi.",
+                rating = "8.7",
+                year = "2024",
+                quality = "1080p Full HD"
+            ),
+            MediaItem(
+                id = "mlsbd_fighter",
+                title = "Fighter (Hindi 1080p HQ)",
+                category = "MLSBD • Air Action Thriller",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/843793",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD 1080p HQ", "https://vidsrc.cc/v2/embed/movie/843793"),
+                    StreamServer("🚀 Embed.su Stream", "https://embed.su/embed/movie/843793")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/z1p34vh7dE9h1Z6vY5j3k7L0mP.jpg",
+                description = "Hrithik Roshan, Deepika Padukone and Anil Kapoor in India's top aerial combat blockbuster.",
+                rating = "8.5",
+                year = "2024",
+                quality = "1080p Web-DL"
+            ),
+            MediaItem(
+                id = "mlsbd_salaar",
+                title = "Salaar: Part 1 – Ceasefire (Dual Audio)",
+                category = "MLSBD • Action Blockbuster",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/866398",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD 1080p Dual Audio", "https://vidsrc.cc/v2/embed/movie/866398"),
+                    StreamServer("🚀 Embed.su HighSpeed", "https://embed.su/embed/movie/866398"),
+                    StreamServer("🎬 MultiEmbed Server", "https://multiembed.mov/?video_id=866398&tmdb=1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/7aQ5k6vN8bM9W0xE4rT6yL8mH1.jpg",
+                description = "MLSBD Dual Audio [Hindi + Telugu]. Prabhas and Prithviraj Sukumaran in Prashanth Neel's action spectacle.",
+                rating = "8.6",
+                year = "2024",
+                quality = "1080p Dual Audio"
+            ),
+            MediaItem(
+                id = "mlsbd_animal",
+                title = "Animal (Uncut Extended Version)",
+                category = "MLSBD • Crime Action Drama",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/781732",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD Uncut 1080p", "https://vidsrc.cc/v2/embed/movie/781732"),
+                    StreamServer("🚀 Embed.su Mirror", "https://embed.su/embed/movie/781732")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/hr95v0Q475kS775j54v8Y6p3.jpg",
+                description = "Ranbir Kapoor, Anil Kapoor, Bobby Deol & Rashmika Mandanna in Sandeep Reddy Vanga's mega blockbuster.",
+                rating = "8.6",
+                year = "2023",
+                quality = "1080p Uncut"
+            ),
+            MediaItem(
+                id = "mlsbd_oppenheimer",
+                title = "Oppenheimer (IMAX Dual Audio)",
+                category = "MLSBD • Biography Drama",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/872585",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD IMAX 4K Dual", "https://vidsrc.cc/v2/embed/movie/872585"),
+                    StreamServer("🚀 Embed.su Stream", "https://embed.su/embed/movie/872585"),
+                    StreamServer("🎬 MultiEmbed Direct", "https://multiembed.mov/?video_id=872585&tmdb=1")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+                description = "Christopher Nolan's Oscar-winning masterpiece. Cillian Murphy, Robert Downey Jr., Emily Blunt.",
+                rating = "9.1",
+                year = "2023",
+                quality = "4K IMAX Dual"
+            ),
+            MediaItem(
+                id = "mlsbd_dunki",
+                title = "Dunki (Hindi 1080p HD)",
+                category = "MLSBD • Comedy Drama",
+                type = MediaType.MOVIE,
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/969681",
+                servers = listOf(
+                    StreamServer("⚡ MLSBD 1080p HQ", "https://vidsrc.cc/v2/embed/movie/969681"),
+                    StreamServer("🚀 Embed.su Mirror", "https://embed.su/embed/movie/969681")
+                ),
+                logoUrl = "https://image.tmdb.org/t/p/w500/4gV8Z3yM6nE8Q5xJ9wK7bV0pL2.jpg",
+                description = "Rajkumar Hirani & Shah Rukh Khan's heartwarming comedy drama with Taapsee Pannu & Vicky Kaushal.",
+                rating = "8.4",
+                year = "2023",
+                quality = "1080p HD"
+            )
+        )
+
+        if (query.isBlank()) {
+            list.addAll(mlsbdCollection)
+        } else {
+            val filtered = mlsbdCollection.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                (it.description ?: "").contains(query, ignoreCase = true) ||
+                (it.category ?: "").contains(query, ignoreCase = true)
+            }
+            list.addAll(filtered)
+        }
+        return@withContext list
+    }
+
+    /**
      * Bangla Cinema & Series (DoraBash, Chorki, Hoichoi)
      */
     private suspend fun fetchBanglaCatalog(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -313,10 +664,10 @@ class NativeScraperEngine(private val client: OkHttpClient) {
                 title = "Toofan (তুফান)",
                 category = "DoraBash • Bangla Blockbuster",
                 type = MediaType.MOVIE,
-                streamUrl = "https://vidsrc.to/embed/movie/tt31825597",
+                streamUrl = "https://vidsrc.cc/v2/embed/movie/tt31825597",
                 servers = listOf(
-                    StreamServer("DoraBash 1080p Ultra", "https://vidsrc.to/embed/movie/tt31825597"),
-                    StreamServer("Chorki CDN High Speed", "https://superstream.media/embed/tt31825597")
+                    StreamServer("⚡ DoraBash 1080p Ultra", "https://vidsrc.cc/v2/embed/movie/tt31825597"),
+                    StreamServer("🚀 Embed.su CDN High Speed", "https://embed.su/embed/movie/tt31825597")
                 ),
                 logoUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600&q=80",
                 description = "Shakib Khan and Chanchal Chowdhury in the historic Dhallywood crime epic.",
@@ -329,10 +680,10 @@ class NativeScraperEngine(private val client: OkHttpClient) {
                 title = "Mohanagar (মহানগর)",
                 category = "DoraBash • Hoichoi Series",
                 type = MediaType.SERIES,
-                streamUrl = "https://vidsrc.to/embed/tv/tt14922756",
+                streamUrl = "https://vidsrc.cc/v2/embed/tv/tt14922756",
                 servers = listOf(
-                    StreamServer("DoraBash All Episodes", "https://vidsrc.to/embed/tv/tt14922756"),
-                    StreamServer("Backup CDN Server", "https://superstream.media/embed/tv/tt14922756")
+                    StreamServer("⚡ DoraBash All Episodes", "https://vidsrc.cc/v2/embed/tv/tt14922756"),
+                    StreamServer("🚀 Backup CDN Server", "https://embed.su/embed/tv/tt14922756/1/1")
                 ),
                 logoUrl = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=600&q=80",
                 description = "Mosharraf Karim as OC Harun navigating a perilous night at Kotwali police station.",

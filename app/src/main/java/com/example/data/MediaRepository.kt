@@ -54,6 +54,32 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_MOVIES_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/NFmovie.m3u"
         const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
         const val DEFAULT_ADMIN_PIN = "40541273"
+
+        val BONGO_PROVIDER = MovieProvider(
+            id = "bongo_bd",
+            name = "Bongo BD (বঙ্গ বিডি)",
+            description = "Bongo BD • বাংলা সিনেমা, এক্সক্লুসিভ নাটক ও ওয়েব সিরিজ",
+            iconUrl = "https://image.tmdb.org/t/p/w500/8wA92QeR9mXfE96r2XwZ5lQ4E3J.jpg",
+            siteUrl = "https://bongobd.com",
+            types = listOf("Movie", "Series", "Bangla", "Natok"),
+            language = "Bangla",
+            isInstalled = true,
+            isEnabled = true,
+            repoName = "Bangla OTT"
+        )
+
+        val MLSBD_PROVIDER = MovieProvider(
+            id = "mlsbd_movies",
+            name = "MLSBD (Movie Link Store BD)",
+            description = "MLSBD • লেটেস্ট বলিউড, হলিউড ও সাউথ ডুয়েল অডিও HD মুভি",
+            iconUrl = "https://image.tmdb.org/t/p/w500/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg",
+            siteUrl = "https://mlsbd.shop",
+            types = listOf("Movie", "Series", "Dual Audio", "Hindi Dubbed"),
+            language = "Dual Audio",
+            isInstalled = true,
+            isEnabled = true,
+            repoName = "MLSBD Hub"
+        )
     }
 
     // Admin Privacy / PIN Management
@@ -2401,6 +2427,8 @@ class MediaRepository(private val context: Context) {
         val customProviders = getCustomMovieProviders()
         val list = mutableListOf<MovieProvider>()
         list.add(com.example.tmdb.TmdbMovieEngine.TMDB_PROVIDER)
+        list.add(BONGO_PROVIDER)
+        list.add(MLSBD_PROVIDER)
         list.addAll(repoProviders)
         list.addAll(customProviders)
         return list.distinctBy { it.id }
@@ -2851,9 +2879,23 @@ class MediaRepository(private val context: Context) {
             userPriorityList.addAll(userFb)
 
             // =========================================================================
-            // 2. TMDB MOVIE ENGINE (Verified Official TMDB API Integration for Movies)
+            // 2. TMDB MOVIE ENGINE & SPECIAL PROVIDER ROUTING (Bongo BD / MLSBD / TMDB)
             // =========================================================================
-            if (provider == null || provider.id == "tmdb_movie_engine" || provider.name.contains("TMDB", ignoreCase = true)) {
+            if (typeFilter.contains("Bongo", ignoreCase = true) || provider?.id == "bongo_bd") {
+                try {
+                    val bongoMovies = nativeScraperEngine.fetchCatalog(BONGO_PROVIDER, query, typeFilter)
+                    extensionList.addAll(bongoMovies)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else if (typeFilter.contains("MLSBD", ignoreCase = true) || provider?.id == "mlsbd_movies") {
+                try {
+                    val mlsbdMovies = nativeScraperEngine.fetchCatalog(MLSBD_PROVIDER, query, typeFilter)
+                    extensionList.addAll(mlsbdMovies)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else if (provider == null || provider.id == "tmdb_movie_engine" || provider.name.contains("TMDB", ignoreCase = true)) {
                 try {
                     val tmdbMovies = if ((typeFilter.equals("All", ignoreCase = true) || typeFilter.isBlank()) && query.isBlank()) {
                         tmdbMovieEngine.fetchAllHomeMovies()
@@ -2881,6 +2923,14 @@ class MediaRepository(private val context: Context) {
                     }
                     if (tmdbMovies.isNotEmpty()) {
                         extensionList.addAll(tmdbMovies)
+                    }
+
+                    // Also supplement "Bangla" tab with Bongo BD top items
+                    if (typeFilter.contains("Bangla", ignoreCase = true)) {
+                        try {
+                            val bongoBangla = nativeScraperEngine.fetchCatalog(BONGO_PROVIDER, query, typeFilter)
+                            extensionList.addAll(0, bongoBangla)
+                        } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
