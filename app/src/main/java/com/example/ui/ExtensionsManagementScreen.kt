@@ -65,8 +65,8 @@ fun ExtensionsManagementScreen(
 
     // Dialog states
     var showAddRepoDialog by remember { mutableStateOf(false) }
-    var newRepoUrl by remember { mutableStateOf("cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json") }
-    var newRepoName by remember { mutableStateOf("Phisher Repo") }
+    var newRepoUrl by remember { mutableStateOf("https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json") }
+    var newRepoName by remember { mutableStateOf("Hexated Streams") }
     var isSyncing by remember { mutableStateOf(false) }
     var isBatchInstalling by remember { mutableStateOf(false) }
 
@@ -201,15 +201,12 @@ fun ExtensionsManagementScreen(
                     .padding(paddingValues),
                 contentPadding = PaddingValues(bottom = 90.dp)
             ) {
-                // 1-CLICK HERO INSTALL CARD FOR PHISHER REPO (User Requested)
+                // HERO CARD: TMDB MOVIE CINEMA ENGINE (Configured for Movies)
                 item {
-                    val phisherRepoUrl = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json"
-                    val isPhisherInstalled = repos.any { it.url.contains("phisher", ignoreCase = true) || it.name.contains("Phisher", ignoreCase = true) }
-                    
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = Color(0xFF0F172A),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
+                        color = Color(0xFF0D1B2A),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF01B4E4)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -225,16 +222,16 @@ fun ExtensionsManagementScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(46.dp)
+                                        .size(48.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF2563EB)))),
+                                        .background(Brush.linearGradient(listOf(Color(0xFF01B4E4), Color(0xFF90CEA1)))),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.CloudDownload,
+                                        imageVector = Icons.Rounded.Movie,
                                         contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(26.dp)
+                                        tint = Color(0xFF0D1B2A),
+                                        modifier = Modifier.size(28.dp)
                                     )
                                 }
 
@@ -243,7 +240,7 @@ fun ExtensionsManagementScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = "Phisher Repo Hub",
+                                            text = "TMDB Movies Cinema Hub",
                                             color = Color.White,
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.ExtraBold
@@ -254,7 +251,7 @@ fun ExtensionsManagementScreen(
                                             color = Color(0xFF10B981).copy(alpha = 0.2f)
                                         ) {
                                             Text(
-                                                text = "20+ Providers",
+                                                text = "ACTIVE",
                                                 color = Color(0xFF10B981),
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -264,13 +261,42 @@ fun ExtensionsManagementScreen(
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "MovieBox, Microtv, MovieBlast, MPlayer, Loklok, YTS, Chorki, Kisskh ইত্যাদি সকল এক্সটেনশন",
-                                        color = Color(0xFF94A3B8),
+                                        text = "শুধুমাত্র মুভি দেখার জন্য • The Movie Database (TMDB v3)",
+                                        color = Color(0xFF90CEA1),
                                         fontSize = 11.sp,
-                                        lineHeight = 14.sp
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // CFG CODE BADGE
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF030712),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "const CFG = {\n  API_KEY: '05902896074695709d7763505bb88b4d',\n  BASE: 'https://api.themoviedb.org/3'\n}",
+                                        color = Color(0xFF38BDF8),
+                                        fontSize = 11.sp,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(
+                                text = "Trending, Popular, Top Rated, Now Playing, Bollywood, Bangla, Action, Sci-Fi, Horror এবং 8+ HD মাল্টি-সার্ভার স্ট্রিমিং লিঙ্ক সংযুক্ত।",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -282,52 +308,50 @@ fun ExtensionsManagementScreen(
                                     onClick = {
                                         coroutineScope.launch {
                                             isBatchInstalling = true
-                                            val res = repository.installExtensionFromUrl(phisherRepoUrl)
-                                            refreshExtensions()
+                                            val tmdbTest = repository.tmdbMovieEngine.fetchMovies(category = "Trending", page = 1)
                                             isBatchInstalling = false
-                                            Toast.makeText(context, "✅ ${res.second}", Toast.LENGTH_LONG).show()
+                                            if (tmdbTest.isNotEmpty()) {
+                                                Toast.makeText(context, "✅ TMDB Connected! ${tmdbTest.size} টি ট্রেন্ডিং মুভি লোড হয়েছে", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "⚠️ TMDB রেসপন্স চেক করুন", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     },
                                     enabled = !isBatchInstalling,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF00E5FF),
-                                        contentColor = Color.Black
+                                        containerColor = Color(0xFF01B4E4),
+                                        contentColor = Color(0xFF0D1B2A)
                                     ),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f).height(40.dp)
                                 ) {
                                     if (isBatchInstalling) {
                                         CircularProgressIndicator(
-                                            color = Color.Black,
+                                            color = Color(0xFF0D1B2A),
                                             strokeWidth = 2.dp,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     } else {
-                                        Icon(Icons.Rounded.DownloadDone, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            if (isPhisherInstalled) "Update All Extensions" else "Install All 20+ Extensions",
+                                            "Sync & Refresh TMDB",
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 12.sp
                                         )
                                     }
                                 }
 
-                                if (isPhisherInstalled) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            val target = repos.firstOrNull { it.url.contains("phisher", ignoreCase = true) || it.name.contains("Phisher", ignoreCase = true) }
-                                            if (target != null) {
-                                                selectedRepoForPlugins = target
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                                        modifier = Modifier.height(40.dp)
-                                    ) {
-                                        Text("Open Repo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                OutlinedButton(
+                                    onClick = {
+                                        onOpenMovieBrowser?.invoke(com.example.tmdb.TmdbMovieEngine.TMDB_PROVIDER)
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF90CEA1)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF01B4E4)),
+                                    modifier = Modifier.height(40.dp)
+                                ) {
+                                    Text("Open Cinema Hub", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -423,8 +447,8 @@ fun ExtensionsManagementScreen(
 
                 item {
                     val presets = listOf(
-                        Triple("Phisher Repo", "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json", "Multi-Language, Bangla, Hindi & Anime Extensions"),
                         Triple("Hexated Streams Repo", "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json", "Ultra Fast Hollywood & 4K Multi-Server Cinema"),
+                        Triple("Storm Extensions Repo", "https://raw.githubusercontent.com/stormunblessed/cloudstream-extensions-storm/refs/heads/builds/repo.json", "Multi-Server International & Anime Extensions"),
                         Triple("Bangla & Bollywood Hub", "https://raw.githubusercontent.com/cloudstream-bangla/repo/main/repo.json", "Chorki, Bioscope, Bongo & Indian HD Media")
                     )
 
@@ -996,12 +1020,12 @@ fun ExtensionsManagementScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable {
-                                    newRepoName = "Phisher Repo"
-                                    newRepoUrl = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json"
+                                    newRepoName = "Hexated Streams"
+                                    newRepoUrl = "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json"
                                 }
                         ) {
                             Text(
-                                "⚡ Phisher",
+                                "⚡ Hexated",
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1016,12 +1040,12 @@ fun ExtensionsManagementScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable {
-                                    newRepoName = "Hexated Streams"
-                                    newRepoUrl = "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json"
+                                    newRepoName = "Storm Repo"
+                                    newRepoUrl = "cloudstreamrepo://raw.githubusercontent.com/stormunblessed/cloudstream-extensions-storm/refs/heads/builds/repo.json"
                                 }
                         ) {
                             Text(
-                                "Hexated",
+                                "Storm",
                                 color = Color(0xFFE2E8F0),
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)

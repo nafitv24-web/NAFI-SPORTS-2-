@@ -77,9 +77,8 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
             val fileName = "$cleanName.cs3"
             val candidateUrls = listOf(
                 if (provider.siteUrl.endsWith(".cs3", ignoreCase = true)) provider.siteUrl else null,
-                "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/$cleanName.cs3",
-                "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/${provider.name}.cs3",
-                "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/$cleanName.cs3"
+                "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/$cleanName.cs3",
+                "https://raw.githubusercontent.com/stormunblessed/cloudstream-extensions-storm/refs/heads/builds/$cleanName.cs3"
             ).filterNotNull()
 
             var downloadedFile: File? = null

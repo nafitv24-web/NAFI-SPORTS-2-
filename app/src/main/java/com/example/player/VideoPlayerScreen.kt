@@ -1022,8 +1022,12 @@ fun VideoPlayerScreen(
 
     if (isFullscreen) {
         // FULLSCREEN LANDSCAPE VIEW (Edge-to-Edge)
-        Box(
-            modifier = playerModifier
+        val fullscreenModifier = if (useWebPlayer) {
+            playerModifier
+                .fillMaxSize()
+                .background(Color.Black)
+        } else {
+            playerModifier
                 .fillMaxSize()
                 .background(Color.Black)
                 .pointerInput(Unit) {
@@ -1093,11 +1097,21 @@ fun VideoPlayerScreen(
                         }
                     )
                 }
+        }
+
+        Box(
+            modifier = fullscreenModifier
         ) {
             if (useWebPlayer) {
                 WebStreamPlayer(
                     embedUrl = currentUrl,
                     title = currentMedia.title,
+                    servers = servers,
+                    selectedServerIndex = selectedServerIndex,
+                    onSelectServer = { idx ->
+                        selectedServerIndex = idx
+                        currentUrl = servers[idx].url
+                    },
                     modifier = Modifier.fillMaxSize(),
                     onDirectStreamDetected = { directStream ->
                         currentUrl = directStream
@@ -1131,7 +1145,7 @@ fun VideoPlayerScreen(
             }
 
             // Buffering Indicator with NAFI TV Logo & Bengali Loading text
-            if (isActuallyBuffering) {
+            if (isActuallyBuffering && !useWebPlayer) {
                 PlayerBufferingIndicator(
                     mediaTitle = currentMedia.title,
                     isInitialLoad = !hasStartedPlaying,
@@ -1443,8 +1457,13 @@ fun VideoPlayerScreen(
             }
 
             // Embedded 16:9 Video Frame
-            Box(
-                modifier = Modifier
+            val portraitVideoModifier = if (useWebPlayer) {
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black)
+            } else {
+                Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .background(Color.Black)
@@ -1515,11 +1534,21 @@ fun VideoPlayerScreen(
                             }
                         )
                     }
+            }
+
+            Box(
+                modifier = portraitVideoModifier
             ) {
                 if (useWebPlayer) {
                     WebStreamPlayer(
                         embedUrl = currentUrl,
                         title = currentMedia.title,
+                        servers = servers,
+                        selectedServerIndex = selectedServerIndex,
+                        onSelectServer = { idx ->
+                            selectedServerIndex = idx
+                            currentUrl = servers[idx].url
+                        },
                         modifier = Modifier.fillMaxSize(),
                         onDirectStreamDetected = { directStream ->
                             currentUrl = directStream
@@ -1687,7 +1716,7 @@ fun VideoPlayerScreen(
                 }
 
                 // Buffering Overlay with NAFI TV Logo & Bengali Loading text
-                if (isActuallyBuffering) {
+                if (isActuallyBuffering && !useWebPlayer) {
                     PlayerBufferingIndicator(
                         mediaTitle = currentMedia.title,
                         isInitialLoad = !hasStartedPlaying,

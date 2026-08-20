@@ -41,6 +41,9 @@ class MediaRepository(private val context: Context) {
     val nativeScraperEngine: com.example.cloudstream.NativeScraperEngine =
         com.example.cloudstream.NativeScraperEngine(client)
 
+    val tmdbMovieEngine: com.example.tmdb.TmdbMovieEngine =
+        com.example.tmdb.TmdbMovieEngine(client)
+
     companion object {
         const val FIREBASE_PROJECT_ID = "nafitv24-live"
         const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
@@ -2095,7 +2098,7 @@ class MediaRepository(private val context: Context) {
                 name = repoName,
                 repoUrl = rawUrl.trim(),
                 description = repoDescription ?: "${enhancedProviders.size} টি মুভি ও সিরিজ প্রোভাইডার উপলব্ধ",
-                iconUrl = repoIcon ?: "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
+                iconUrl = repoIcon ?: "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/icon.png",
                 providers = enhancedProviders,
                 isEnabled = true,
                 lastUpdated = System.currentTimeMillis()
@@ -2103,15 +2106,14 @@ class MediaRepository(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
             // Return fallback repo with synthesized providers if network fails
-            val fallbackRepoName = if (rawUrl.contains("phisher", ignoreCase = true)) "Phisher Repo" else "CloudStream Extension Repo"
-            val fallbackProviders = getInitialPhisherProviders(repoId, fallbackRepoName)
+            val fallbackRepoName = if (rawUrl.contains("hexated", ignoreCase = true)) "Hexated Streams Repo" else "CloudStream Extension Repo"
             CloudStreamRepo(
                 id = repoId,
                 name = fallbackRepoName,
                 repoUrl = rawUrl.trim(),
                 description = "মুভি, সিরিজ ও অ্যানিমে ওয়েবসাইট রিপোজিটরি",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                providers = fallbackProviders,
+                iconUrl = "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/icon.png",
+                providers = emptyList(),
                 isEnabled = true,
                 lastUpdated = System.currentTimeMillis()
             )
@@ -2187,489 +2189,7 @@ class MediaRepository(private val context: Context) {
         return list
     }
 
-    fun getInitialPhisherProviders(repoId: String = "repo_phisher", repoName: String = "Phisher Repo"): List<MovieProvider> {
-        val extensionDefinitions = listOf(
-            MovieProvider(
-                id = "phisher_moviebox",
-                name = "MovieBox",
-                siteUrl = "https://api6.aoneroom.com",
-                description = "Multi Language Movies and Series Provider",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "NivinCNC,Phisher98",
-                version = "26",
-                status = "Ok",
-                size = "72.43 kB",
-                types = listOf("Movie", "TvSeries"),
-                language = "Hindi",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "TvSeries"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_microtv",
-                name = "Microtv",
-                siteUrl = "https://api6.aoneroom.com",
-                description = "Watch short vertical dramas & reels from multiple Indian sources",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v1",
-                status = "Ok",
-                size = "38 kB",
-                types = listOf("Movie", "Series"),
-                language = "Hindi",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_movieblast",
-                name = "MovieBlast",
-                siteUrl = "https://movieblast.to",
-                description = "South Indian, Telugu, Tamil & Hindi Blockbuster Streamer",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v3",
-                status = "Ok",
-                size = "32 kB",
-                types = listOf("Movie", "Series"),
-                language = "Telugu",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_mplayer",
-                name = "MPlayer",
-                siteUrl = "https://mplayer.tv",
-                description = "Indian Movies/Series/Kdrama(Hindi Dubbed)",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v7",
-                status = "Ok",
-                size = "93 kB",
-                types = listOf("Movie", "Series", "KDrama"),
-                language = "Hindi",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_masstamilan",
-                name = "MassTamilan",
-                siteUrl = "https://masstamilan.dev",
-                description = "Indian Multi-language Music & Movie Provider",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v7",
-                status = "Ok",
-                size = "17 kB",
-                types = listOf("Movie", "Music"),
-                language = "Tamil",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Music"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_megakino",
-                name = "Megakino",
-                siteUrl = "https://megakino.top",
-                description = "Movies,Series and Anime German Extension",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v4",
-                status = "Ok",
-                size = "20 kB",
-                types = listOf("Movie", "Series", "Anime"),
-                language = "German",
-                flag = "🇩🇪",
-                supported = listOf("Movie", "Series", "Anime"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_layarkaca",
-                name = "LayarKaca",
-                siteUrl = "https://layarkaca21.vip",
-                description = "Indonesian HD Movie & Drama Streamer",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v7",
-                status = "Ok",
-                size = "21 kB",
-                types = listOf("Movie", "Series"),
-                language = "Indonesian",
-                flag = "🇮🇩",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_latanime",
-                name = "Latanime",
-                siteUrl = "https://latanime.org",
-                description = "(Mexican) Anime Extension",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v3",
-                status = "Ok",
-                size = "14 kB",
-                types = listOf("Anime"),
-                language = "Spanish (Mexico)",
-                flag = "🇲🇽",
-                supported = listOf("Anime"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_showflix",
-                name = "ShowFlix",
-                siteUrl = "https://showflix.in",
-                description = "Watch Hindi, Bollywood & Hollywood Movies & Web Series in HD",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "NivinCNC,Phisher98",
-                version = "v12",
-                status = "Ok",
-                size = "45 kB",
-                types = listOf("Movie", "Series"),
-                language = "Hindi & English",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_multimovies",
-                name = "MultiMovies",
-                siteUrl = "https://multimovies.online",
-                description = "Multi-Audio Hindi Dubbed, South & Dual Audio Cinema",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v8",
-                status = "Ok",
-                size = "50 kB",
-                types = listOf("Movie", "Series"),
-                language = "Multi / Hindi",
-                flag = "🌐",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_vegamovies",
-                name = "Vegamovies",
-                siteUrl = "https://vegamovies.im",
-                description = "VegaMovies - 300MB Dual Audio Hindi Movies & Series",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v15",
-                status = "Ok",
-                size = "48 kB",
-                types = listOf("Movie", "Series"),
-                language = "Hindi Dual Audio",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_bollyflix",
-                name = "BollyFlix",
-                siteUrl = "https://bollyflix.tools",
-                description = "BollyFlix 720p 1080p HEVC Bollywood & Hollywood Dubbed",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v14",
-                status = "Ok",
-                size = "52 kB",
-                types = listOf("Movie", "Series"),
-                language = "Hindi / Bollywood",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_kisskh",
-                name = "Kisskh",
-                siteUrl = "https://kisskh.co",
-                description = "Asian Drama, KDrama, Anime and Subbed HD Series",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v11",
-                status = "Ok",
-                size = "60 kB",
-                types = listOf("Series", "Anime", "KDrama"),
-                language = "English & Multi",
-                flag = "🇰🇷",
-                supported = listOf("Series", "Anime"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_allwish",
-                name = "AllWish",
-                siteUrl = "https://allwish.me",
-                description = "All-in-one Movie, Anime & TV Series Streaming Portal",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v5",
-                status = "Ok",
-                size = "30 kB",
-                types = listOf("Movie", "Series", "Anime"),
-                language = "Multi",
-                flag = "🌐",
-                supported = listOf("Movie", "Series", "Anime"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_dorabash",
-                name = "DoraBash",
-                siteUrl = "https://dorabash.com",
-                description = "High-speed Hindi, Bengali & English Movies Hub",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v6",
-                status = "Ok",
-                size = "36 kB",
-                types = listOf("Movie", "Series"),
-                language = "Bangla & Hindi",
-                flag = "🇧🇩",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_animesalt",
-                name = "Animesalt",
-                siteUrl = "https://animesalt.com",
-                description = "Watch Latest Anime Episodes, Movies & Dual Audio in 1080p",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v9",
-                status = "Ok",
-                size = "40 kB",
-                types = listOf("Anime"),
-                language = "Japanese & English",
-                flag = "🇯🇵",
-                supported = listOf("Anime"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_ringz",
-                name = "Ringz",
-                siteUrl = "https://ringz.in",
-                description = "Hindi, Tamil, Telugu Dubbed Movies & Web Series",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v4",
-                status = "Ok",
-                size = "28 kB",
-                types = listOf("Movie", "Series"),
-                language = "South Dubbed",
-                flag = "🇮🇳",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_cineb",
-                name = "Cineb",
-                siteUrl = "https://cineb.rs",
-                description = "Stream Free Movies and TV Series in Ultra HD Quality",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v7",
-                status = "Ok",
-                size = "35 kB",
-                types = listOf("Movie", "Series"),
-                language = "English",
-                flag = "🇺🇸",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_flixhq",
-                name = "FlixHQ",
-                siteUrl = "https://flixhq.to",
-                description = "Watch Free Movies & TV Series with Zero Ads",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v9",
-                status = "Ok",
-                size = "42 kB",
-                types = listOf("Movie", "Series"),
-                language = "English",
-                flag = "🇺🇸",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_smashystream",
-                name = "SmashyStream",
-                siteUrl = "https://smashystream.com",
-                description = "Top Speed Video Streaming Server for Cinema & Series",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v8",
-                status = "Ok",
-                size = "38 kB",
-                types = listOf("Movie", "Series"),
-                language = "Multi",
-                flag = "⚡",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_loklok",
-                name = "Loklok",
-                siteUrl = "https://loklok.com",
-                description = "Global Popular Movies, KDramas, Anime and Blockbuster Series",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v10",
-                status = "Ok",
-                size = "55 kB",
-                types = listOf("Movie", "Series", "KDrama"),
-                language = "Global",
-                flag = "🌏",
-                supported = listOf("Movie", "Series", "KDrama"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_yts",
-                name = "YTS",
-                siteUrl = "https://yts.mx",
-                description = "The Official Home of YIFY Movies in 720p, 1080p and 4K",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v18",
-                status = "Ok",
-                size = "64 kB",
-                types = listOf("Movie"),
-                language = "English & Subtitles",
-                flag = "🎬",
-                supported = listOf("Movie"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_chorki",
-                name = "Chorki",
-                siteUrl = "https://www.chorki.com",
-                description = "Film, Fun, Foorti - Premium Bangla Original Cinema & Web Series",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v8",
-                status = "Ok",
-                size = "45 kB",
-                types = listOf("Movie", "Series"),
-                language = "Bangla",
-                flag = "🇧🇩",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_bioscopelive",
-                name = "Bioscope Live",
-                siteUrl = "https://www.bioscopelive.com",
-                description = "Bangla Movies, Natok, Originals & Exclusive Cinema",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v6",
-                status = "Ok",
-                size = "38 kB",
-                types = listOf("Movie", "Series"),
-                language = "Bangla",
-                flag = "🇧🇩",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            ),
-            MovieProvider(
-                id = "phisher_bongobd",
-                name = "Bongo BD",
-                siteUrl = "https://bongobd.com",
-                description = "Watch Bangla Movies, Drama & South Dubbed Bangla Films",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                authors = "Phisher98",
-                version = "v7",
-                status = "Ok",
-                size = "40 kB",
-                types = listOf("Movie", "Series"),
-                language = "Bangla",
-                flag = "🇧🇩",
-                supported = listOf("Movie", "Series"),
-                isInstalled = true,
-                isEnabled = true,
-                repoId = repoId,
-                repoName = repoName
-            )
-        )
-        return extensionDefinitions.map { prov ->
-            val isDownloaded = dexPluginManager.isPluginDownloaded(prov)
-            prov.copy(isInstalled = isDownloaded, isEnabled = isDownloaded)
-        }
-    }
+    fun getInitialPhisherProviders(repoId: String = "repo", repoName: String = "Repo"): List<MovieProvider> = emptyList()
 
     // -------------------------------------------------------------
     // LOCAL PERSISTENCE FOR CLOUDSTREAM REPOSITORIES & MOVIE SITES
@@ -2731,19 +2251,14 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        // If user has never added any repo, return default Phisher Repo preset
-        if (list.isEmpty()) {
-            val defaultPhisher = CloudStreamRepo(
-                id = "repo_phisher_default",
-                name = "Phisher Repo",
-                repoUrl = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json",
-                description = "Phisher Extensions: ২০+ মুভি, সিরিজ ও অ্যানিমে স্ট্রিমিং ওয়েবসাইট",
-                iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png",
-                providers = getInitialPhisherProviders("repo_phisher_default", "Phisher Repo"),
-                isEnabled = true,
-                lastUpdated = System.currentTimeMillis()
-            )
-            list.add(defaultPhisher)
+        // Cleanse and purge any saved Phisher repository completely
+        val countBefore = list.size
+        list.removeAll {
+            it.repoUrl.contains("phisher", ignoreCase = true) ||
+            it.id.contains("phisher", ignoreCase = true) ||
+            it.name.contains("Phisher", ignoreCase = true)
+        }
+        if (list.size != countBefore) {
             saveCloudStreamRepos(list)
         }
 
@@ -2884,7 +2399,11 @@ class MediaRepository(private val context: Context) {
             repo.providers.map { it.copy(repoName = repo.name) }
         }
         val customProviders = getCustomMovieProviders()
-        return (repoProviders + customProviders).distinctBy { it.id }
+        val list = mutableListOf<MovieProvider>()
+        list.add(com.example.tmdb.TmdbMovieEngine.TMDB_PROVIDER)
+        list.addAll(repoProviders)
+        list.addAll(customProviders)
+        return list.distinctBy { it.id }
     }
 
     fun saveMovieProviders(providers: List<MovieProvider>) {
@@ -3332,9 +2851,46 @@ class MediaRepository(private val context: Context) {
             userPriorityList.addAll(userFb)
 
             // =========================================================================
-            // 2. SECONDARY: CLOUDSTREAM DYNAMIC DEX EXECUTION + NATIVE SCRAPERS
+            // 2. TMDB MOVIE ENGINE (Verified Official TMDB API Integration for Movies)
             // =========================================================================
-            if (provider != null) {
+            if (provider == null || provider.id == "tmdb_movie_engine" || provider.name.contains("TMDB", ignoreCase = true)) {
+                try {
+                    val tmdbMovies = if ((typeFilter.equals("All", ignoreCase = true) || typeFilter.isBlank()) && query.isBlank()) {
+                        tmdbMovieEngine.fetchAllHomeMovies()
+                    } else {
+                        val tmdbCategory = when {
+                            typeFilter.equals("All", ignoreCase = true) || typeFilter.equals("Trending", ignoreCase = true) -> "Trending"
+                            typeFilter.equals("Popular", ignoreCase = true) || typeFilter.equals("Movies", ignoreCase = true) -> "Popular"
+                            typeFilter.equals("Top Rated", ignoreCase = true) -> "Top Rated"
+                            typeFilter.equals("Now Playing", ignoreCase = true) -> "Now Playing"
+                            typeFilter.equals("Upcoming", ignoreCase = true) -> "Upcoming"
+                            typeFilter.contains("Bollywood", ignoreCase = true) || typeFilter.contains("Hindi", ignoreCase = true) -> "Bollywood"
+                            typeFilter.contains("Bangla", ignoreCase = true) -> "Bangla"
+                            typeFilter.contains("South", ignoreCase = true) || typeFilter.contains("Tamil", ignoreCase = true) || typeFilter.contains("Telugu", ignoreCase = true) -> "South"
+                            typeFilter.contains("Action", ignoreCase = true) -> "Action"
+                            typeFilter.contains("Comedy", ignoreCase = true) -> "Comedy"
+                            typeFilter.contains("Horror", ignoreCase = true) -> "Horror"
+                            typeFilter.contains("Sci-Fi", ignoreCase = true) -> "Sci-Fi"
+                            typeFilter.contains("Animation", ignoreCase = true) || typeFilter.contains("Anime", ignoreCase = true) -> "Animation"
+                            typeFilter.contains("Drama", ignoreCase = true) -> "Drama"
+                            typeFilter.contains("Romance", ignoreCase = true) -> "Romance"
+                            typeFilter.contains("Thriller", ignoreCase = true) -> "Thriller"
+                            else -> typeFilter
+                        }
+                        tmdbMovieEngine.fetchMovies(category = tmdbCategory, query = query)
+                    }
+                    if (tmdbMovies.isNotEmpty()) {
+                        extensionList.addAll(tmdbMovies)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // =========================================================================
+            // 3. SECONDARY: CLOUDSTREAM DYNAMIC DEX EXECUTION + NATIVE SCRAPERS
+            // =========================================================================
+            if (provider != null && provider.id != "tmdb_movie_engine") {
                 val isInstalled = provider.isInstalled || dexPluginManager.isPluginDownloaded(provider)
                 if (isInstalled) {
                     // 1. Execute via DexClassLoader dynamic plugin if loaded
@@ -3361,10 +2917,10 @@ class MediaRepository(private val context: Context) {
                         e.printStackTrace()
                     }
                 }
-            } else {
-                // Provider is null (Global Home): Only query installed/downloaded providers!
-                val installed = getAllMovieProviders().filter { it.isInstalled && it.isEnabled }
-                for (prov in installed.take(8)) {
+            } else if (provider == null) {
+                // Provider is null (Global Home): Query other installed providers
+                val installed = getAllMovieProviders().filter { it.isInstalled && it.isEnabled && it.id != "tmdb_movie_engine" }
+                for (prov in installed.take(6)) {
                     try {
                         val dexItems = if (query.isNotBlank()) {
                             dexPluginManager.searchPlugin(prov, query)
@@ -3402,13 +2958,41 @@ class MediaRepository(private val context: Context) {
                     (item.category ?: "").contains(query, ignoreCase = true) ||
                     (item.description ?: "").contains(query, ignoreCase = true)
 
-            val matchesType = when (typeFilter) {
-                "NAFI OTT PLATFORM", "NAFI OTT", "My Playlist" -> item.tournament == "NAFI_OTT" || (item.category ?: "").contains("NAFI OTT", ignoreCase = true)
-                "Movies" -> item.type == MediaType.MOVIE
-                "TV Series" -> item.type == MediaType.SERIES
-                "Anime" -> (item.category ?: "").contains("Anime", ignoreCase = true) || item.title.contains("Anime", ignoreCase = true)
-                "Asian Dramas" -> (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true) || (item.category ?: "").contains("KDrama", ignoreCase = true)
-                else -> true
+            val matchesType = when {
+                typeFilter.equals("All", ignoreCase = true) || typeFilter.isBlank() -> true
+                typeFilter.equals("NAFI OTT PLATFORM", ignoreCase = true) || typeFilter.equals("NAFI OTT", ignoreCase = true) || typeFilter.equals("My Playlist", ignoreCase = true) ->
+                    item.tournament == "NAFI_OTT" || (item.category ?: "").contains("NAFI OTT", ignoreCase = true)
+                typeFilter.equals("Trending", ignoreCase = true) ->
+                    (item.category ?: "").contains("Trending", ignoreCase = true) || item.tournament == "TMDB_CINEMA"
+                typeFilter.equals("Popular", ignoreCase = true) ->
+                    (item.category ?: "").contains("Popular", ignoreCase = true) || item.tournament == "TMDB_CINEMA"
+                typeFilter.equals("Top Rated", ignoreCase = true) ->
+                    (item.category ?: "").contains("Top Rated", ignoreCase = true) || (item.rating?.toDoubleOrNull() ?: 0.0) >= 7.5
+                typeFilter.equals("Now Playing", ignoreCase = true) || typeFilter.equals("Upcoming", ignoreCase = true) ->
+                    (item.category ?: "").contains("Now Playing", ignoreCase = true) || (item.category ?: "").contains("Upcoming", ignoreCase = true) || item.tournament == "TMDB_CINEMA"
+                typeFilter.contains("Bollywood", ignoreCase = true) || typeFilter.contains("Hindi", ignoreCase = true) ->
+                    (item.category ?: "").contains("Bollywood", ignoreCase = true) || (item.description ?: "").contains("[HI]", ignoreCase = true)
+                typeFilter.contains("Bangla", ignoreCase = true) || typeFilter.contains("Bengali", ignoreCase = true) ->
+                    (item.category ?: "").contains("Bangla", ignoreCase = true) || (item.description ?: "").contains("[BN]", ignoreCase = true)
+                typeFilter.contains("South", ignoreCase = true) ->
+                    (item.category ?: "").contains("South", ignoreCase = true) || (item.description ?: "").contains("[TE]", ignoreCase = true) || (item.description ?: "").contains("[TA]", ignoreCase = true)
+                typeFilter.equals("Action", ignoreCase = true) ->
+                    (item.category ?: "").contains("Action", ignoreCase = true) || (item.description ?: "").contains("Action", ignoreCase = true)
+                typeFilter.equals("Horror", ignoreCase = true) ->
+                    (item.category ?: "").contains("Horror", ignoreCase = true) || (item.description ?: "").contains("Horror", ignoreCase = true)
+                typeFilter.equals("Sci-Fi", ignoreCase = true) ->
+                    (item.category ?: "").contains("Sci-Fi", ignoreCase = true) || (item.description ?: "").contains("Sci-Fi", ignoreCase = true)
+                typeFilter.equals("Comedy", ignoreCase = true) ->
+                    (item.category ?: "").contains("Comedy", ignoreCase = true) || (item.description ?: "").contains("Comedy", ignoreCase = true)
+                typeFilter.equals("Drama", ignoreCase = true) ->
+                    (item.category ?: "").contains("Drama", ignoreCase = true) || (item.description ?: "").contains("Drama", ignoreCase = true)
+                typeFilter.equals("Movies", ignoreCase = true) -> item.type == MediaType.MOVIE
+                typeFilter.equals("TV Series", ignoreCase = true) -> item.type == MediaType.SERIES
+                typeFilter.equals("Anime", ignoreCase = true) || typeFilter.equals("Animation", ignoreCase = true) ->
+                    (item.category ?: "").contains("Anime", ignoreCase = true) || (item.category ?: "").contains("Animation", ignoreCase = true) || item.title.contains("Anime", ignoreCase = true)
+                typeFilter.equals("Asian Dramas", ignoreCase = true) ->
+                    (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true) || (item.category ?: "").contains("KDrama", ignoreCase = true)
+                else -> (item.category ?: "").contains(typeFilter, ignoreCase = true) || item.title.contains(typeFilter, ignoreCase = true)
             }
             matchesQuery && matchesType
         }
@@ -4078,7 +3662,7 @@ class MediaRepository(private val context: Context) {
                 .build()
 
             var title = "MovieBox Stream #$subjectId"
-            var cover = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/icon.png"
+            var cover = "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/icon.png"
             var desc = "MovieBox Stream (ID: $subjectId)"
             var score = "8.5"
             var releaseDate = "2026"

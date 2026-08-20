@@ -8,7 +8,10 @@ import android.view.ViewGroup
 import android.webkit.*
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.model.StreamServer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
@@ -34,6 +38,9 @@ import java.io.ByteArrayInputStream
 fun WebStreamPlayer(
     embedUrl: String,
     title: String,
+    servers: List<StreamServer> = emptyList(),
+    selectedServerIndex: Int = 0,
+    onSelectServer: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
     onDirectStreamDetected: (String) -> Unit = {},
     onClose: () -> Unit = {}
@@ -43,11 +50,11 @@ fun WebStreamPlayer(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isExtractingNative by remember { mutableStateOf(true) }
-    var extractionStatus by remember { mutableStateOf("স্ট্রিম এক্সট্রাক্ট করা হচ্ছে (Bypassing Ads)...") }
     var loadProgress by remember { mutableFloatStateOf(0f) }
     var customViewContainer by remember { mutableStateOf<FrameLayout?>(null) }
     var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     var blockedAdsCount by remember { mutableIntStateOf(0) }
+    var showServerSelector by remember { mutableStateOf(false) }
 
     // Comprehensive list of ad and popup tracking networks to completely block
     val adFilterKeywords = remember {
@@ -65,7 +72,6 @@ fun WebStreamPlayer(
     // Try background OkHttp extraction first before rendering WebView
     LaunchedEffect(embedUrl) {
         isExtractingNative = true
-        extractionStatus = "অ্যাডহীন নেটিভ প্লেয়ারের জন্য স্ট্রিম এক্সট্রাক্ট হচ্ছে..."
         val directResult = StreamExtractor.extractDirectStream(embedUrl)
         if (directResult != null && directResult.streamUrl.isNotBlank()) {
             onDirectStreamDetected(directResult.streamUrl)
@@ -74,7 +80,7 @@ fun WebStreamPlayer(
         isExtractingNative = false
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(embedUrl) {
         onDispose {
             webViewInstance?.destroy()
             webViewInstance = null
@@ -116,7 +122,7 @@ fun WebStreamPlayer(
                             allowContentAccess = false
                             javaScriptCanOpenWindowsAutomatically = false
                             setSupportMultipleWindows(false)
-                            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 CloudStream/4.0"
+                            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                         }
 
                         // Inject JS Interface for immediate stream URL bridging
@@ -146,96 +152,48 @@ fun WebStreamPlayer(
                                 val reqUrl = request?.url?.toString() ?: return null
                                 val lower = reqUrl.lowercase()
 
-                                // Block known aggressive ad networks
-                                if (adFilterKeywords.any { lower.contains(it) }) {
-                                    post { blockedAdsCount++ }
-                                    return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream("".toByteArray()))
+                                // 1. Sniff direct stream playlists (.m3u8, .mpd, master.m3u8)
+                                if (lower.contains(".m3u8") || lower.contains(".mpd") || lower.contains("playlist.m3u8") || lower.contains("manifest.mpd")) {
+                                    if (!adFilterKeywords.any { lower.contains(it) }) {
+                                        post {
+                                            onDirectStreamDetected(reqUrl)
+                                        }
+                                    }
                                 }
 
-                                // Sniff direct streams (.m3u8, .mpd, .mp4, /dash/, /hls/, blob/stream endpoints)
-                                val isDirectVideo = lower.contains(".m3u8") ||
-                                        lower.contains(".mpd") ||
-                                        lower.contains("/dash/") ||
-                                        lower.contains("/hls/") ||
-                                        (lower.contains(".mp4") && !lower.contains("thumb") && !lower.contains("preview"))
-
-                                if (isDirectVideo) {
-                                    post {
-                                        onDirectStreamDetected(reqUrl)
-                                    }
+                                // 2. Block ad trackers and malicious scripts
+                                if (adFilterKeywords.any { lower.contains(it) }) {
+                                    post { blockedAdsCount++ }
+                                    return WebResourceResponse(
+                                        "text/plain",
+                                        "UTF-8",
+                                        ByteArrayInputStream("".toByteArray())
+                                    )
                                 }
 
                                 return super.shouldInterceptRequest(view, request)
                             }
 
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                val targetUrl = request?.url?.toString()?.lowercase() ?: return false
-                                // Prevent popups and ad redirects to external domains
-                                if (adFilterKeywords.any { targetUrl.contains(it) } ||
-                                    targetUrl.startsWith("intent:") ||
-                                    targetUrl.startsWith("market:") ||
-                                    targetUrl.startsWith("tel:")) {
-                                    post { blockedAdsCount++ }
-                                    return true // Block navigation
-                                }
-                                return false
-                            }
-
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                super.onPageStarted(view, url, favicon)
                                 isLoading = true
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
                                 isLoading = false
 
-                                // Advanced DOM Script: Strip ads, remove overlays/iframes with popups, and hook HTML5 video tag
+                                // Inject Stream Sniffer & Ad-Bypasser JS
                                 val adBlockAndSniffScript = """
                                     (function() {
-                                        // 1. Remove all popup overlays, transparent click hijackers, and ad banners
-                                        function removeAds() {
-                                            var adSelectors = [
-                                                'iframe[src*="ad"]', 'iframe[src*="pop"]', 'div[class*="popup"]',
-                                                'div[id*="popup"]', 'div[class*="overlay"]', 'div[id*="ad-"]',
-                                                'div[class*="ad-"]', 'a[target="_blank"]', 'div[style*="z-index: 2147483647"]'
-                                            ];
-                                            adSelectors.forEach(function(sel) {
-                                                try {
-                                                    var elements = document.querySelectorAll(sel);
-                                                    elements.forEach(function(el) {
-                                                        if (el.tagName !== 'VIDEO') {
-                                                            el.remove();
-                                                            if (window.NativeStreamBridge) window.NativeStreamBridge.onAdBlocked();
-                                                        }
-                                                    });
-                                                } catch(e) {}
-                                            });
-                                            
-                                            // Neutralize window.open popups
-                                            window.open = function() {
-                                                if (window.NativeStreamBridge) window.NativeStreamBridge.onAdBlocked();
-                                                return null;
-                                            };
-                                        }
-                                        removeAds();
-                                        setInterval(removeAds, 1000);
+                                        window.open = function() { return null; };
+                                        window.alert = function() {};
+                                        window.confirm = function() { return false; };
 
-                                        // 2. Sniff video elements directly from DOM
-                                        function sniffVideo() {
-                                            var videos = document.querySelectorAll('video');
-                                            videos.forEach(function(v) {
-                                                var src = v.currentSrc || v.src;
-                                                if (src && (src.includes('.m3u8') || src.includes('.mpd') || src.includes('.mp4') || src.includes('blob:'))) {
-                                                    if (window.NativeStreamBridge) {
-                                                        window.NativeStreamBridge.onFoundStream(src);
-                                                    }
-                                                }
-                                                v.play().catch(function(){});
-                                            });
-                                        }
-                                        sniffVideo();
-                                        setInterval(sniffVideo, 800);
+                                        var style = document.createElement('style');
+                                        style.innerHTML = 'div[class*="ad"], div[id*="ad"], iframe[src*="ad"], div[class*="banner"], div[id*="banner"], div[class*="popup"], div[id*="pop"] { display: none !important; }';
+                                        document.head.appendChild(style);
 
-                                        // 3. Intercept XMLHttpRequest and Fetch for HLS/DASH manifest URLs
                                         var origOpen = XMLHttpRequest.prototype.open;
                                         XMLHttpRequest.prototype.open = function(method, url) {
                                             if (typeof url === 'string' && (url.includes('.m3u8') || url.includes('.mpd') || url.includes('master.txt'))) {
@@ -295,7 +253,6 @@ fun WebStreamPlayer(
                                 isUserGesture: Boolean,
                                 resultMsg: android.os.Message?
                             ): Boolean {
-                                // Block new popup window requests completely
                                 blockedAdsCount++
                                 return false
                             }
@@ -321,39 +278,95 @@ fun WebStreamPlayer(
             )
         }
 
-        // Top Shield Badge Overlay (Shows AdBlock status and Refresh)
-        Row(
+        // Top Header Overlay with Server Switcher & AdBlock status
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
-                .align(Alignment.TopCenter),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .align(Alignment.TopCenter)
         ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Black.copy(alpha = 0.8f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f))
                 ) {
-                    Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(13.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Ad-Shield Active ($blockedAdsCount Ads Blocked)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Ad-Shield Active ($blockedAdsCount Blocked)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (servers.size > 1) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF2563EB).copy(alpha = 0.85f),
+                            modifier = Modifier.clickable { showServerSelector = !showServerSelector }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.Dns, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Server ${selectedServerIndex + 1}/${servers.size}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    IconButton(
+                        onClick = { webViewInstance?.reload() },
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = "Reload", tint = Color.White, modifier = Modifier.size(14.dp))
+                    }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                IconButton(
-                    onClick = { webViewInstance?.reload() },
+            // Expandable Server Selection Chips
+            if (showServerSelector && servers.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.65f))
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "Reload", tint = Color.White, modifier = Modifier.size(16.dp))
+                    servers.forEachIndexed { index, server ->
+                        val isSelected = index == selectedServerIndex
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.Black.copy(alpha = 0.85f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) Color.White else Color(0xFF475569)
+                            ),
+                            modifier = Modifier.clickable {
+                                onSelectServer(index)
+                                showServerSelector = false
+                            }
+                        ) {
+                            Text(
+                                text = server.name,
+                                color = if (isSelected) Color.Black else Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

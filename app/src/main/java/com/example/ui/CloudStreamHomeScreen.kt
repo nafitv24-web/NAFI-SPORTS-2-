@@ -62,7 +62,11 @@ fun CloudStreamHomeScreen(
     var isLoading by remember { mutableStateOf(false) }
     var fetchErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    val categoryTabs = listOf("All", "NAFI OTT PLATFORM", "Movies", "TV Series", "Anime", "Asian Dramas")
+    val categoryTabs = listOf(
+        "All", "Trending", "Popular", "Top Rated", "Now Playing",
+        "Bollywood", "Bangla", "South Indian", "Action", "Sci-Fi",
+        "Horror", "Comedy", "Animation", "Drama", "NAFI OTT PLATFORM"
+    )
 
     // Function to fetch live movies from provider endpoints
     fun loadLiveMovies() {
@@ -534,69 +538,192 @@ fun CloudStreamHomeScreen(
                     }
                 }
 
-                // DYNAMIC CAROUSEL SECTION 1: Trending & Top Releases
-                val otherMovies = liveMoviesList.filterNot { it.tournament == "NAFI_OTT" || (it.category ?: "").contains("NAFI OTT", ignoreCase = true) }
-                val trendingItems = if (otherMovies.isNotEmpty()) otherMovies.take(12) else liveMoviesList.take(12)
-                if (trendingItems.isNotEmpty()) {
+                if (selectedCategoryFilter != "All") {
+                    // DISPLAY SPECIFIC CATEGORY AS A RICH GRID/LIST
                     item {
-                        LiveMovieRow(
-                            sectionTitle = "Trending & New Releases",
-                            movies = trendingItems,
-                            onMovieClick = { selectedMovieForDetail = it },
-                            onPlayClick = { onPlayMovie(it) }
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "$selectedCategoryFilter Movies",
+                                    color = Color.White,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${liveMoviesList.size} Movies",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
-                }
 
-                // DYNAMIC CAROUSEL SECTION 2: Action & Cinema
-                val actionItems = liveMoviesList.filter { (it.category ?: "").contains("Action", ignoreCase = true) || (it.description ?: "").contains("Action", ignoreCase = true) }
-                if (actionItems.isNotEmpty()) {
-                    item {
-                        LiveMovieRow(
-                            sectionTitle = "Action & Adventure",
-                            movies = actionItems,
-                            onMovieClick = { selectedMovieForDetail = it },
-                            onPlayClick = { onPlayMovie(it) }
-                        )
+                    // Render chunks of 2 for a clean 2-column grid
+                    val chunkedMovies = liveMoviesList.chunked(2)
+                    items(chunkedMovies) { rowItems ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            for (movie in rowItems) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    MovieGridCard(
+                                        movie = movie,
+                                        onClick = { selectedMovieForDetail = movie },
+                                        onPlayDirect = { onPlayMovie(movie) }
+                                    )
+                                }
+                            }
+                            if (rowItems.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
-                }
+                } else {
+                    // "ALL" CATEGORY: DEDICATED THEMATIC CAROUSEL ROWS
 
-                // DYNAMIC CAROUSEL SECTION 3: TV Series & Seasons
-                val seriesItems = liveMoviesList.filter { it.type == MediaType.SERIES || (it.category ?: "").contains("Series", ignoreCase = true) }
-                if (seriesItems.isNotEmpty()) {
-                    item {
-                        LiveMovieRow(
-                            sectionTitle = "Popular TV Series & Shows",
-                            movies = seriesItems,
-                            onMovieClick = { selectedMovieForDetail = it },
-                            onPlayClick = { onPlayMovie(it) }
-                        )
+                    // 1. Trending Movies
+                    val trendingMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Trending", ignoreCase = true) || it.tournament == "TMDB_CINEMA"
+                    }.take(16)
+                    if (trendingMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🔥 Trending Movies (আজকের ট্রেন্ডিং)",
+                                movies = trendingMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
                     }
-                }
 
-                // DYNAMIC CAROUSEL SECTION 4: Drama & Romance
-                val dramaItems = liveMoviesList.filter { (it.category ?: "").contains("Drama", ignoreCase = true) || (it.category ?: "").contains("Romance", ignoreCase = true) }
-                if (dramaItems.isNotEmpty()) {
-                    item {
-                        LiveMovieRow(
-                            sectionTitle = "Drama & Cinema Originals",
-                            movies = dramaItems,
-                            onMovieClick = { selectedMovieForDetail = it },
-                            onPlayClick = { onPlayMovie(it) }
-                        )
+                    // 2. Bollywood & Hindi Cinema
+                    val bollywoodMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Bollywood", ignoreCase = true) || (it.description ?: "").contains("[HI]", ignoreCase = true)
                     }
-                }
+                    if (bollywoodMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🇮🇳 Bollywood Cinema (বলিউড সিনেমা)",
+                                movies = bollywoodMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
 
-                // DYNAMIC CAROUSEL SECTION 5: All Dynamic Movies
-                val remainingItems = liveMoviesList.drop(12)
-                if (remainingItems.isNotEmpty()) {
-                    item {
-                        LiveMovieRow(
-                            sectionTitle = "Explore More Movies & Series",
-                            movies = remainingItems,
-                            onMovieClick = { selectedMovieForDetail = it },
-                            onPlayClick = { onPlayMovie(it) }
-                        )
+                    // 3. Bangla Cinema
+                    val banglaMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Bangla", ignoreCase = true) || (it.description ?: "").contains("[BN]", ignoreCase = true)
+                    }
+                    if (banglaMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🇧🇩 Bangla Cinema (বাংলা সিনেমা)",
+                                movies = banglaMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+
+                    // 4. Action & Blockbusters
+                    val actionMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Action", ignoreCase = true) || (it.description ?: "").contains("Action", ignoreCase = true)
+                    }
+                    if (actionMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "⚡ Action & Blockbusters (অ্যাকশন মুভি)",
+                                movies = actionMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+
+                    // 5. Sci-Fi & Adventure
+                    val scifiMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Sci-Fi", ignoreCase = true) || (it.description ?: "").contains("Sci-Fi", ignoreCase = true)
+                    }
+                    if (scifiMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🚀 Sci-Fi & Adventure (সায়েন্স ফিকশন)",
+                                movies = scifiMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+
+                    // 6. Horror & Thriller
+                    val horrorMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Horror", ignoreCase = true) || (it.description ?: "").contains("Horror", ignoreCase = true)
+                    }
+                    if (horrorMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "👻 Horror & Suspense (হরর সিনেমা)",
+                                movies = horrorMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+
+                    // 7. Animation & Anime
+                    val animationMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Animation", ignoreCase = true) || (it.category ?: "").contains("Anime", ignoreCase = true)
+                    }
+                    if (animationMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🎨 Animation & Anime (অ্যানিমেশন)",
+                                movies = animationMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+
+                    // 8. Comedy Cinema
+                    val comedyMovies = liveMoviesList.filter {
+                        (it.category ?: "").contains("Comedy", ignoreCase = true) || (it.description ?: "").contains("Comedy", ignoreCase = true)
+                    }
+                    if (comedyMovies.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🎭 Comedy & Fun (কমেডি সিনেমা)",
+                                movies = comedyMovies,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
+                    }
+
+                    // 9. All Other Movies
+                    val remainingItems = liveMoviesList.drop(16)
+                    if (remainingItems.isNotEmpty()) {
+                        item {
+                            LiveMovieRow(
+                                sectionTitle = "🌟 More Movies & Cinema",
+                                movies = remainingItems,
+                                onMovieClick = { selectedMovieForDetail = it },
+                                onPlayClick = { onPlayMovie(it) }
+                            )
+                        }
                     }
                 }
             }
@@ -950,3 +1077,96 @@ private fun LiveMovieRow(
         }
     }
 }
+
+@Composable
+private fun MovieGridCard(
+    movie: MediaItem,
+    onClick: () -> Unit,
+    onPlayDirect: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .background(Color(0xFF0F172A))
+            ) {
+                AsyncImage(
+                    model = movie.logoUrl,
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Rating Badge
+                Surface(
+                    shape = RoundedCornerShape(bottomStart = 8.dp),
+                    color = Color.Black.copy(alpha = 0.85f),
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Text(
+                        text = "★ ${movie.rating ?: "8.0"}",
+                        color = Color(0xFFFFD700),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+
+                // Quick Play FAB button over poster
+                IconButton(
+                    onClick = { onPlayDirect() },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2563EB).copy(alpha = 0.9f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = movie.title,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = movie.category ?: "Cinema",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = movie.year ?: "2026",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+    }
+}
+

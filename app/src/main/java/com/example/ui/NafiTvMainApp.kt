@@ -3352,24 +3352,24 @@ fun AdminControlAppScreen(
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF8B5CF6).copy(alpha = 0.2f),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6)),
+                                        color = Color(0xFF3B82F6).copy(alpha = 0.2f),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6)),
                                         modifier = Modifier.clickable {
-                                            repoUrlInput = "cloudstreamrepo://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json"
+                                            repoUrlInput = "cloudstreamrepo://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json"
                                         }
                                     ) {
-                                        Text("🌟 Phisher Repo", color = Color(0xFFDDD6FE), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                                        Text("⚡ Hexated Repo", color = Color(0xFF93C5FD), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
                                     }
 
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF3B82F6).copy(alpha = 0.2f),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6)),
+                                        color = Color(0xFF8B5CF6).copy(alpha = 0.2f),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6)),
                                         modifier = Modifier.clickable {
-                                            repoUrlInput = "cloudstreamrepo://raw.githubusercontent.com/hexated/cloudstream-extensions-hexated/refs/heads/builds/repo.json"
+                                            repoUrlInput = "cloudstreamrepo://raw.githubusercontent.com/stormunblessed/cloudstream-extensions-storm/refs/heads/builds/repo.json"
                                         }
                                     ) {
-                                        Text("⚡ Hexated", color = Color(0xFF93C5FD), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                                        Text("🌪️ Storm Repo", color = Color(0xFFDDD6FE), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
                                     }
 
                                     Surface(
@@ -7241,8 +7241,8 @@ fun MoviesTabScreen(
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedSiteCategory by remember { mutableStateOf("All") }
 
-    val directCategories = listOf("All", "Bangla", "Hindi", "Hollywood", "Bollywood", "South", "Action", "Drama")
-    val siteCategories = listOf("All", "Phisher", "Bangla & Hindi", "Hollywood", "Dual Audio", "Anime", "Asian Drama")
+    val directCategories = listOf("All", "TMDB Trending", "Popular", "Top Rated", "Bollywood", "Bangla", "Action", "Hollywood", "South", "Horror", "Sci-Fi", "Drama")
+    val siteCategories = listOf("All", "TMDB Cinema", "Bangla & Hindi", "Hollywood", "Dual Audio", "Anime", "Asian Drama")
 
     val filteredMovies = movies.filter { item ->
         val matchesSearch = item.title.contains(searchQuery, ignoreCase = true) ||
@@ -7265,7 +7265,6 @@ fun MoviesTabScreen(
 
         val matchesCat = when (selectedSiteCategory) {
             "All" -> true
-            "Phisher" -> (provider.repoName != null && provider.repoName.contains("Phisher", ignoreCase = true)) || provider.id.contains("phisher", ignoreCase = true)
             "Bangla & Hindi" -> provider.category.contains("bangla", ignoreCase = true) || provider.category.contains("hindi", ignoreCase = true) || provider.name.contains("Bolly", ignoreCase = true)
             "Hollywood" -> provider.category.contains("english", ignoreCase = true) || provider.category.contains("hollywood", ignoreCase = true) || provider.name.contains("Movie", ignoreCase = true)
             "Dual Audio" -> provider.category.contains("dubbed", ignoreCase = true) || provider.category.contains("dual", ignoreCase = true) || provider.category.contains("hindi", ignoreCase = true)
