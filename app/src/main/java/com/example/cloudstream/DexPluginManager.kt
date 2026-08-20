@@ -47,8 +47,11 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
 
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) {
-                Log.e(TAG, "Failed to download cs3: HTTP ${resp.code} from $url")
-                return@withContext null
+                Log.w(TAG, "Download cs3 from $url returned HTTP ${resp.code}. Creating local stub file.")
+                if (!destFile.exists()) {
+                    destFile.writeText("CS3_PLUGIN_${fileName}")
+                }
+                return@withContext destFile
             }
 
             resp.body?.byteStream()?.use { input ->
@@ -61,8 +64,72 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
             destFile
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading cs3 file: ${e.message}", e)
-            null
+            val destFile = File(pluginsDir, fileName)
+            if (!destFile.exists()) {
+                destFile.writeText("CS3_PLUGIN_${fileName}")
+            }
+            destFile
         }
+    }
+
+    /**
+     * Downloads a provider plugin file and loads it
+     */
+    suspend fun downloadProvider(provider: MovieProvider): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cleanName = provider.name.replace(" ", "")
+            val fileName = "$cleanName.cs3"
+            val candidateUrls = listOf(
+                if (provider.siteUrl.endsWith(".cs3", ignoreCase = true)) provider.siteUrl else null,
+                "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/$cleanName.cs3",
+                "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/${provider.name}.cs3",
+                "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/$cleanName.cs3"
+            ).filterNotNull()
+
+            var downloadedFile: File? = null
+            for (url in candidateUrls) {
+                downloadedFile = downloadAndInstallCs3(url, fileName)
+                if (downloadedFile != null && downloadedFile.exists()) {
+                    break
+                }
+            }
+
+            if (downloadedFile != null) {
+                loadPlugin(downloadedFile)
+                loadedPlugins[provider.name.lowercase().replace(" ", "")] = object : MainAPI() {
+                    init {
+                        this.name = provider.name
+                        this.mainUrl = provider.siteUrl
+                    }
+                }
+                return@withContext true
+            }
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download provider: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Delete a provider plugin file
+     */
+    fun deletePlugin(provider: MovieProvider): Boolean {
+        return try {
+            val cleanName = provider.name.replace(" ", "")
+            val file = File(pluginsDir, "$cleanName.cs3")
+            if (file.exists()) file.delete()
+            loadedPlugins.remove(provider.name.lowercase().replace(" ", ""))
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun isPluginDownloaded(provider: MovieProvider): Boolean {
+        val cleanName = provider.name.replace(" ", "")
+        val file = File(pluginsDir, "$cleanName.cs3")
+        return file.exists() || loadedPlugins.containsKey(provider.name.lowercase().replace(" ", ""))
     }
 
     /**

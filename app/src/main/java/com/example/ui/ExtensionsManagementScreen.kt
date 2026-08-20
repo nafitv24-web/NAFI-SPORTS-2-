@@ -648,13 +648,14 @@ fun ExtensionsManagementScreen(
                                     onClick = {
                                         coroutineScope.launch {
                                             isBatchInstalling = true
-                                            val updated = repository.getAllMovieProviders().map {
-                                                if (plugins.any { p -> p.id == it.id }) it.copy(isInstalled = true, isEnabled = true) else it
+                                            plugins.forEach { p ->
+                                                if (!p.isInstalled) {
+                                                    repository.downloadAndInstallProvider(p)
+                                                }
                                             }
-                                            repository.saveMovieProviders(updated)
                                             refreshExtensions()
                                             isBatchInstalling = false
-                                            Toast.makeText(context, "✅ সকল প্লাগইন ইনস্টল ও সক্রিয় করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "✅ সকল প্লাগইন ডাউনলোড ও সক্রিয় করা হয়েছে!", Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                     shape = RoundedCornerShape(8.dp),
@@ -664,26 +665,29 @@ fun ExtensionsManagementScreen(
                                 ) {
                                     Icon(Icons.Rounded.DownloadDone, contentDescription = null, modifier = Modifier.size(15.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("সব ইনস্টল করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("সব ডাউনলোড করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
 
                                 OutlinedButton(
                                     onClick = {
-                                        val updated = repository.getAllMovieProviders().map {
-                                            if (plugins.any { p -> p.id == it.id }) it.copy(isEnabled = true) else it
+                                        coroutineScope.launch {
+                                            plugins.forEach { p ->
+                                                if (p.isInstalled) {
+                                                    repository.uninstallProvider(p)
+                                                }
+                                            }
+                                            refreshExtensions()
+                                            Toast.makeText(context, "সকল প্লাগইন আনইনস্টল করা হয়েছে", Toast.LENGTH_SHORT).show()
                                         }
-                                        repository.saveMovieProviders(updated)
-                                        refreshExtensions()
-                                        Toast.makeText(context, "✅ সকল প্লাগইন সক্রিয় করা হয়েছে", Toast.LENGTH_SHORT).show()
                                     },
                                     shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF10B981)),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444)),
                                     modifier = Modifier.weight(1f).height(36.dp)
                                 ) {
-                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(15.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("সব সক্রিয় করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("সব আনইনস্টল", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -807,84 +811,89 @@ fun ExtensionsManagementScreen(
 
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            // Quick Watch Button
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF00E5FF).copy(alpha = 0.15f),
-                                modifier = Modifier.clickable {
-                                    onOpenMovieBrowser?.invoke(provider)
-                                }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PlayCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF00E5FF),
-                                        modifier = Modifier.size(16.dp)
+                            // Action buttons
+                            if (isInstalling) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF38BDF8),
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("মুভি", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("ডাউনলোড...", color = Color(0xFF38BDF8), fontSize = 10.sp)
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.width(4.dp))
-
-                            // Action button on right (Download Icon vs Checkmark/Trash)
-                            if (isInstalling) {
-                                CircularProgressIndicator(
-                                    color = Color(0xFF38BDF8),
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(24.dp)
-                                )
                             } else if (provider.isInstalled) {
-                                // Installed: Show Trash to uninstall or Checkmark
+                                // Installed: Watch Movies button + Trash icon
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF00E5FF).copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f)),
+                                    modifier = Modifier.clickable {
+                                        onOpenMovieBrowser?.invoke(provider)
+                                    }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.PlayCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("মুভি দেখুন", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
                                 IconButton(
                                     onClick = {
-                                        val updated = provider.copy(isInstalled = false, isEnabled = false)
-                                        val currentList = repository.getAllMovieProviders().toMutableList()
-                                        val idx = currentList.indexOfFirst { it.id == provider.id }
-                                        if (idx >= 0) {
-                                            currentList[idx] = updated
-                                            repository.saveMovieProviders(currentList)
+                                        coroutineScope.launch {
+                                            val (ok, msg) = repository.uninstallProvider(provider)
                                             refreshExtensions()
-                                            Toast.makeText(context, "${provider.name} uninstalled", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 ) {
                                     Icon(
                                         imageVector = Icons.Rounded.DeleteOutline,
                                         contentDescription = "Uninstall",
-                                        tint = Color(0xFFEF4444)
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             } else {
-                                // Not Downloaded: Show Download Icon (📥)
-                                IconButton(
-                                    onClick = {
+                                // Not Downloaded: Prominent Download Button
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF38BDF8).copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                                    modifier = Modifier.clickable {
                                         installingProviderId = provider.id
                                         coroutineScope.launch {
-                                            delay(500)
-                                            val updated = provider.copy(isInstalled = true, isEnabled = true)
-                                            val currentList = repository.getAllMovieProviders().toMutableList()
-                                            val idx = currentList.indexOfFirst { it.id == provider.id }
-                                            if (idx >= 0) {
-                                                currentList[idx] = updated
-                                                repository.saveMovieProviders(currentList)
-                                                refreshExtensions()
-                                            }
+                                            val (ok, msg) = repository.downloadAndInstallProvider(provider)
                                             installingProviderId = null
-                                            Toast.makeText(context, "${provider.name} installed successfully!", Toast.LENGTH_SHORT).show()
+                                            refreshExtensions()
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.FileDownload,
-                                        contentDescription = "Download Extension",
-                                        tint = Color(0xFF38BDF8)
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.FileDownload,
+                                            contentDescription = "Download Extension",
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("ডাউনলোড", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

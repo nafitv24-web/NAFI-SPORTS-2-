@@ -2078,6 +2078,7 @@ class MediaRepository(private val context: Context) {
             }
 
             // Fallback: If repo didn't have web links for some plugins, synthesize best domain match
+            // Repositories are loaded with extensions available for download
             val enhancedProviders = providersList.distinctBy { it.name.lowercase() }.map { provider ->
                 var site = provider.siteUrl
                 if (site.isBlank() || !site.startsWith("http") || site.endsWith(".cs3")) {
@@ -2085,7 +2086,8 @@ class MediaRepository(private val context: Context) {
                     val known = KNOWN_PROVIDER_DOMAINS.entries.firstOrNull { cleanKey.contains(it.key) }?.value
                     site = known ?: "https://${cleanKey}.com"
                 }
-                provider.copy(siteUrl = site, isInstalled = true, isEnabled = true)
+                val isDownloaded = dexPluginManager.isPluginDownloaded(provider)
+                provider.copy(siteUrl = site, isInstalled = isDownloaded, isEnabled = isDownloaded)
             }
 
             CloudStreamRepo(
@@ -2663,7 +2665,10 @@ class MediaRepository(private val context: Context) {
                 repoName = repoName
             )
         )
-        return extensionDefinitions
+        return extensionDefinitions.map { prov ->
+            val isDownloaded = dexPluginManager.isPluginDownloaded(prov)
+            prov.copy(isInstalled = isDownloaded, isEnabled = isDownloaded)
+        }
     }
 
     // -------------------------------------------------------------
@@ -2919,32 +2924,86 @@ class MediaRepository(private val context: Context) {
     suspend fun installExtensionFromUrl(url: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         try {
             val parsedRepo = parseCloudStreamRepoFromUrl(url)
-            val allActiveProviders = parsedRepo.providers.map { it.copy(isInstalled = true, isEnabled = true) }
-            val updatedRepo = parsedRepo.copy(providers = allActiveProviders)
-            saveCloudStreamRepo(updatedRepo)
-
-            // Dynamic DEX background download & loading for .cs3 files
-            for (prov in updatedRepo.providers) {
-                try {
-                    val cs3Url = if (prov.siteUrl.endsWith(".cs3", ignoreCase = true)) {
-                        prov.siteUrl
-                    } else {
-                        "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/${prov.name.replace(" ", "")}.cs3"
-                    }
-                    val fileName = "${prov.name.replace(" ", "")}.cs3"
-                    val downloadedFile = dexPluginManager.downloadAndInstallCs3(cs3Url, fileName)
-                    if (downloadedFile != null) {
-                        dexPluginManager.loadPlugin(downloadedFile)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+            val existingProviders = getAllMovieProviders()
+            val providersWithExistingState = parsedRepo.providers.map { prov ->
+                val existing = existingProviders.firstOrNull { it.id == prov.id || it.name.equals(prov.name, ignoreCase = true) }
+                if (existing != null) {
+                    prov.copy(isInstalled = existing.isInstalled, isEnabled = existing.isEnabled)
+                } else {
+                    val isDownloaded = dexPluginManager.isPluginDownloaded(prov)
+                    prov.copy(isInstalled = isDownloaded, isEnabled = isDownloaded)
                 }
             }
+            val updatedRepo = parsedRepo.copy(providers = providersWithExistingState)
+            saveCloudStreamRepo(updatedRepo)
 
-            Pair(true, "${updatedRepo.name} (${updatedRepo.providers.size} টি এক্সটেনশন) সফলভাবে ইনস্টল ও লোড হয়েছে")
+            Pair(true, "${updatedRepo.name} (${updatedRepo.providers.size} টি প্লাগইন) যুক্ত হয়েছে - পছন্দমতো ডাউনলোড করে নিন")
         } catch (e: Exception) {
             e.printStackTrace()
-            Pair(false, "ত্রুটি: ${e.localizedMessage ?: "URL থেকে এক্সটেনশন লোড করা যায়নি"}")
+            Pair(false, "ত্রুটি: ${e.localizedMessage ?: "URL থেকে রিপোজিটরি লোড করা যায়নি"}")
+        }
+    }
+
+    suspend fun downloadAndInstallProvider(provider: MovieProvider): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            // 1. Download cs3 file and load into DexPluginManager
+            dexPluginManager.downloadProvider(provider)
+
+            // 2. Mark as installed & enabled in providers list
+            val all = getAllMovieProviders().toMutableList()
+            val idx = all.indexOfFirst { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }
+            val updated = provider.copy(isInstalled = true, isEnabled = true)
+            if (idx >= 0) {
+                all[idx] = updated
+            } else {
+                all.add(updated)
+            }
+            saveMovieProviders(all)
+
+            // 3. Update in all repositories
+            val repos = getSavedCloudStreamRepos().map { repo ->
+                if (repo.providers.any { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }) {
+                    val updatedProvs = repo.providers.map {
+                        if (it.id == provider.id || it.name.equals(provider.name, ignoreCase = true)) updated else it
+                    }
+                    repo.copy(providers = updatedProvs)
+                } else repo
+            }
+            saveCloudStreamRepos(repos)
+
+            Pair(true, "${provider.name} সফলভাবে ডাউনলোড ও সক্রিয় হয়েছে")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Pair(false, "ডাউনলোড ত্রুটি: ${e.localizedMessage}")
+        }
+    }
+
+    suspend fun uninstallProvider(provider: MovieProvider): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            dexPluginManager.deletePlugin(provider)
+
+            val all = getAllMovieProviders().toMutableList()
+            val idx = all.indexOfFirst { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }
+            val updated = provider.copy(isInstalled = false, isEnabled = false)
+            if (idx >= 0) {
+                all[idx] = updated
+            }
+            saveMovieProviders(all)
+
+            val repos = getSavedCloudStreamRepos().map { repo ->
+                if (repo.providers.any { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }) {
+                    val updatedProvs = repo.providers.map {
+                        if (it.id == provider.id || it.name.equals(provider.name, ignoreCase = true)) updated else it
+                    }
+                    repo.copy(providers = updatedProvs)
+                } else repo
+            }
+            saveCloudStreamRepos(repos)
+
+            Pair(true, "${provider.name} আনইন্সটল করা হয়েছে")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Pair(false, "আনইন্সটল ত্রুটি: ${e.localizedMessage}")
         }
     }
 
@@ -3210,29 +3269,57 @@ class MediaRepository(private val context: Context) {
             // 2. SECONDARY: CLOUDSTREAM DYNAMIC DEX EXECUTION + NATIVE SCRAPERS
             // =========================================================================
             if (provider != null) {
-                // 1. Execute via DexClassLoader dynamic plugin if loaded
-                try {
-                    val dexItems = if (query.isNotBlank()) {
-                        dexPluginManager.searchPlugin(provider, query)
-                    } else {
-                        dexPluginManager.fetchPluginHomeCatalog(provider)
+                val isInstalled = provider.isInstalled || dexPluginManager.isPluginDownloaded(provider)
+                if (isInstalled) {
+                    // 1. Execute via DexClassLoader dynamic plugin if loaded
+                    try {
+                        val dexItems = if (query.isNotBlank()) {
+                            dexPluginManager.searchPlugin(provider, query)
+                        } else {
+                            dexPluginManager.fetchPluginHomeCatalog(provider)
+                        }
+                        if (dexItems.isNotEmpty()) {
+                            extensionList.addAll(dexItems)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
-                    if (dexItems.isNotEmpty()) {
-                        extensionList.addAll(dexItems)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
 
-            // 2. High performance Native Scrapers & Multi-Source extractors
-            try {
-                val nativeItems = nativeScraperEngine.fetchCatalog(provider, query, typeFilter)
-                if (nativeItems.isNotEmpty()) {
-                    extensionList.addAll(nativeItems)
+                    // 2. High performance Native Scrapers & Multi-Source extractors
+                    try {
+                        val nativeItems = nativeScraperEngine.fetchCatalog(provider, query, typeFilter)
+                        if (nativeItems.isNotEmpty()) {
+                            extensionList.addAll(nativeItems)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } else {
+                // Provider is null (Global Home): Only query installed/downloaded providers!
+                val installed = getAllMovieProviders().filter { it.isInstalled && it.isEnabled }
+                for (prov in installed.take(8)) {
+                    try {
+                        val dexItems = if (query.isNotBlank()) {
+                            dexPluginManager.searchPlugin(prov, query)
+                        } else {
+                            dexPluginManager.fetchPluginHomeCatalog(prov)
+                        }
+                        if (dexItems.isNotEmpty()) {
+                            extensionList.addAll(dexItems)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    try {
+                        val nativeItems = nativeScraperEngine.fetchCatalog(prov, query, typeFilter)
+                        if (nativeItems.isNotEmpty()) {
+                            extensionList.addAll(nativeItems)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
 
         } catch (e: Exception) {

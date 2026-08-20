@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
@@ -490,6 +491,8 @@ fun MovieBrowserScreen(
                         }
                     }
                 } else if (providerMovies.isEmpty()) {
+                    var isDownloadingLocal by remember { mutableStateOf(false) }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -508,43 +511,74 @@ fun MovieBrowserScreen(
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Movie,
+                                        imageVector = if (!provider.isInstalled) Icons.Rounded.FileDownload else Icons.Rounded.Movie,
                                         contentDescription = null,
-                                        tint = Color(0xFF8B5CF6),
+                                        tint = if (!provider.isInstalled) Color(0xFF38BDF8) else Color(0xFF8B5CF6),
                                         modifier = Modifier.size(36.dp)
                                     )
                                 }
                             }
                             Text(
-                                text = "${provider.name} থেকে কোনো কন্টেন্ট লোড হয়নি",
+                                text = if (!provider.isInstalled) "${provider.name} ডাউনলোড করা হয়নি" else "${provider.name} থেকে কোনো কন্টেন্ট লোড হয়নি",
                                 color = Color.White,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "হোস্টিং সার্ভার থেকে সরাসরি ব্রাউজ করতে 'ওয়েব ভিউ' খুলুন অথবা রিফ্রেশ করুন।",
+                                text = if (!provider.isInstalled)
+                                    "এই এক্সটেনশনের মুভি ও সিরিজ দেখার জন্য এক্সটেনশন ফাইলটি ডাউনলোড ও লোড করুন।"
+                                else
+                                    "হোস্টিং সার্ভার থেকে সরাসরি ব্রাউজ করতে 'ওয়েব ভিউ' খুলুন অথবা রিফ্রেশ করুন।",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+
+                            if (!provider.isInstalled) {
                                 Button(
-                                    onClick = { refreshCatalog() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                                    onClick = {
+                                        isDownloadingLocal = true
+                                        coroutineScope.launch {
+                                            val (ok, msg) = repository.downloadAndInstallProvider(provider)
+                                            isDownloadingLocal = false
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            refreshCatalog()
+                                        }
+                                    },
+                                    enabled = !isDownloadingLocal,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("রিফ্রেশ (Retry)")
+                                    if (isDownloadingLocal) {
+                                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("ডাউনলোড হচ্ছে...", color = Color.White)
+                                    } else {
+                                        Icon(Icons.Rounded.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("📥 এক্সটেনশনটি ডাউনলোড করুন", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
                                 }
-                                Button(
-                                    onClick = { isWebViewMode = true },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.Rounded.Web, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("ওয়েব ভিউ খুলুন")
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Button(
+                                        onClick = { refreshCatalog() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("রিফ্রেশ (Retry)")
+                                    }
+                                    Button(
+                                        onClick = { isWebViewMode = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Web, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("ওয়েব ভিউ খুলুন")
+                                    }
                                 }
                             }
                         }
