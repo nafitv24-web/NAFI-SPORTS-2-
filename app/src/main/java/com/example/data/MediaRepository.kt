@@ -35,6 +35,12 @@ class MediaRepository(private val context: Context) {
         .followRedirects(true)
         .build()
 
+    val dexPluginManager: com.example.cloudstream.DexPluginManager =
+        com.example.cloudstream.DexPluginManager(context, client)
+
+    val nativeScraperEngine: com.example.cloudstream.NativeScraperEngine =
+        com.example.cloudstream.NativeScraperEngine(client)
+
     companion object {
         const val FIREBASE_PROJECT_ID = "nafitv24-live"
         const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
@@ -2916,7 +2922,26 @@ class MediaRepository(private val context: Context) {
             val allActiveProviders = parsedRepo.providers.map { it.copy(isInstalled = true, isEnabled = true) }
             val updatedRepo = parsedRepo.copy(providers = allActiveProviders)
             saveCloudStreamRepo(updatedRepo)
-            Pair(true, "${updatedRepo.name} (${updatedRepo.providers.size} টি এক্সটেনশন) সফলভাবে ইনস্টল ও সক্রিয় হয়েছে")
+
+            // Dynamic DEX background download & loading for .cs3 files
+            for (prov in updatedRepo.providers) {
+                try {
+                    val cs3Url = if (prov.siteUrl.endsWith(".cs3", ignoreCase = true)) {
+                        prov.siteUrl
+                    } else {
+                        "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/${prov.name.replace(" ", "")}.cs3"
+                    }
+                    val fileName = "${prov.name.replace(" ", "")}.cs3"
+                    val downloadedFile = dexPluginManager.downloadAndInstallCs3(cs3Url, fileName)
+                    if (downloadedFile != null) {
+                        dexPluginManager.loadPlugin(downloadedFile)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            Pair(true, "${updatedRepo.name} (${updatedRepo.providers.size} টি এক্সটেনশন) সফলভাবে ইনস্টল ও লোড হয়েছে")
         } catch (e: Exception) {
             e.printStackTrace()
             Pair(false, "ত্রুটি: ${e.localizedMessage ?: "URL থেকে এক্সটেনশন লোড করা যায়নি"}")
@@ -3182,56 +3207,32 @@ class MediaRepository(private val context: Context) {
             userPriorityList.addAll(userFb)
 
             // =========================================================================
-            // 2. SECONDARY: CLOUDSTREAM EXTENSIONS & REPOSITORY PROVIDERS
+            // 2. SECONDARY: CLOUDSTREAM DYNAMIC DEX EXECUTION + NATIVE SCRAPERS
             // =========================================================================
-            val providerId = provider?.id?.lowercase() ?: ""
-            val providerName = provider?.name?.lowercase() ?: ""
-
-            when {
-                // 1. Bollywood / Hindi / South Indian Dubbed Providers (BollyFlix, VegaMovies, ShowFlix, MultiMovies, Ringz)
-                providerId.contains("bolly") || providerId.contains("vega") || providerId.contains("multimovies") ||
-                providerId.contains("showflix") || providerId.contains("ringz") || providerName.contains("bolly") ||
-                providerName.contains("vega") -> {
-                    extensionList.addAll(fetchBollyFlixProviderFeed(provider, query, typeFilter))
+            if (provider != null) {
+                // 1. Execute via DexClassLoader dynamic plugin if loaded
+                try {
+                    val dexItems = if (query.isNotBlank()) {
+                        dexPluginManager.searchPlugin(provider, query)
+                    } else {
+                        dexPluginManager.fetchPluginHomeCatalog(provider)
+                    }
+                    if (dexItems.isNotEmpty()) {
+                        extensionList.addAll(dexItems)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
+            }
 
-                // 2. Anime & Cartoon Providers (Animesalt, Latanime)
-                providerId.contains("anime") || providerName.contains("anime") -> {
-                    extensionList.addAll(fetchAnimeSaltProviderFeed(provider, query, typeFilter))
+            // 2. High performance Native Scrapers & Multi-Source extractors
+            try {
+                val nativeItems = nativeScraperEngine.fetchCatalog(provider, query, typeFilter)
+                if (nativeItems.isNotEmpty()) {
+                    extensionList.addAll(nativeItems)
                 }
-
-                // 3. Asian Drama & KDrama Providers (Kisskh, MPlayer, LayarKaca)
-                providerId.contains("kisskh") || providerId.contains("mplayer") || providerId.contains("layarkaca") ||
-                providerName.contains("kdrama") || providerName.contains("asian") -> {
-                    extensionList.addAll(fetchKisskhProviderFeed(provider, query, typeFilter))
-                }
-
-                // 4. Bangla Cinema & Series Providers (DoraBash, Chorki, Bioscope)
-                providerId.contains("dora") || providerId.contains("bangla") || providerName.contains("dora") ||
-                providerName.contains("bangla") -> {
-                    extensionList.addAll(fetchDoraBashProviderFeed(provider, query, typeFilter))
-                }
-
-                // 5. Hollywood & Global Movie Providers (MovieBox, FlixHQ, Cineb, SmashyStream, AllWish, MovieBlast)
-                providerId.contains("moviebox") || providerId.contains("flix") || providerId.contains("cineb") ||
-                providerId.contains("smashy") || providerId.contains("allwish") || providerId.contains("movieblast") -> {
-                    extensionList.addAll(fetchHollywoodFlixProviderFeed(provider, query, typeFilter))
-                }
-
-                // 6. ALL PROVIDERS / UNIFIED EXTENSIONS (When "All Providers" is selected)
-                else -> {
-                    val bollyDeferred = async { fetchBollyFlixProviderFeed(null, query, typeFilter) }
-                    val animeDeferred = async { fetchAnimeSaltProviderFeed(null, query, typeFilter) }
-                    val dramaDeferred = async { fetchKisskhProviderFeed(null, query, typeFilter) }
-                    val banglaDeferred = async { fetchDoraBashProviderFeed(null, query, typeFilter) }
-                    val flixDeferred = async { fetchHollywoodFlixProviderFeed(null, query, typeFilter) }
-
-                    extensionList.addAll(flixDeferred.await())
-                    extensionList.addAll(bollyDeferred.await())
-                    extensionList.addAll(animeDeferred.await())
-                    extensionList.addAll(dramaDeferred.await())
-                    extensionList.addAll(banglaDeferred.await())
-                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
 
         } catch (e: Exception) {
