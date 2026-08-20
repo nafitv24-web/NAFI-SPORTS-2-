@@ -5501,7 +5501,7 @@ fun MenuScreen(
     var directTitle by remember { mutableStateOf("") }
 
     // 2. Load Custom M3U State
-    var remoteM3uUrl by remember { mutableStateOf(repository.getSavedM3uUrl()) }
+    var remoteM3uUrl by remember { mutableStateOf("") }
     var isLoadingM3u by remember { mutableStateOf(false) }
 
     // File picker launcher for .m3u / .m3u8

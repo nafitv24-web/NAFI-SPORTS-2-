@@ -147,11 +147,24 @@ fun VideoPlayerScreen(
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
     val maxAudioVolume = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
 
-    var gestureVolumePercent by remember { mutableIntStateOf(50) }
-    var gestureBrightnessPercent by remember { mutableIntStateOf(50) }
+    var currentVolumeFraction by remember {
+        val initialVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 7
+        val maxVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
+        mutableFloatStateOf((initialVol.toFloat() / maxVol.toFloat()).coerceIn(0f, 1f))
+    }
+    var currentBrightnessFraction by remember {
+        val initialBright = activity?.window?.attributes?.screenBrightness ?: 0.5f
+        mutableFloatStateOf(if (initialBright < 0f) 0.5f else initialBright.coerceIn(0.01f, 1.0f))
+    }
+
+    var gestureVolumePercent by remember { mutableIntStateOf((currentVolumeFraction * 100).toInt()) }
+    var gestureBrightnessPercent by remember { mutableIntStateOf((currentBrightnessFraction * 100).toInt()) }
     var isVolumeGestureActive by remember { mutableStateOf(false) }
     var isBrightnessGestureActive by remember { mutableStateOf(false) }
     var isSeekGestureActive by remember { mutableStateOf(false) }
+    var volumeGestureKey by remember { mutableLongStateOf(0L) }
+    var brightnessGestureKey by remember { mutableLongStateOf(0L) }
+    var seekGestureKey by remember { mutableLongStateOf(0L) }
     var seekGestureOffsetSec by remember { mutableIntStateOf(0) }
     var seekGestureTargetMs by remember { mutableLongStateOf(0L) }
     var doubleTapSeekLeft by remember { mutableStateOf(false) }
@@ -187,21 +200,21 @@ fun VideoPlayerScreen(
     var showSubtitleDialog by remember { mutableStateOf(false) }
 
     // Auto-dismiss Gesture HUD Overlays after inactivity
-    LaunchedEffect(isVolumeGestureActive) {
-        if (isVolumeGestureActive) {
-            delay(1200)
+    LaunchedEffect(volumeGestureKey) {
+        if (volumeGestureKey > 0L && isVolumeGestureActive) {
+            delay(1500)
             isVolumeGestureActive = false
         }
     }
-    LaunchedEffect(isBrightnessGestureActive) {
-        if (isBrightnessGestureActive) {
-            delay(1200)
+    LaunchedEffect(brightnessGestureKey) {
+        if (brightnessGestureKey > 0L && isBrightnessGestureActive) {
+            delay(1500)
             isBrightnessGestureActive = false
         }
     }
-    LaunchedEffect(isSeekGestureActive) {
-        if (isSeekGestureActive) {
-            delay(1200)
+    LaunchedEffect(seekGestureKey) {
+        if (seekGestureKey > 0L && isSeekGestureActive) {
+            delay(1500)
             isSeekGestureActive = false
         }
     }
@@ -862,27 +875,31 @@ fun VideoPlayerScreen(
     }
 
     fun adjustBrightness(delta: Float) {
-        val current = activity?.window?.attributes?.screenBrightness ?: 0.5f
-        val base = if (current < 0f) 0.5f else current
-        val newBrightness = (base + delta).coerceIn(0.01f, 1.0f)
+        currentBrightnessFraction = (currentBrightnessFraction + delta).coerceIn(0.01f, 1.0f)
         val lp = activity?.window?.attributes
         if (lp != null) {
-            lp.screenBrightness = newBrightness
+            lp.screenBrightness = currentBrightnessFraction
             activity.window.attributes = lp
         }
-        gestureBrightnessPercent = (newBrightness * 100).toInt()
+        gestureBrightnessPercent = (currentBrightnessFraction * 100).toInt().coerceIn(1, 100)
+        brightnessGestureKey = System.currentTimeMillis()
         isBrightnessGestureActive = true
         isVolumeGestureActive = false
         isSeekGestureActive = false
     }
 
     fun adjustVolume(delta: Float) {
-        val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxAudioVolume / 2)
-        val curFraction = curVol.toFloat() / maxAudioVolume.toFloat()
-        val newFraction = (curFraction + delta).coerceIn(0f, 1f)
-        val newVol = (newFraction * maxAudioVolume).toInt().coerceIn(0, maxAudioVolume)
-        audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
-        gestureVolumePercent = (newFraction * 100).toInt()
+        if (isMuted) {
+            isMuted = false
+            exoPlayer.volume = 1f
+        }
+        currentVolumeFraction = (currentVolumeFraction + delta).coerceIn(0f, 1f)
+        val newVol = kotlin.math.round(currentVolumeFraction * maxAudioVolume).toInt().coerceIn(0, maxAudioVolume)
+        try {
+            audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+        } catch (_: Exception) {}
+        gestureVolumePercent = (currentVolumeFraction * 100).toInt().coerceIn(0, 100)
+        volumeGestureKey = System.currentTimeMillis()
         isVolumeGestureActive = true
         isBrightnessGestureActive = false
         isSeekGestureActive = false
@@ -893,6 +910,7 @@ fun VideoPlayerScreen(
             seekGestureOffsetSec += deltaSec.toInt()
             val target = (currentPositionMs + seekGestureOffsetSec * 1000L).coerceIn(0L, durationMs)
             seekGestureTargetMs = target
+            seekGestureKey = System.currentTimeMillis()
             isSeekGestureActive = true
             isVolumeGestureActive = false
             isBrightnessGestureActive = false
@@ -1014,8 +1032,16 @@ fun VideoPlayerScreen(
                 }
                 .pointerInput(Unit) {
                     var dragType = MxDragType.NONE
+                    var dragStartX = 0f
                     detectDragGestures(
-                        onDragStart = { dragType = MxDragType.NONE },
+                        onDragStart = { offset ->
+                            dragStartX = offset.x
+                            dragType = MxDragType.NONE
+                            val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 7
+                            currentVolumeFraction = (curVol.toFloat() / maxAudioVolume.toFloat()).coerceIn(0f, 1f)
+                            val curBright = activity?.window?.attributes?.screenBrightness ?: -1f
+                            currentBrightnessFraction = if (curBright < 0f) 0.5f else curBright.coerceIn(0.01f, 1.0f)
+                        },
                         onDragEnd = {
                             if (dragType == MxDragType.HORIZONTAL) {
                                 confirmSeek()
@@ -1027,7 +1053,7 @@ fun VideoPlayerScreen(
                             change.consume()
                             if (dragType == MxDragType.NONE) {
                                 if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x)) {
-                                    dragType = if (change.position.x < size.width / 2) MxDragType.VERTICAL_LEFT else MxDragType.VERTICAL_RIGHT
+                                    dragType = if (dragStartX < size.width / 2) MxDragType.VERTICAL_LEFT else MxDragType.VERTICAL_RIGHT
                                 } else {
                                     dragType = MxDragType.HORIZONTAL
                                 }
@@ -1035,15 +1061,15 @@ fun VideoPlayerScreen(
 
                             when (dragType) {
                                 MxDragType.VERTICAL_LEFT -> {
-                                    val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                    val deltaPercent = -dragAmount.y / (size.height * 0.75f)
                                     adjustBrightness(deltaPercent)
                                 }
                                 MxDragType.VERTICAL_RIGHT -> {
-                                    val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                    val deltaPercent = -dragAmount.y / (size.height * 0.75f)
                                     adjustVolume(deltaPercent)
                                 }
                                 MxDragType.HORIZONTAL -> {
-                                    val deltaSec = (dragAmount.x / (size.width * 0.5f)) * 90f
+                                    val deltaSec = (dragAmount.x / (size.width * 0.4f)) * 45f
                                     adjustSeekDelta(deltaSec)
                                 }
                                 MxDragType.NONE -> {}
@@ -1428,8 +1454,16 @@ fun VideoPlayerScreen(
                     }
                     .pointerInput(Unit) {
                         var dragType = MxDragType.NONE
+                        var dragStartX = 0f
                         detectDragGestures(
-                            onDragStart = { dragType = MxDragType.NONE },
+                            onDragStart = { offset ->
+                                dragStartX = offset.x
+                                dragType = MxDragType.NONE
+                                val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 7
+                                currentVolumeFraction = (curVol.toFloat() / maxAudioVolume.toFloat()).coerceIn(0f, 1f)
+                                val curBright = activity?.window?.attributes?.screenBrightness ?: -1f
+                                currentBrightnessFraction = if (curBright < 0f) 0.5f else curBright.coerceIn(0.01f, 1.0f)
+                            },
                             onDragEnd = {
                                 if (dragType == MxDragType.HORIZONTAL) {
                                     confirmSeek()
@@ -1441,7 +1475,7 @@ fun VideoPlayerScreen(
                                 change.consume()
                                 if (dragType == MxDragType.NONE) {
                                     if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x)) {
-                                        dragType = if (change.position.x < size.width / 2) MxDragType.VERTICAL_LEFT else MxDragType.VERTICAL_RIGHT
+                                        dragType = if (dragStartX < size.width / 2) MxDragType.VERTICAL_LEFT else MxDragType.VERTICAL_RIGHT
                                     } else {
                                         dragType = MxDragType.HORIZONTAL
                                     }
@@ -1449,15 +1483,15 @@ fun VideoPlayerScreen(
 
                                 when (dragType) {
                                     MxDragType.VERTICAL_LEFT -> {
-                                        val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                        val deltaPercent = -dragAmount.y / (size.height * 0.75f)
                                         adjustBrightness(deltaPercent)
                                     }
                                     MxDragType.VERTICAL_RIGHT -> {
-                                        val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                        val deltaPercent = -dragAmount.y / (size.height * 0.75f)
                                         adjustVolume(deltaPercent)
                                     }
                                     MxDragType.HORIZONTAL -> {
-                                        val deltaSec = (dragAmount.x / size.width) * 90f
+                                        val deltaSec = (dragAmount.x / (size.width * 0.4f)) * 45f
                                         adjustSeekDelta(deltaSec)
                                     }
                                     MxDragType.NONE -> Unit
