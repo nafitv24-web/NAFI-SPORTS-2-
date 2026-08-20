@@ -201,12 +201,15 @@ fun ExtensionsManagementScreen(
                     .padding(paddingValues),
                 contentPadding = PaddingValues(bottom = 90.dp)
             ) {
-                // HERO CARD: TMDB MOVIE CINEMA ENGINE (Configured for Movies)
+                // 1-CLICK HERO INSTALL CARD FOR HEXATED REPO
                 item {
+                    val hexatedRepoUrl = "https://raw.githubusercontent.com/Hexated/cloudstream-extensions-hexated/builds/repo.json"
+                    val isHexatedInstalled = repos.any { it.url.contains("hexated", ignoreCase = true) || it.name.contains("Hexated", ignoreCase = true) }
+                    
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = Color(0xFF0D1B2A),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF01B4E4)),
+                        color = Color(0xFF0F172A),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -222,16 +225,16 @@ fun ExtensionsManagementScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(48.dp)
+                                        .size(46.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Brush.linearGradient(listOf(Color(0xFF01B4E4), Color(0xFF90CEA1)))),
+                                        .background(Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF2563EB)))),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Movie,
+                                        imageVector = Icons.Rounded.CloudDownload,
                                         contentDescription = null,
-                                        tint = Color(0xFF0D1B2A),
-                                        modifier = Modifier.size(28.dp)
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
                                     )
                                 }
 
@@ -240,7 +243,7 @@ fun ExtensionsManagementScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = "TMDB Movies Cinema Hub",
+                                            text = "Hexated Streams Hub",
                                             color = Color.White,
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.ExtraBold
@@ -251,7 +254,7 @@ fun ExtensionsManagementScreen(
                                             color = Color(0xFF10B981).copy(alpha = 0.2f)
                                         ) {
                                             Text(
-                                                text = "ACTIVE",
+                                                text = "Verified",
                                                 color = Color(0xFF10B981),
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -261,42 +264,13 @@ fun ExtensionsManagementScreen(
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "শুধুমাত্র মুভি দেখার জন্য • The Movie Database (TMDB v3)",
-                                        color = Color(0xFF90CEA1),
+                                        text = "Hollywood, Bollywood, Dual Audio এবং HD স্ট্রিমিং এক্সটেনশন রিপোজিটরি",
+                                        color = Color(0xFF94A3B8),
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        lineHeight = 14.sp
                                     )
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // CFG CODE BADGE
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF030712),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Text(
-                                        text = "const CFG = {\n  API_KEY: '05902896074695709d7763505bb88b4d',\n  BASE: 'https://api.themoviedb.org/3'\n}",
-                                        color = Color(0xFF38BDF8),
-                                        fontSize = 11.sp,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        lineHeight = 15.sp
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Text(
-                                text = "Trending, Popular, Top Rated, Now Playing, Bollywood, Bangla, Action, Sci-Fi, Horror এবং 8+ HD মাল্টি-সার্ভার স্ট্রিমিং লিঙ্ক সংযুক্ত।",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -308,50 +282,52 @@ fun ExtensionsManagementScreen(
                                     onClick = {
                                         coroutineScope.launch {
                                             isBatchInstalling = true
-                                            val tmdbTest = repository.tmdbMovieEngine.fetchMovies(category = "Trending", page = 1)
+                                            val res = repository.installExtensionFromUrl(hexatedRepoUrl)
+                                            refreshExtensions()
                                             isBatchInstalling = false
-                                            if (tmdbTest.isNotEmpty()) {
-                                                Toast.makeText(context, "✅ TMDB Connected! ${tmdbTest.size} টি ট্রেন্ডিং মুভি লোড হয়েছে", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, "⚠️ TMDB রেসপন্স চেক করুন", Toast.LENGTH_SHORT).show()
-                                            }
+                                            Toast.makeText(context, "✅ ${res.second}", Toast.LENGTH_LONG).show()
                                         }
                                     },
                                     enabled = !isBatchInstalling,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF01B4E4),
-                                        contentColor = Color(0xFF0D1B2A)
+                                        containerColor = Color(0xFF00E5FF),
+                                        contentColor = Color.Black
                                     ),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f).height(40.dp)
                                 ) {
                                     if (isBatchInstalling) {
                                         CircularProgressIndicator(
-                                            color = Color(0xFF0D1B2A),
+                                            color = Color.Black,
                                             strokeWidth = 2.dp,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     } else {
-                                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Rounded.DownloadDone, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            "Sync & Refresh TMDB",
+                                            if (isHexatedInstalled) "Update Hexated Repo" else "Install Hexated Repo",
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 12.sp
                                         )
                                     }
                                 }
 
-                                OutlinedButton(
-                                    onClick = {
-                                        onOpenMovieBrowser?.invoke(com.example.tmdb.TmdbMovieEngine.TMDB_PROVIDER)
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF90CEA1)),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF01B4E4)),
-                                    modifier = Modifier.height(40.dp)
-                                ) {
-                                    Text("Open Cinema Hub", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                if (isHexatedInstalled) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val target = repos.firstOrNull { it.url.contains("hexated", ignoreCase = true) || it.name.contains("Hexated", ignoreCase = true) }
+                                            if (target != null) {
+                                                selectedRepoForPlugins = target
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.height(40.dp)
+                                    ) {
+                                        Text("Open Repo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

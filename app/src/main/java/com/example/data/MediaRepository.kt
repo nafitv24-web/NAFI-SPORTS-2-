@@ -41,9 +41,6 @@ class MediaRepository(private val context: Context) {
     val nativeScraperEngine: com.example.cloudstream.NativeScraperEngine =
         com.example.cloudstream.NativeScraperEngine(client)
 
-    val tmdbMovieEngine: com.example.tmdb.TmdbMovieEngine =
-        com.example.tmdb.TmdbMovieEngine(client)
-
     companion object {
         const val FIREBASE_PROJECT_ID = "nafitv24-live"
         const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
@@ -2399,11 +2396,7 @@ class MediaRepository(private val context: Context) {
             repo.providers.map { it.copy(repoName = repo.name) }
         }
         val customProviders = getCustomMovieProviders()
-        val list = mutableListOf<MovieProvider>()
-        list.add(com.example.tmdb.TmdbMovieEngine.TMDB_PROVIDER)
-        list.addAll(repoProviders)
-        list.addAll(customProviders)
-        return list.distinctBy { it.id }
+        return (repoProviders + customProviders).distinctBy { it.id }
     }
 
     fun saveMovieProviders(providers: List<MovieProvider>) {
@@ -2851,46 +2844,9 @@ class MediaRepository(private val context: Context) {
             userPriorityList.addAll(userFb)
 
             // =========================================================================
-            // 2. TMDB MOVIE ENGINE (Verified Official TMDB API Integration for Movies)
+            // 2. SECONDARY: CLOUDSTREAM DYNAMIC DEX EXECUTION + NATIVE SCRAPERS
             // =========================================================================
-            if (provider == null || provider.id == "tmdb_movie_engine" || provider.name.contains("TMDB", ignoreCase = true)) {
-                try {
-                    val tmdbMovies = if ((typeFilter.equals("All", ignoreCase = true) || typeFilter.isBlank()) && query.isBlank()) {
-                        tmdbMovieEngine.fetchAllHomeMovies()
-                    } else {
-                        val tmdbCategory = when {
-                            typeFilter.equals("All", ignoreCase = true) || typeFilter.equals("Trending", ignoreCase = true) -> "Trending"
-                            typeFilter.equals("Popular", ignoreCase = true) || typeFilter.equals("Movies", ignoreCase = true) -> "Popular"
-                            typeFilter.equals("Top Rated", ignoreCase = true) -> "Top Rated"
-                            typeFilter.equals("Now Playing", ignoreCase = true) -> "Now Playing"
-                            typeFilter.equals("Upcoming", ignoreCase = true) -> "Upcoming"
-                            typeFilter.contains("Bollywood", ignoreCase = true) || typeFilter.contains("Hindi", ignoreCase = true) -> "Bollywood"
-                            typeFilter.contains("Bangla", ignoreCase = true) -> "Bangla"
-                            typeFilter.contains("South", ignoreCase = true) || typeFilter.contains("Tamil", ignoreCase = true) || typeFilter.contains("Telugu", ignoreCase = true) -> "South"
-                            typeFilter.contains("Action", ignoreCase = true) -> "Action"
-                            typeFilter.contains("Comedy", ignoreCase = true) -> "Comedy"
-                            typeFilter.contains("Horror", ignoreCase = true) -> "Horror"
-                            typeFilter.contains("Sci-Fi", ignoreCase = true) -> "Sci-Fi"
-                            typeFilter.contains("Animation", ignoreCase = true) || typeFilter.contains("Anime", ignoreCase = true) -> "Animation"
-                            typeFilter.contains("Drama", ignoreCase = true) -> "Drama"
-                            typeFilter.contains("Romance", ignoreCase = true) -> "Romance"
-                            typeFilter.contains("Thriller", ignoreCase = true) -> "Thriller"
-                            else -> typeFilter
-                        }
-                        tmdbMovieEngine.fetchMovies(category = tmdbCategory, query = query)
-                    }
-                    if (tmdbMovies.isNotEmpty()) {
-                        extensionList.addAll(tmdbMovies)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            // =========================================================================
-            // 3. SECONDARY: CLOUDSTREAM DYNAMIC DEX EXECUTION + NATIVE SCRAPERS
-            // =========================================================================
-            if (provider != null && provider.id != "tmdb_movie_engine") {
+            if (provider != null) {
                 val isInstalled = provider.isInstalled || dexPluginManager.isPluginDownloaded(provider)
                 if (isInstalled) {
                     // 1. Execute via DexClassLoader dynamic plugin if loaded
@@ -2917,10 +2873,10 @@ class MediaRepository(private val context: Context) {
                         e.printStackTrace()
                     }
                 }
-            } else if (provider == null) {
-                // Provider is null (Global Home): Query other installed providers
-                val installed = getAllMovieProviders().filter { it.isInstalled && it.isEnabled && it.id != "tmdb_movie_engine" }
-                for (prov in installed.take(6)) {
+            } else {
+                // Provider is null (Global Home): Only query installed/downloaded providers!
+                val installed = getAllMovieProviders().filter { it.isInstalled && it.isEnabled }
+                for (prov in installed.take(8)) {
                     try {
                         val dexItems = if (query.isNotBlank()) {
                             dexPluginManager.searchPlugin(prov, query)
@@ -2958,41 +2914,13 @@ class MediaRepository(private val context: Context) {
                     (item.category ?: "").contains(query, ignoreCase = true) ||
                     (item.description ?: "").contains(query, ignoreCase = true)
 
-            val matchesType = when {
-                typeFilter.equals("All", ignoreCase = true) || typeFilter.isBlank() -> true
-                typeFilter.equals("NAFI OTT PLATFORM", ignoreCase = true) || typeFilter.equals("NAFI OTT", ignoreCase = true) || typeFilter.equals("My Playlist", ignoreCase = true) ->
-                    item.tournament == "NAFI_OTT" || (item.category ?: "").contains("NAFI OTT", ignoreCase = true)
-                typeFilter.equals("Trending", ignoreCase = true) ->
-                    (item.category ?: "").contains("Trending", ignoreCase = true) || item.tournament == "TMDB_CINEMA"
-                typeFilter.equals("Popular", ignoreCase = true) ->
-                    (item.category ?: "").contains("Popular", ignoreCase = true) || item.tournament == "TMDB_CINEMA"
-                typeFilter.equals("Top Rated", ignoreCase = true) ->
-                    (item.category ?: "").contains("Top Rated", ignoreCase = true) || (item.rating?.toDoubleOrNull() ?: 0.0) >= 7.5
-                typeFilter.equals("Now Playing", ignoreCase = true) || typeFilter.equals("Upcoming", ignoreCase = true) ->
-                    (item.category ?: "").contains("Now Playing", ignoreCase = true) || (item.category ?: "").contains("Upcoming", ignoreCase = true) || item.tournament == "TMDB_CINEMA"
-                typeFilter.contains("Bollywood", ignoreCase = true) || typeFilter.contains("Hindi", ignoreCase = true) ->
-                    (item.category ?: "").contains("Bollywood", ignoreCase = true) || (item.description ?: "").contains("[HI]", ignoreCase = true)
-                typeFilter.contains("Bangla", ignoreCase = true) || typeFilter.contains("Bengali", ignoreCase = true) ->
-                    (item.category ?: "").contains("Bangla", ignoreCase = true) || (item.description ?: "").contains("[BN]", ignoreCase = true)
-                typeFilter.contains("South", ignoreCase = true) ->
-                    (item.category ?: "").contains("South", ignoreCase = true) || (item.description ?: "").contains("[TE]", ignoreCase = true) || (item.description ?: "").contains("[TA]", ignoreCase = true)
-                typeFilter.equals("Action", ignoreCase = true) ->
-                    (item.category ?: "").contains("Action", ignoreCase = true) || (item.description ?: "").contains("Action", ignoreCase = true)
-                typeFilter.equals("Horror", ignoreCase = true) ->
-                    (item.category ?: "").contains("Horror", ignoreCase = true) || (item.description ?: "").contains("Horror", ignoreCase = true)
-                typeFilter.equals("Sci-Fi", ignoreCase = true) ->
-                    (item.category ?: "").contains("Sci-Fi", ignoreCase = true) || (item.description ?: "").contains("Sci-Fi", ignoreCase = true)
-                typeFilter.equals("Comedy", ignoreCase = true) ->
-                    (item.category ?: "").contains("Comedy", ignoreCase = true) || (item.description ?: "").contains("Comedy", ignoreCase = true)
-                typeFilter.equals("Drama", ignoreCase = true) ->
-                    (item.category ?: "").contains("Drama", ignoreCase = true) || (item.description ?: "").contains("Drama", ignoreCase = true)
-                typeFilter.equals("Movies", ignoreCase = true) -> item.type == MediaType.MOVIE
-                typeFilter.equals("TV Series", ignoreCase = true) -> item.type == MediaType.SERIES
-                typeFilter.equals("Anime", ignoreCase = true) || typeFilter.equals("Animation", ignoreCase = true) ->
-                    (item.category ?: "").contains("Anime", ignoreCase = true) || (item.category ?: "").contains("Animation", ignoreCase = true) || item.title.contains("Anime", ignoreCase = true)
-                typeFilter.equals("Asian Dramas", ignoreCase = true) ->
-                    (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true) || (item.category ?: "").contains("KDrama", ignoreCase = true)
-                else -> (item.category ?: "").contains(typeFilter, ignoreCase = true) || item.title.contains(typeFilter, ignoreCase = true)
+            val matchesType = when (typeFilter) {
+                "NAFI OTT PLATFORM", "NAFI OTT", "My Playlist" -> item.tournament == "NAFI_OTT" || (item.category ?: "").contains("NAFI OTT", ignoreCase = true)
+                "Movies" -> item.type == MediaType.MOVIE
+                "TV Series" -> item.type == MediaType.SERIES
+                "Anime" -> (item.category ?: "").contains("Anime", ignoreCase = true) || item.title.contains("Anime", ignoreCase = true)
+                "Asian Dramas" -> (item.category ?: "").contains("Drama", ignoreCase = true) || (item.category ?: "").contains("Asian", ignoreCase = true) || (item.category ?: "").contains("KDrama", ignoreCase = true)
+                else -> true
             }
             matchesQuery && matchesType
         }
