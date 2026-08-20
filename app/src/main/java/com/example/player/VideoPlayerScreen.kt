@@ -126,13 +126,21 @@ fun VideoPlayerScreen(
     }
 
     val isWebEmbedUrl = remember(currentUrl) {
-        val clean = currentUrl.lowercase().trim()
-        clean.contains("vidsrc.to") || clean.contains("vidsrc.me") || clean.contains("vidsrc.net") ||
-        clean.contains("superstream.tv") || clean.contains("autoembed.to") || clean.contains("2embed.cc") ||
-        clean.contains("/embed/") || clean.contains("embed.html")
+        StreamExtractor.isEmbedUrl(currentUrl)
     }
     var forceWebEngine by remember(currentMedia.id, currentUrl) { mutableStateOf(false) }
-    val useWebPlayer = isWebEmbedUrl || forceWebEngine
+    val useWebPlayer = (isWebEmbedUrl || forceWebEngine)
+
+    // Automatically resolve any 2embed/vidsrc/embed streams to native ExoPlayer URLs in the background
+    LaunchedEffect(currentUrl) {
+        if (StreamExtractor.isEmbedUrl(currentUrl)) {
+            val directStream = StreamExtractor.extractDirectStream(currentUrl)
+            if (directStream != null && directStream.streamUrl.isNotBlank()) {
+                currentUrl = directStream.streamUrl
+                forceWebEngine = false
+            }
+        }
+    }
 
     var isFullscreen by rememberSaveable { mutableStateOf(isScreenLandscape || isTvMode) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
