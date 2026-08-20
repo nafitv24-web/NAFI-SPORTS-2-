@@ -2691,6 +2691,10 @@ class MediaRepository(private val context: Context) {
                         if (tArr != null) {
                             for (t in 0 until tArr.length()) typesList.add(tArr.optString(t))
                         }
+                        val isInstalledStored = po.optBoolean("isInstalled", false)
+                        val isDownloaded = dexPluginManager.isPluginDownloaded(MovieProvider(id = po.optString("id", ""), name = po.optString("name", ""), siteUrl = po.optString("siteUrl", "")))
+                        val isEffectiveInstalled = isInstalledStored && isDownloaded
+
                         provList.add(
                             MovieProvider(
                                 id = po.optString("id", "p_$p"),
@@ -2704,7 +2708,8 @@ class MediaRepository(private val context: Context) {
                                 repoId = po.optString("repoId", ""),
                                 repoName = po.optString("repoName", ""),
                                 isCustom = po.optBoolean("isCustom", false),
-                                isEnabled = po.optBoolean("isEnabled", true)
+                                isInstalled = isEffectiveInstalled,
+                                isEnabled = isEffectiveInstalled && po.optBoolean("isEnabled", true)
                             )
                         )
                     }
@@ -2770,6 +2775,7 @@ class MediaRepository(private val context: Context) {
                 po.put("repoId", prov.repoId ?: repo.id)
                 po.put("repoName", prov.repoName ?: repo.name)
                 po.put("isCustom", prov.isCustom)
+                po.put("isInstalled", prov.isInstalled)
                 po.put("isEnabled", prov.isEnabled)
 
                 val tArr = JSONArray()
@@ -2807,6 +2813,10 @@ class MediaRepository(private val context: Context) {
                 if (tArr != null) {
                     for (t in 0 until tArr.length()) typesList.add(tArr.optString(t))
                 }
+                val isInstalledStored = po.optBoolean("isInstalled", false)
+                val isDownloaded = dexPluginManager.isPluginDownloaded(MovieProvider(id = po.optString("id", ""), name = po.optString("name", ""), siteUrl = po.optString("siteUrl", "")))
+                val isEffectiveInstalled = isInstalledStored && isDownloaded
+
                 list.add(
                     MovieProvider(
                         id = po.optString("id", "cust_prov_$i"),
@@ -2820,7 +2830,8 @@ class MediaRepository(private val context: Context) {
                         repoId = po.optString("repoId", "custom"),
                         repoName = po.optString("repoName", "Custom Added"),
                         isCustom = true,
-                        isEnabled = po.optBoolean("isEnabled", true)
+                        isInstalled = isEffectiveInstalled,
+                        isEnabled = isEffectiveInstalled && po.optBoolean("isEnabled", true)
                     )
                 )
             }
@@ -2844,6 +2855,7 @@ class MediaRepository(private val context: Context) {
             po.put("repoId", prov.repoId ?: "custom")
             po.put("repoName", prov.repoName ?: "Custom Added")
             po.put("isCustom", true)
+            po.put("isInstalled", prov.isInstalled)
             po.put("isEnabled", prov.isEnabled)
 
             val tArr = JSONArray()
@@ -2944,12 +2956,62 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    suspend fun downloadProvider(provider: MovieProvider): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val ok = dexPluginManager.downloadProvider(provider)
+            if (ok) {
+                Pair(true, "${provider.name} ডাউনলোড সম্পন্ন হয়েছে")
+            } else {
+                Pair(false, "${provider.name} ডাউনলোড করা সম্ভব হয়নি")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Pair(false, "ডাউনলোড ত্রুটি: ${e.localizedMessage}")
+        }
+    }
+
+    suspend fun installProvider(provider: MovieProvider): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val ok = dexPluginManager.installProvider(provider)
+            if (ok) {
+                val all = getAllMovieProviders().toMutableList()
+                val idx = all.indexOfFirst { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }
+                val updated = provider.copy(isInstalled = true, isEnabled = true)
+                if (idx >= 0) {
+                    all[idx] = updated
+                } else {
+                    all.add(updated)
+                }
+                saveMovieProviders(all)
+
+                val repos = getSavedCloudStreamRepos().map { repo ->
+                    if (repo.providers.any { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }) {
+                        val updatedProvs = repo.providers.map {
+                            if (it.id == provider.id || it.name.equals(provider.name, ignoreCase = true)) updated else it
+                        }
+                        repo.copy(providers = updatedProvs)
+                    } else repo
+                }
+                saveCloudStreamRepos(repos)
+
+                Pair(true, "${provider.name} সফলভাবে ইনস্টল ও সক্রিয় হয়েছে")
+            } else {
+                Pair(false, "${provider.name} ইনস্টল করা যায়নি")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Pair(false, "ইনস্টল ত্রুটি: ${e.localizedMessage}")
+        }
+    }
+
     suspend fun downloadAndInstallProvider(provider: MovieProvider): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         try {
-            // 1. Download cs3 file and load into DexPluginManager
+            // 1. Download cs3 file
             dexPluginManager.downloadProvider(provider)
+            // 2. Install and load
+            dexPluginManager.installProvider(provider)
 
-            // 2. Mark as installed & enabled in providers list
+            // 3. Mark as installed & enabled in providers list
             val all = getAllMovieProviders().toMutableList()
             val idx = all.indexOfFirst { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }
             val updated = provider.copy(isInstalled = true, isEnabled = true)
@@ -2960,7 +3022,7 @@ class MediaRepository(private val context: Context) {
             }
             saveMovieProviders(all)
 
-            // 3. Update in all repositories
+            // 4. Update in all repositories
             val repos = getSavedCloudStreamRepos().map { repo ->
                 if (repo.providers.any { it.id == provider.id || it.name.equals(provider.name, ignoreCase = true) }) {
                     val updatedProvs = repo.providers.map {
@@ -2971,7 +3033,7 @@ class MediaRepository(private val context: Context) {
             }
             saveCloudStreamRepos(repos)
 
-            Pair(true, "${provider.name} সফলভাবে ডাউনলোড ও সক্রিয় হয়েছে")
+            Pair(true, "${provider.name} সফলভাবে ডাউনলোড ও ইন্সটল হয়েছে")
         } catch (e: Exception) {
             e.printStackTrace()
             Pair(false, "ডাউনলোড ত্রুটি: ${e.localizedMessage}")
@@ -3005,6 +3067,10 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
             Pair(false, "আনইন্সটল ত্রুটি: ${e.localizedMessage}")
         }
+    }
+
+    fun isProviderDownloaded(provider: MovieProvider): Boolean {
+        return dexPluginManager.isPluginDownloaded(provider)
     }
 
     fun installExtensionFromJson(jsonContent: String): Pair<Boolean, String> {

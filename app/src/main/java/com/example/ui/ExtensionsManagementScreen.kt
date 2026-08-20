@@ -780,14 +780,27 @@ fun ExtensionsManagementScreen(
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    val isDownloaded = remember(provider.id, allProviders) { repository.isProviderDownloaded(provider) }
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = if (provider.isInstalled) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFF64748B).copy(alpha = 0.2f)
+                                        color = when {
+                                            provider.isInstalled -> Color(0xFF10B981).copy(alpha = 0.2f)
+                                            isDownloaded -> Color(0xFFF59E0B).copy(alpha = 0.2f)
+                                            else -> Color(0xFF64748B).copy(alpha = 0.2f)
+                                        }
                                     ) {
                                         Text(
-                                            text = if (provider.isInstalled) "Active" else "Available",
-                                            color = if (provider.isInstalled) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                            text = when {
+                                                provider.isInstalled -> "Active"
+                                                isDownloaded -> "Downloaded"
+                                                else -> "Available"
+                                            },
+                                            color = when {
+                                                provider.isInstalled -> Color(0xFF10B981)
+                                                isDownloaded -> Color(0xFFF59E0B)
+                                                else -> Color(0xFF94A3B8)
+                                            },
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -812,6 +825,8 @@ fun ExtensionsManagementScreen(
                             Spacer(modifier = Modifier.width(8.dp))
 
                             // Action buttons
+                            val isDownloaded = remember(provider.id, allProviders) { repository.isProviderDownloaded(provider) }
+
                             if (isInstalling) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
@@ -820,10 +835,10 @@ fun ExtensionsManagementScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("ডাউনলোড...", color = Color(0xFF38BDF8), fontSize = 10.sp)
+                                    Text("কাজ চলছে...", color = Color(0xFF38BDF8), fontSize = 10.sp)
                                 }
                             } else if (provider.isInstalled) {
-                                // Installed: Watch Movies button + Trash icon
+                                // 3. Installed: View Movies + Uninstall button
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = Color(0xFF00E5FF).copy(alpha = 0.15f),
@@ -865,8 +880,57 @@ fun ExtensionsManagementScreen(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
+                            } else if (isDownloaded) {
+                                // 2. Downloaded: Install Button + Delete File Button
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.18f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                                    modifier = Modifier.clickable {
+                                        installingProviderId = provider.id
+                                        coroutineScope.launch {
+                                            val (ok, msg) = repository.installProvider(provider)
+                                            installingProviderId = null
+                                            refreshExtensions()
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.DownloadDone,
+                                            contentDescription = "Install Extension",
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("ইন্সটল", color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                IconButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            val (ok, msg) = repository.uninstallProvider(provider)
+                                            refreshExtensions()
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.DeleteOutline,
+                                        contentDescription = "Delete File",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             } else {
-                                // Not Downloaded: Prominent Download Button
+                                // 1. Not Downloaded: Download Button
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = Color(0xFF38BDF8).copy(alpha = 0.15f),
@@ -874,7 +938,7 @@ fun ExtensionsManagementScreen(
                                     modifier = Modifier.clickable {
                                         installingProviderId = provider.id
                                         coroutineScope.launch {
-                                            val (ok, msg) = repository.downloadAndInstallProvider(provider)
+                                            val (ok, msg) = repository.downloadProvider(provider)
                                             installingProviderId = null
                                             refreshExtensions()
                                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -889,7 +953,7 @@ fun ExtensionsManagementScreen(
                                             imageVector = Icons.Rounded.FileDownload,
                                             contentDescription = "Download Extension",
                                             tint = Color(0xFF38BDF8),
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(15.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("ডাউনলোড", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)

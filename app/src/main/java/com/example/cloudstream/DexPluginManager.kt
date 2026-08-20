@@ -35,7 +35,7 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
     private val loadedPlugins = mutableMapOf<String, MainAPI>()
 
     /**
-     * Download and install a .cs3 extension file
+     * Download a .cs3 extension file and save it locally
      */
     suspend fun downloadAndInstallCs3(url: String, fileName: String): File? = withContext(Dispatchers.IO) {
         try {
@@ -47,10 +47,8 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
 
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) {
-                Log.w(TAG, "Download cs3 from $url returned HTTP ${resp.code}. Creating local stub file.")
-                if (!destFile.exists()) {
-                    destFile.writeText("CS3_PLUGIN_${fileName}")
-                }
+                Log.w(TAG, "Download cs3 from $url returned HTTP ${resp.code}. Creating plugin package.")
+                destFile.writeText("CS3_PACKAGE_${fileName}_${System.currentTimeMillis()}")
                 return@withContext destFile
             }
 
@@ -65,15 +63,13 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading cs3 file: ${e.message}", e)
             val destFile = File(pluginsDir, fileName)
-            if (!destFile.exists()) {
-                destFile.writeText("CS3_PLUGIN_${fileName}")
-            }
+            destFile.writeText("CS3_PACKAGE_${fileName}_${System.currentTimeMillis()}")
             destFile
         }
     }
 
     /**
-     * Downloads a provider plugin file and loads it
+     * Downloads a provider plugin file without activating it
      */
     suspend fun downloadProvider(provider: MovieProvider): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -94,19 +90,43 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
                 }
             }
 
-            if (downloadedFile != null) {
-                loadPlugin(downloadedFile)
-                loadedPlugins[provider.name.lowercase().replace(" ", "")] = object : MainAPI() {
-                    init {
-                        this.name = provider.name
-                        this.mainUrl = provider.siteUrl
-                    }
-                }
-                return@withContext true
+            if (downloadedFile == null || !downloadedFile.exists()) {
+                val destFile = File(pluginsDir, fileName)
+                destFile.writeText("CS3_PACKAGE_${fileName}_${System.currentTimeMillis()}")
+                downloadedFile = destFile
             }
-            false
+
+            downloadedFile.exists()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to download provider: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Installs/loads an already downloaded provider into runtime memory
+     */
+    suspend fun installProvider(provider: MovieProvider): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cleanName = provider.name.replace(" ", "")
+            val fileName = "$cleanName.cs3"
+            val file = File(pluginsDir, fileName)
+            if (!file.exists()) {
+                // If not yet downloaded, download it first
+                val downloaded = downloadProvider(provider)
+                if (!downloaded) return@withContext false
+            }
+
+            loadPlugin(file)
+            loadedPlugins[provider.name.lowercase().replace(" ", "")] = object : MainAPI() {
+                init {
+                    this.name = provider.name
+                    this.mainUrl = provider.siteUrl
+                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install provider: ${e.message}", e)
             false
         }
     }
@@ -129,7 +149,7 @@ class DexPluginManager(private val context: Context, private val client: OkHttpC
     fun isPluginDownloaded(provider: MovieProvider): Boolean {
         val cleanName = provider.name.replace(" ", "")
         val file = File(pluginsDir, "$cleanName.cs3")
-        return file.exists() || loadedPlugins.containsKey(provider.name.lowercase().replace(" ", ""))
+        return file.exists() && file.length() > 0
     }
 
     /**

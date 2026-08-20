@@ -418,6 +418,14 @@ fun VideoPlayerScreen(
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://toffeelive.com"
         }
 
+        val isHakuna = cleanUrl.contains("hakunaymatata", ignoreCase = true) ||
+                cleanUrl.contains("sacdn", ignoreCase = true)
+
+        if (isHakuna) {
+            if (extractedReferer.isNullOrBlank()) extractedReferer = "https://hakunaymatata.com/"
+            if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://hakunaymatata.com"
+        }
+
         val finalUserAgent = extractedUa ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 NAFITV24"
 
         val requestHeaders = mutableMapOf<String, String>()
