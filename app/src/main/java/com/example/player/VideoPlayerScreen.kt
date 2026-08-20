@@ -1,16 +1,21 @@
 package com.example.player
 
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -34,9 +39,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -50,10 +57,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -67,6 +76,32 @@ import com.example.model.MediaItem as AppMediaItem
 import com.example.model.MediaType
 import com.example.model.StreamServer
 import kotlinx.coroutines.delay
+
+enum class MxDragType { NONE, VERTICAL_LEFT, VERTICAL_RIGHT, HORIZONTAL }
+
+data class VideoQualityOption(
+    val label: String,
+    val height: Int,
+    val bitrate: Int = 0,
+    val isAuto: Boolean = false
+)
+
+data class AudioTrackOption(
+    val id: String = "",
+    val language: String = "",
+    val displayName: String = "",
+    val groupIndex: Int = -1,
+    val trackIndex: Int = -1
+)
+
+data class SubtitleTrackOption(
+    val id: String = "",
+    val language: String = "",
+    val displayName: String = "",
+    val isOff: Boolean = false,
+    val groupIndex: Int = -1,
+    val trackIndex: Int = -1
+)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -107,6 +142,81 @@ fun VideoPlayerScreen(
     var hasStartedPlaying by remember(currentMedia.id, currentUrl) { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var currentVideoResolution by remember { mutableStateOf<String?>(null) }
+
+    // MX Player Gestures: Volume & Brightness & Seeking State
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    val maxAudioVolume = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
+
+    var gestureVolumePercent by remember { mutableIntStateOf(50) }
+    var gestureBrightnessPercent by remember { mutableIntStateOf(50) }
+    var isVolumeGestureActive by remember { mutableStateOf(false) }
+    var isBrightnessGestureActive by remember { mutableStateOf(false) }
+    var isSeekGestureActive by remember { mutableStateOf(false) }
+    var seekGestureOffsetSec by remember { mutableIntStateOf(0) }
+    var seekGestureTargetMs by remember { mutableLongStateOf(0L) }
+    var doubleTapSeekLeft by remember { mutableStateOf(false) }
+    var doubleTapSeekRight by remember { mutableStateOf(false) }
+
+    // Video Quality, Audio Track & Subtitles (Screenshot 2: HD 720p, Hindi, English)
+    var availableVideoQualities by remember {
+        mutableStateOf(
+            listOf(
+                VideoQualityOption("Auto (Adaptive)", -1, isAuto = true),
+                VideoQualityOption("1080p FHD", 1080),
+                VideoQualityOption("720p HD", 720),
+                VideoQualityOption("480p SD", 480),
+                VideoQualityOption("360p Low", 360)
+            )
+        )
+    }
+    var selectedVideoQuality by remember { mutableStateOf(availableVideoQualities.first()) }
+    var showQualityDialog by remember { mutableStateOf(false) }
+
+    var availableAudioTracks by remember {
+        mutableStateOf<List<AudioTrackOption>>(emptyList())
+    }
+    var selectedAudioTrack by remember { mutableStateOf<AudioTrackOption?>(null) }
+    var showAudioDialog by remember { mutableStateOf(false) }
+
+    var availableSubtitles by remember {
+        mutableStateOf<List<SubtitleTrackOption>>(
+            listOf(SubtitleTrackOption(id = "off", language = "", displayName = "অফ (Off)", isOff = true))
+        )
+    }
+    var selectedSubtitle by remember { mutableStateOf<SubtitleTrackOption?>(null) }
+    var showSubtitleDialog by remember { mutableStateOf(false) }
+
+    // Auto-dismiss Gesture HUD Overlays after inactivity
+    LaunchedEffect(isVolumeGestureActive) {
+        if (isVolumeGestureActive) {
+            delay(1200)
+            isVolumeGestureActive = false
+        }
+    }
+    LaunchedEffect(isBrightnessGestureActive) {
+        if (isBrightnessGestureActive) {
+            delay(1200)
+            isBrightnessGestureActive = false
+        }
+    }
+    LaunchedEffect(isSeekGestureActive) {
+        if (isSeekGestureActive) {
+            delay(1200)
+            isSeekGestureActive = false
+        }
+    }
+    LaunchedEffect(doubleTapSeekLeft) {
+        if (doubleTapSeekLeft) {
+            delay(750)
+            doubleTapSeekLeft = false
+        }
+    }
+    LaunchedEffect(doubleTapSeekRight) {
+        if (doubleTapSeekRight) {
+            delay(750)
+            doubleTapSeekRight = false
+        }
+    }
 
     // Shared Bandwidth Meter to accurately estimate network throughput and dynamically adapt video quality
     val bandwidthMeter = remember {
@@ -470,6 +580,86 @@ fun VideoPlayerScreen(
                         hasStartedPlaying = true
                     }
 
+                    override fun onTracksChanged(tracks: Tracks) {
+                        val qualities = mutableListOf<VideoQualityOption>()
+                        qualities.add(VideoQualityOption("অটো (Auto)", -1, isAuto = true))
+                        val seenHeights = mutableSetOf<Int>()
+
+                        val audios = mutableListOf<AudioTrackOption>()
+                        val subs = mutableListOf<SubtitleTrackOption>()
+                        subs.add(SubtitleTrackOption(id = "off", language = "", displayName = "বন্ধ (Off)", isOff = true))
+
+                        for (groupIndex in 0 until tracks.groups.size) {
+                            val group = tracks.groups[groupIndex]
+                            when (group.type) {
+                                C.TRACK_TYPE_VIDEO -> {
+                                    for (trackIndex in 0 until group.length) {
+                                        val format = group.getTrackFormat(trackIndex)
+                                        if (format.height > 0 && seenHeights.add(format.height)) {
+                                            val label = when {
+                                                format.height >= 1080 -> "1080p FHD"
+                                                format.height >= 720 -> "720p HD"
+                                                format.height >= 480 -> "480p SD"
+                                                format.height >= 360 -> "360p Low"
+                                                else -> "${format.height}p"
+                                            }
+                                            qualities.add(VideoQualityOption(label, format.height))
+                                        }
+                                    }
+                                }
+                                C.TRACK_TYPE_AUDIO -> {
+                                    for (trackIndex in 0 until group.length) {
+                                        val format = group.getTrackFormat(trackIndex)
+                                        val lang = format.language ?: ""
+                                        val langName = when (lang.lowercase()) {
+                                            "hi", "hin", "hindi" -> "Hindi (হিন্দি)"
+                                            "bn", "ben", "bangla", "bengali" -> "Bengali (বাংলা)"
+                                            "en", "eng", "english" -> "English (ইংরেজি)"
+                                            "ta", "tam", "tamil" -> "Tamil (তামিল)"
+                                            "te", "tel", "telugu" -> "Telugu (তেলেগু)"
+                                            "ur", "urd", "urdu" -> "Urdu (উর্দু)"
+                                            else -> format.label?.ifBlank { null } ?: if (lang.isNotBlank()) lang.uppercase() else "Audio Track ${audios.size + 1}"
+                                        }
+                                        audios.add(AudioTrackOption(id = "$groupIndex-$trackIndex", language = lang, displayName = langName, groupIndex = groupIndex, trackIndex = trackIndex))
+                                    }
+                                }
+                                C.TRACK_TYPE_TEXT -> {
+                                    for (trackIndex in 0 until group.length) {
+                                        val format = group.getTrackFormat(trackIndex)
+                                        val lang = format.language ?: ""
+                                        val langName = when (lang.lowercase()) {
+                                            "en", "eng", "english" -> "English Subtitles"
+                                            "bn", "ben", "bangla" -> "Bangla Subtitles"
+                                            "hi", "hin" -> "Hindi Subtitles"
+                                            else -> format.label?.ifBlank { null } ?: if (lang.isNotBlank()) lang.uppercase() else "Subtitle ${subs.size}"
+                                        }
+                                        subs.add(SubtitleTrackOption(id = "$groupIndex-$trackIndex", language = lang, displayName = langName, isOff = false, groupIndex = groupIndex, trackIndex = trackIndex))
+                                    }
+                                }
+                            }
+                        }
+
+                        if (qualities.size <= 1) {
+                            qualities.clear()
+                            qualities.add(VideoQualityOption("অটো (Auto)", -1, isAuto = true))
+                            qualities.add(VideoQualityOption("1080p FHD", 1080))
+                            qualities.add(VideoQualityOption("720p HD", 720))
+                            qualities.add(VideoQualityOption("480p SD", 480))
+                            qualities.add(VideoQualityOption("360p Low", 360))
+                        }
+
+                        availableVideoQualities = qualities.sortedByDescending { it.height }
+                        if (audios.isNotEmpty()) {
+                            availableAudioTracks = audios
+                            if (selectedAudioTrack == null) {
+                                selectedAudioTrack = audios.firstOrNull()
+                            }
+                        }
+                        if (subs.size > 1) {
+                            availableSubtitles = subs
+                        }
+                    }
+
                     override fun onIsPlayingChanged(playing: Boolean) {
                         isPlaying = playing
                     }
@@ -671,10 +861,130 @@ fun VideoPlayerScreen(
         return String.format("%02d:%02d", minutes, seconds)
     }
 
+    fun adjustBrightness(delta: Float) {
+        val current = activity?.window?.attributes?.screenBrightness ?: 0.5f
+        val base = if (current < 0f) 0.5f else current
+        val newBrightness = (base + delta).coerceIn(0.01f, 1.0f)
+        val lp = activity?.window?.attributes
+        if (lp != null) {
+            lp.screenBrightness = newBrightness
+            activity.window.attributes = lp
+        }
+        gestureBrightnessPercent = (newBrightness * 100).toInt()
+        isBrightnessGestureActive = true
+        isVolumeGestureActive = false
+        isSeekGestureActive = false
+    }
+
+    fun adjustVolume(delta: Float) {
+        val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxAudioVolume / 2)
+        val curFraction = curVol.toFloat() / maxAudioVolume.toFloat()
+        val newFraction = (curFraction + delta).coerceIn(0f, 1f)
+        val newVol = (newFraction * maxAudioVolume).toInt().coerceIn(0, maxAudioVolume)
+        audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+        gestureVolumePercent = (newFraction * 100).toInt()
+        isVolumeGestureActive = true
+        isBrightnessGestureActive = false
+        isSeekGestureActive = false
+    }
+
+    fun adjustSeekDelta(deltaSec: Float) {
+        if (durationMs > 0) {
+            seekGestureOffsetSec += deltaSec.toInt()
+            val target = (currentPositionMs + seekGestureOffsetSec * 1000L).coerceIn(0L, durationMs)
+            seekGestureTargetMs = target
+            isSeekGestureActive = true
+            isVolumeGestureActive = false
+            isBrightnessGestureActive = false
+        }
+    }
+
+    fun confirmSeek() {
+        if (isSeekGestureActive && durationMs > 0) {
+            exoPlayer.seekTo(seekGestureTargetMs)
+            seekGestureOffsetSec = 0
+        }
+    }
+
+    fun selectVideoQuality(quality: VideoQualityOption) {
+        selectedVideoQuality = quality
+        if (quality.height <= 0) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearVideoSizeConstraints()
+                .build()
+            android.widget.Toast.makeText(context, "ভিডিও কোয়ালিটি: অটো অ্যাডাপটিভ (Auto)", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, quality.height)
+                .setMinVideoSize(0, quality.height)
+                .build()
+            android.widget.Toast.makeText(context, "ভিডিও কোয়ালিটি: ${quality.label}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun selectAudioTrack(audio: AudioTrackOption) {
+        selectedAudioTrack = audio
+        if (audio.language.isNotBlank()) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setPreferredAudioLanguage(audio.language)
+                .build()
+        }
+        android.widget.Toast.makeText(context, "অডিও ভাষা: ${audio.displayName}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    fun selectSubtitle(sub: SubtitleTrackOption) {
+        selectedSubtitle = sub
+        if (sub.isOff) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+            android.widget.Toast.makeText(context, "সাবটাইটেল বন্ধ করা হয়েছে", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setPreferredTextLanguage(sub.language)
+                .build()
+            android.widget.Toast.makeText(context, "সাবটাইটেল: ${sub.displayName}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val playerModifier = modifier
         .focusRequester(focusRequester)
         .focusable()
         .onKeyEvent { handleRemoteKeyEvent(it) }
+
+    // Dialogs for Quality, Audio Track, and Subtitle Selection
+    if (showQualityDialog) {
+        VideoQualitySelectionDialog(
+            currentSelection = selectedVideoQuality,
+            availableOptions = availableVideoQualities,
+            onSelect = { selectVideoQuality(it) },
+            onDismiss = { showQualityDialog = false }
+        )
+    }
+
+    if (showAudioDialog) {
+        AudioTrackSelectionDialog(
+            currentSelection = selectedAudioTrack,
+            availableOptions = availableAudioTracks,
+            onSelect = { selectAudioTrack(it) },
+            onDismiss = { showAudioDialog = false }
+        )
+    }
+
+    if (showSubtitleDialog) {
+        SubtitleSelectionDialog(
+            currentSelection = selectedSubtitle,
+            availableOptions = availableSubtitles,
+            onSelect = { selectSubtitle(it) },
+            onDismiss = { showSubtitleDialog = false }
+        )
+    }
 
     if (isFullscreen) {
         // FULLSCREEN LANDSCAPE VIEW (Edge-to-Edge)
@@ -682,7 +992,65 @@ fun VideoPlayerScreen(
             modifier = playerModifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .clickable { showControls = !showControls }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { showControls = !showControls },
+                        onDoubleTap = { offset ->
+                            if (offset.x < size.width / 2) {
+                                if (durationMs > 0) {
+                                    exoPlayer.seekTo(maxOf(0L, currentPositionMs - 10000L))
+                                    doubleTapSeekLeft = true
+                                    doubleTapSeekRight = false
+                                }
+                            } else {
+                                if (durationMs > 0) {
+                                    exoPlayer.seekTo(minOf(durationMs, currentPositionMs + 10000L))
+                                    doubleTapSeekRight = true
+                                    doubleTapSeekLeft = false
+                                }
+                            }
+                        }
+                    )
+                }
+                .pointerInput(Unit) {
+                    var dragType = MxDragType.NONE
+                    detectDragGestures(
+                        onDragStart = { dragType = MxDragType.NONE },
+                        onDragEnd = {
+                            if (dragType == MxDragType.HORIZONTAL) {
+                                confirmSeek()
+                            }
+                            dragType = MxDragType.NONE
+                        },
+                        onDragCancel = { dragType = MxDragType.NONE },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            if (dragType == MxDragType.NONE) {
+                                if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x)) {
+                                    dragType = if (change.position.x < size.width / 2) MxDragType.VERTICAL_LEFT else MxDragType.VERTICAL_RIGHT
+                                } else {
+                                    dragType = MxDragType.HORIZONTAL
+                                }
+                            }
+
+                            when (dragType) {
+                                MxDragType.VERTICAL_LEFT -> {
+                                    val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                    adjustBrightness(deltaPercent)
+                                }
+                                MxDragType.VERTICAL_RIGHT -> {
+                                    val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                    adjustVolume(deltaPercent)
+                                }
+                                MxDragType.HORIZONTAL -> {
+                                    val deltaSec = (dragAmount.x / (size.width * 0.5f)) * 90f
+                                    adjustSeekDelta(deltaSec)
+                                }
+                                MxDragType.NONE -> {}
+                            }
+                        }
+                    )
+                }
         ) {
             if (useWebPlayer) {
                 WebStreamPlayer(
@@ -729,6 +1097,41 @@ fun VideoPlayerScreen(
                 )
             }
 
+            // MX Player Gesture HUD Overlays (Left: Brightness, Right: Volume, Center: Seek, DoubleTap Ripple)
+            if (isBrightnessGestureActive) {
+                MxPlayerBrightnessHud(
+                    percent = gestureBrightnessPercent,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 32.dp)
+                )
+            }
+
+            if (isVolumeGestureActive) {
+                MxPlayerVolumeHud(
+                    percent = gestureVolumePercent,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 32.dp)
+                )
+            }
+
+            if (isSeekGestureActive) {
+                MxPlayerSeekHud(
+                    targetMs = seekGestureTargetMs,
+                    durationMs = durationMs,
+                    offsetSec = seekGestureOffsetSec,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+
+            if (doubleTapSeekLeft) {
+                MxDoubleTapRipple(isForward = false, modifier = Modifier.align(Alignment.CenterStart))
+            }
+            if (doubleTapSeekRight) {
+                MxDoubleTapRipple(isForward = true, modifier = Modifier.align(Alignment.CenterEnd))
+            }
+
             // Error Overlay
             if (errorMessage != null) {
                 FullscreenErrorOverlay(
@@ -761,6 +1164,25 @@ fun VideoPlayerScreen(
                     durationMs = durationMs,
                     isDraggingSlider = isDraggingSlider,
                     sliderPosition = sliderPosition,
+                    selectedVideoQuality = selectedVideoQuality,
+                    availableVideoQualities = availableVideoQualities,
+                    onOpenQualityDialog = { showQualityDialog = true },
+                    selectedAudioTrack = selectedAudioTrack,
+                    availableAudioTracks = availableAudioTracks,
+                    onOpenAudioDialog = { showAudioDialog = true },
+                    selectedSubtitle = selectedSubtitle,
+                    availableSubtitles = availableSubtitles,
+                    onOpenSubtitleDialog = { showSubtitleDialog = true },
+                    onSeekRewind10 = {
+                        if (durationMs > 0) {
+                            exoPlayer.seekTo(maxOf(0L, currentPositionMs - 10000L))
+                        }
+                    },
+                    onSeekForward10 = {
+                        if (durationMs > 0) {
+                            exoPlayer.seekTo(minOf(durationMs, currentPositionMs + 10000L))
+                        }
+                    },
                     onSliderChange = {
                         isDraggingSlider = true
                         sliderPosition = it
@@ -984,7 +1406,65 @@ fun VideoPlayerScreen(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .background(Color.Black)
-                    .clickable { showControls = !showControls }
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { showControls = !showControls },
+                            onDoubleTap = { offset ->
+                                if (offset.x < size.width / 2) {
+                                    if (durationMs > 0) {
+                                        exoPlayer.seekTo(maxOf(0L, currentPositionMs - 10000L))
+                                        doubleTapSeekLeft = true
+                                        doubleTapSeekRight = false
+                                    }
+                                } else {
+                                    if (durationMs > 0) {
+                                        exoPlayer.seekTo(minOf(durationMs, currentPositionMs + 10000L))
+                                        doubleTapSeekRight = true
+                                        doubleTapSeekLeft = false
+                                    }
+                                }
+                            }
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        var dragType = MxDragType.NONE
+                        detectDragGestures(
+                            onDragStart = { dragType = MxDragType.NONE },
+                            onDragEnd = {
+                                if (dragType == MxDragType.HORIZONTAL) {
+                                    confirmSeek()
+                                }
+                                dragType = MxDragType.NONE
+                            },
+                            onDragCancel = { dragType = MxDragType.NONE },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                if (dragType == MxDragType.NONE) {
+                                    if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x)) {
+                                        dragType = if (change.position.x < size.width / 2) MxDragType.VERTICAL_LEFT else MxDragType.VERTICAL_RIGHT
+                                    } else {
+                                        dragType = MxDragType.HORIZONTAL
+                                    }
+                                }
+
+                                when (dragType) {
+                                    MxDragType.VERTICAL_LEFT -> {
+                                        val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                        adjustBrightness(deltaPercent)
+                                    }
+                                    MxDragType.VERTICAL_RIGHT -> {
+                                        val deltaPercent = -dragAmount.y / (size.height * 0.8f)
+                                        adjustVolume(deltaPercent)
+                                    }
+                                    MxDragType.HORIZONTAL -> {
+                                        val deltaSec = (dragAmount.x / size.width) * 90f
+                                        adjustSeekDelta(deltaSec)
+                                    }
+                                    MxDragType.NONE -> Unit
+                                }
+                            }
+                        )
+                    }
             ) {
                 if (useWebPlayer) {
                     WebStreamPlayer(
@@ -1022,17 +1502,17 @@ fun VideoPlayerScreen(
                     )
                 }
 
-                // Top bar overlay inside video player: Close (X) circle button + Server tag + HD Badge
+                // Top bar overlay inside video player: Close (X) circle button + Server tag + Quality / Audio Badges
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
+                                listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
                             )
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1040,46 +1520,120 @@ fun VideoPlayerScreen(
                         IconButton(
                             onClick = onBack,
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.6f))
                         ) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(16.dp))
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = Color(0xFF00E5FF).copy(alpha = 0.2f),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f))
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = servers.getOrNull(selectedServerIndex)?.name?.take(14) ?: "MAIN",
+                                    text = servers.getOrNull(selectedServerIndex)?.name?.take(10) ?: "MAIN",
                                     color = Color(0xFF00E5FF),
-                                    fontSize = 10.sp,
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF2563EB).copy(alpha = 0.8f)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = if (currentVideoResolution != null) "AUTO • $currentVideoResolution" else "AUTO ABR • ${currentMedia.quality}",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        // Quality quick badge
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF1E293B).copy(alpha = 0.85f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f)),
+                            modifier = Modifier.clickable { showQualityDialog = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Rounded.HighQuality, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = selectedVideoQuality?.label ?: if (currentVideoResolution != null) currentVideoResolution ?: "AUTO" else "AUTO",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Audio track quick badge
+                        if (availableAudioTracks.size > 1 || (availableAudioTracks.isNotEmpty() && availableAudioTracks.first().language.isNotEmpty())) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.85f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                                modifier = Modifier.clickable { showAudioDialog = true }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Audiotrack, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(11.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = selectedAudioTrack?.displayName?.take(6) ?: "Audio",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
+                }
+
+                // Gesture Overlays
+                if (isBrightnessGestureActive) {
+                    MxPlayerBrightnessHud(
+                        percent = gestureBrightnessPercent,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 16.dp)
+                    )
+                }
+
+                if (isVolumeGestureActive) {
+                    MxPlayerVolumeHud(
+                        percent = gestureVolumePercent,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 16.dp)
+                    )
+                }
+
+                if (isSeekGestureActive && durationMs > 0) {
+                    MxPlayerSeekHud(
+                        targetMs = seekGestureTargetMs,
+                        durationMs = durationMs,
+                        offsetSec = seekGestureOffsetSec,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                if (doubleTapSeekLeft) {
+                    MxDoubleTapRipple(isForward = false, modifier = Modifier.align(Alignment.CenterStart))
+                }
+
+                if (doubleTapSeekRight) {
+                    MxDoubleTapRipple(isForward = true, modifier = Modifier.align(Alignment.CenterEnd))
                 }
 
                 // Buffering Overlay with NAFI TV Logo & Bengali Loading text
@@ -2241,6 +2795,17 @@ private fun FullscreenControlsOverlay(
     durationMs: Long,
     isDraggingSlider: Boolean,
     sliderPosition: Float,
+    selectedVideoQuality: VideoQualityOption?,
+    availableVideoQualities: List<VideoQualityOption>,
+    onOpenQualityDialog: () -> Unit,
+    selectedAudioTrack: AudioTrackOption?,
+    availableAudioTracks: List<AudioTrackOption>,
+    onOpenAudioDialog: () -> Unit,
+    selectedSubtitle: SubtitleTrackOption?,
+    availableSubtitles: List<SubtitleTrackOption>,
+    onOpenSubtitleDialog: () -> Unit,
+    onSeekRewind10: () -> Unit,
+    onSeekForward10: () -> Unit,
     onSliderChange: (Float) -> Unit,
     onSliderChangeFinished: () -> Unit,
     onPlayPause: () -> Unit,
@@ -2268,7 +2833,7 @@ private fun FullscreenControlsOverlay(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier
@@ -2288,14 +2853,88 @@ private fun FullscreenControlsOverlay(
                         maxLines = 1
                     )
                     Text(
-                        text = if (currentVideoResolution != null) "${media.category} • AUTO ($currentVideoResolution)" else "${media.category} • AUTO ABR (${media.quality})",
+                        text = if (currentVideoResolution != null) "${media.category} • $currentVideoResolution" else "${media.category} • AUTO (${media.quality})",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Top action buttons: Quality, Audio Track, Subtitles, Aspect Ratio, Channel List, Exit
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Quality Selector Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF0F172A).copy(alpha = 0.85f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
+                    modifier = Modifier.clickable { onOpenQualityDialog() }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    ) {
+                        Icon(Icons.Rounded.HighQuality, contentDescription = "Quality", tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = selectedVideoQuality?.label ?: if (availableVideoQualities.isNotEmpty()) "Quality" else "Auto",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Audio Language Button
+                if (availableAudioTracks.size > 1 || (availableAudioTracks.isNotEmpty() && availableAudioTracks.first().language.isNotEmpty())) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A).copy(alpha = 0.85f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                        modifier = Modifier.clickable { onOpenAudioDialog() }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            Icon(Icons.Rounded.Audiotrack, contentDescription = "Audio", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = selectedAudioTrack?.displayName?.take(10) ?: "Audio",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                // Subtitle / Closed Caption Button
+                if (availableSubtitles.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A).copy(alpha = 0.85f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.4f)),
+                        modifier = Modifier.clickable { onOpenSubtitleDialog() }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            Icon(Icons.Rounded.Subtitles, contentDescription = "Subtitles", tint = Color(0xFFA855F7), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (selectedSubtitle?.isOff == false) selectedSubtitle.displayName.take(8) else "CC",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
                 // Quick Channel Drawer Toggle
                 IconButton(onClick = onToggleChannelDrawer) {
                     Icon(Icons.Rounded.FormatListBulleted, contentDescription = "Channel List", tint = Color(0xFF00E5FF))
@@ -2309,6 +2948,37 @@ private fun FullscreenControlsOverlay(
                 // Exit Fullscreen
                 IconButton(onClick = onToggleFullscreen) {
                     Icon(Icons.Rounded.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color(0xFF00E5FF))
+                }
+            }
+        }
+
+        // Center Quick Skip Buttons
+        if (durationMs > 0) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 60.dp),
+                horizontalArrangement = Arrangement.spacedBy(80.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onSeekRewind10,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                ) {
+                    Icon(Icons.Rounded.Replay10, contentDescription = "Rewind 10s", tint = Color.White, modifier = Modifier.size(28.dp))
+                }
+
+                IconButton(
+                    onClick = onSeekForward10,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                ) {
+                    Icon(Icons.Rounded.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(28.dp))
                 }
             }
         }
@@ -2431,6 +3101,11 @@ private fun FullscreenControlsOverlay(
                         Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous Channel", tint = Color.White, modifier = Modifier.size(28.dp))
                     }
 
+                    // 10s Rewind
+                    IconButton(onClick = onSeekRewind10) {
+                        Icon(Icons.Rounded.Replay10, contentDescription = "Rewind 10s", tint = Color.White, modifier = Modifier.size(26.dp))
+                    }
+
                     // Center Play/Pause
                     IconButton(
                         onClick = onPlayPause,
@@ -2445,6 +3120,11 @@ private fun FullscreenControlsOverlay(
                             tint = Color.Black,
                             modifier = Modifier.size(28.dp)
                         )
+                    }
+
+                    // 10s Forward
+                    IconButton(onClick = onSeekForward10) {
+                        Icon(Icons.Rounded.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(26.dp))
                     }
 
                     // Next Channel
@@ -2466,3 +3146,386 @@ private fun FullscreenControlsOverlay(
         }
     }
 }
+
+// -------------------------------------------------------------
+// MX PLAYER GESTURE HUDs & DIALOGS
+// -------------------------------------------------------------
+
+@Composable
+fun MxPlayerVolumeHud(percent: Int, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF0F172A).copy(alpha = 0.85f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = if (percent == 0) Icons.Rounded.VolumeMute else if (percent < 50) Icons.Rounded.VolumeDown else Icons.Rounded.VolumeUp,
+                contentDescription = null,
+                tint = Color(0xFF00E5FF),
+                modifier = Modifier.size(26.dp)
+            )
+            LinearProgressIndicator(
+                progress = { percent / 100f },
+                modifier = Modifier
+                    .width(60.dp)
+                    .height(4.dp)
+                    .clip(CircleShape),
+                color = Color(0xFF00E5FF),
+                trackColor = Color(0xFF334155)
+            )
+            Text(
+                text = "ভলিউম $percent%",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+fun MxPlayerBrightnessHud(percent: Int, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF0F172A).copy(alpha = 0.85f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFACC15).copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.BrightnessHigh,
+                contentDescription = null,
+                tint = Color(0xFFFACC15),
+                modifier = Modifier.size(26.dp)
+            )
+            LinearProgressIndicator(
+                progress = { percent / 100f },
+                modifier = Modifier
+                    .width(60.dp)
+                    .height(4.dp)
+                    .clip(CircleShape),
+                color = Color(0xFFFACC15),
+                trackColor = Color(0xFF334155)
+            )
+            Text(
+                text = "ব্রাইটনেস $percent%",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+fun MxPlayerSeekHud(
+    targetMs: Long,
+    durationMs: Long,
+    offsetSec: Int,
+    modifier: Modifier = Modifier
+) {
+    val formatTime = { ms: Long ->
+        if (ms <= 0L) "00:00"
+        else String.format("%02d:%02d", (ms / 1000) / 60, (ms / 1000) % 60)
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF0F172A).copy(alpha = 0.9f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = if (offsetSec >= 0) Icons.Rounded.FastForward else Icons.Rounded.FastRewind,
+                contentDescription = null,
+                tint = Color(0xFF00E5FF),
+                modifier = Modifier.size(28.dp)
+            )
+            Column {
+                Text(
+                    text = "${if (offsetSec >= 0) "+$offsetSec" else "$offsetSec"} সেকেন্ড",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${formatTime(targetMs)} / ${formatTime(durationMs)}",
+                    color = Color.White,
+                    fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MxDoubleTapRipple(isForward: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.padding(horizontal = 40.dp),
+        shape = CircleShape,
+        color = Color(0xFF00E5FF).copy(alpha = 0.25f)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = if (isForward) Icons.Rounded.Forward10 else Icons.Rounded.Replay10,
+                contentDescription = null,
+                tint = Color(0xFF00E5FF),
+                modifier = Modifier.size(36.dp)
+            )
+            Text(
+                text = if (isForward) "+10s" else "-10s",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+fun VideoQualitySelectionDialog(
+    currentSelection: VideoQualityOption?,
+    availableOptions: List<VideoQualityOption>,
+    onSelect: (VideoQualityOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.HighQuality, contentDescription = null, tint = Color(0xFF00E5FF))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("ভিডিও কোয়ালিটি নির্বাচন করুন", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Auto / Adaptive option
+                val isAutoSelected = currentSelection == null || currentSelection.height <= 0
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isAutoSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF0F172A),
+                    border = if (isAutoSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onSelect(VideoQualityOption(label = "অটো (Auto Adapt)", height = 0, bitrate = 0, isAuto = true))
+                            onDismiss()
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("অটো অ্যাডাপটিভ (Auto)", color = if (isAutoSelected) Color(0xFF00E5FF) else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("ইন্টারনেট স্পিড অনুযায়ী স্বয়ংক্রিয় অ্যাডজাস্ট", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        }
+                        if (isAutoSelected) {
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                // Explicit heights
+                availableOptions.forEach { opt ->
+                    val isSelected = currentSelection?.height == opt.height
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF0F172A),
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelect(opt)
+                                onDismiss()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(opt.label, color = if (isSelected) Color(0xFF00E5FF) else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                if (opt.bitrate > 0) {
+                                    Text("${opt.bitrate / 1000} kbps", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                }
+                            }
+                            if (isSelected) {
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বন্ধ করুন", color = Color(0xFF00E5FF))
+            }
+        }
+    )
+}
+
+@Composable
+fun AudioTrackSelectionDialog(
+    currentSelection: AudioTrackOption?,
+    availableOptions: List<AudioTrackOption>,
+    onSelect: (AudioTrackOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Audiotrack, contentDescription = null, tint = Color(0xFF38BDF8))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("অডিও ভাষা পরিবর্তন করুন", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (availableOptions.isEmpty()) {
+                    Text("এই ভিডিওতে অন্য কোনো অডিও ট্র্যাক নেই। ডিফল্ট অডিও চালু রয়েছে।", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                } else {
+                    availableOptions.forEach { opt ->
+                        val isSelected = currentSelection?.groupIndex == opt.groupIndex && currentSelection?.trackIndex == opt.trackIndex
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF38BDF8).copy(alpha = 0.2f) else Color(0xFF0F172A),
+                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8)) else null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelect(opt)
+                                    onDismiss()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(opt.displayName, color = if (isSelected) Color(0xFF38BDF8) else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("ভাষা কোড: ${opt.language.ifBlank { "Default" }}", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                }
+                                if (isSelected) {
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বন্ধ করুন", color = Color(0xFF38BDF8))
+            }
+        }
+    )
+}
+
+@Composable
+fun SubtitleSelectionDialog(
+    currentSelection: SubtitleTrackOption?,
+    availableOptions: List<SubtitleTrackOption>,
+    onSelect: (SubtitleTrackOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Subtitles, contentDescription = null, tint = Color(0xFFA855F7))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("সাবটাইটেল নির্বাচন করুন", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Off option
+                val isOffSelected = currentSelection == null || currentSelection.isOff
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isOffSelected) Color(0xFFA855F7).copy(alpha = 0.2f) else Color(0xFF0F172A),
+                    border = if (isOffSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFA855F7)) else null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onSelect(SubtitleTrackOption(displayName = "বন্ধ (Off)", isOff = true))
+                            onDismiss()
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("সাবটাইটেল বন্ধ (Off)", color = if (isOffSelected) Color(0xFFA855F7) else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        if (isOffSelected) {
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                // Available subtitles
+                availableOptions.forEach { opt ->
+                    val isSelected = !isOffSelected && currentSelection?.groupIndex == opt.groupIndex && currentSelection?.trackIndex == opt.trackIndex
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) Color(0xFFA855F7).copy(alpha = 0.2f) else Color(0xFF0F172A),
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFA855F7)) else null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelect(opt)
+                                onDismiss()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(opt.displayName, color = if (isSelected) Color(0xFFA855F7) else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            if (isSelected) {
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বন্ধ করুন", color = Color(0xFFA855F7))
+            }
+        }
+    )
+}
+
