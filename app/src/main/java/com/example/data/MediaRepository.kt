@@ -48,7 +48,8 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
-        const val DEFAULT_MOVIES_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/NFmovie.m3u"
+        const val DEFAULT_MOVIES_JSON_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/movies.json"
+        const val DEFAULT_MOVIES_M3U_URL = DEFAULT_MOVIES_JSON_URL
         const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
         const val DEFAULT_ADMIN_PIN = "40541273"
     }
@@ -225,17 +226,233 @@ class MediaRepository(private val context: Context) {
             .distinct()
     }
 
-    private suspend fun fetchSingleM3uUrl(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchMoviesFromJsonUrl(url: String = DEFAULT_MOVIES_JSON_URL): List<MediaItem> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "NAFITV24/2.4.0 (Android ExoPlayer)")
+                .url(url.trim())
+                .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
                 .build()
 
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) return@withContext emptyList()
 
-            val content = response.body?.string() ?: return@withContext emptyList()
+            val content = response.body?.string()?.trim() ?: return@withContext emptyList()
+            parseMediaFromJsonString(content)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    fun parseMediaFromJsonString(content: String, defaultCategory: String = "Movies"): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return emptyList()
+
+        try {
+            if (trimmed.startsWith("[")) {
+                val jsonArray = JSONArray(trimmed)
+                for (i in 0 until jsonArray.length()) {
+                    val element = jsonArray.opt(i)
+                    if (element is JSONObject) {
+                        val parsed = parseSingleMediaFromJson(element, i, defaultCategory)
+                        if (parsed != null) items.add(parsed)
+                    } else if (element is String && (element.startsWith("http://") || element.startsWith("https://"))) {
+                        items.add(
+                            MediaItem(
+                                id = "json_str_$i",
+                                title = "Movie ${i + 1}",
+                                category = defaultCategory,
+                                type = MediaType.MOVIE,
+                                streamUrl = element,
+                                servers = listOf(StreamServer("সার্ভার ১", element)),
+                                isLive = false,
+                                quality = "HD"
+                            )
+                        )
+                    }
+                }
+            } else if (trimmed.startsWith("{")) {
+                val rootObj = JSONObject(trimmed)
+
+                // Check for categories array
+                val categoriesArr = rootObj.optJSONArray("categories") ?: rootObj.optJSONArray("genres") ?: rootObj.optJSONArray("sections")
+                if (categoriesArr != null) {
+                    for (c in 0 until categoriesArr.length()) {
+                        val catObj = categoriesArr.optJSONObject(c)
+                        if (catObj != null) {
+                            val catName = catObj.optString("name", catObj.optString("category", catObj.optString("title", defaultCategory)))
+                            val catItemsArr = catObj.optJSONArray("movies") ?: catObj.optJSONArray("items") ?: catObj.optJSONArray("streams") ?: catObj.optJSONArray("content") ?: catObj.optJSONArray("list")
+                            if (catItemsArr != null) {
+                                for (i in 0 until catItemsArr.length()) {
+                                    val itemObj = catItemsArr.optJSONObject(i)
+                                    if (itemObj != null) {
+                                        val parsed = parseSingleMediaFromJson(itemObj, items.size, catName)
+                                        if (parsed != null) items.add(parsed)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check for standard collection keys
+                val collectionKeys = listOf(
+                    "movies", "movie_list", "series", "tv_series", "channels", "streams",
+                    "items", "data", "results", "list", "content", "videos", "playlist", "feed"
+                )
+                for (key in collectionKeys) {
+                    val arr = rootObj.optJSONArray(key)
+                    if (arr != null) {
+                        val inferredCat = if (key.contains("series", ignoreCase = true)) "Web Series" else defaultCategory
+                        for (i in 0 until arr.length()) {
+                            val itemObj = arr.optJSONObject(i)
+                            if (itemObj != null) {
+                                val parsed = parseSingleMediaFromJson(itemObj, items.size, inferredCat)
+                                if (parsed != null) items.add(parsed)
+                            }
+                        }
+                    }
+                }
+
+                // If root object itself is a single media item
+                if (items.isEmpty() && (rootObj.has("url") || rootObj.has("streamUrl") || rootObj.has("link") || rootObj.has("file") || rootObj.has("servers") || rootObj.has("sources"))) {
+                    val parsed = parseSingleMediaFromJson(rootObj, 0, defaultCategory)
+                    if (parsed != null) items.add(parsed)
+                }
+
+                // If root object has dynamic keys as items (like Firebase Realtime DB object map)
+                if (items.isEmpty()) {
+                    val keys = rootObj.keys()
+                    var count = 0
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val itemObj = rootObj.optJSONObject(k)
+                        if (itemObj != null) {
+                            val parsed = parseSingleMediaFromJson(itemObj, count++, defaultCategory, explicitId = k)
+                            if (parsed != null) items.add(parsed)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return items.distinctBy { if (it.streamUrl.isNotBlank()) it.streamUrl else it.id }
+    }
+
+    private fun parseSingleMediaFromJson(
+        obj: JSONObject,
+        index: Int,
+        fallbackCategory: String = "Movies",
+        explicitId: String? = null
+    ): MediaItem? {
+        val title = obj.optString("name", obj.optString("title", obj.optString("movie_name", obj.optString("movie_title", obj.optString("channel_name", obj.optString("label", "Movie ${index + 1}")))))).trim()
+        val rawUrl = obj.optString("url", obj.optString("streamUrl", obj.optString("stream_url", obj.optString("link", obj.optString("file", obj.optString("src", obj.optString("videoUrl", obj.optString("video_url", obj.optString("video", obj.optString("playUrl", obj.optString("play_url", obj.optString("hls", obj.optString("m3u8", obj.optString("mp4", obj.optString("direct_url", ""))))))))))))))).trim()
+        val backupUrl = obj.optString("backupUrl", obj.optString("backup_url", obj.optString("backup", obj.optString("mirror", obj.optString("fallbackUrl", ""))))).trim().takeIf { it.isNotBlank() }
+
+        val serversList = mutableListOf<StreamServer>()
+        val serversArr = obj.optJSONArray("servers") ?: obj.optJSONArray("sources") ?: obj.optJSONArray("links") ?: obj.optJSONArray("streams") ?: obj.optJSONArray("qualities") ?: obj.optJSONArray("mirrors") ?: obj.optJSONArray("episodes")
+        if (serversArr != null) {
+            for (s in 0 until serversArr.length()) {
+                val sObj = serversArr.optJSONObject(s)
+                if (sObj != null) {
+                    val sName = sObj.optString("name", sObj.optString("label", sObj.optString("server", sObj.optString("title", sObj.optString("quality", sObj.optString("res", "সার্ভার ${s + 1}"))))))
+                    val sUrl = sObj.optString("url", sObj.optString("file", sObj.optString("link", sObj.optString("src", sObj.optString("streamUrl", sObj.optString("stream_url", "")))))).trim()
+                    if (sUrl.isNotBlank()) {
+                        serversList.add(StreamServer(sName, sUrl))
+                    }
+                } else {
+                    val sUrlStr = serversArr.optString(s, "").trim()
+                    if (sUrlStr.startsWith("http")) {
+                        serversList.add(StreamServer("সার্ভার ${s + 1}", sUrlStr))
+                    }
+                }
+            }
+        }
+
+        val primaryStream = if (rawUrl.isNotBlank()) rawUrl else serversList.firstOrNull()?.url ?: ""
+        if (primaryStream.isBlank() && serversList.isEmpty()) {
+            return null
+        }
+
+        if (serversList.isEmpty() && primaryStream.isNotBlank()) {
+            serversList.add(StreamServer("সার্ভার ১ (Main)", primaryStream))
+            if (backupUrl != null) {
+                serversList.add(StreamServer("সার্ভার ২ (Backup)", backupUrl))
+            }
+        }
+
+        val logo = obj.optString("logo", obj.optString("logoUrl", obj.optString("logo_url", obj.optString("poster", obj.optString("posterUrl", obj.optString("poster_url", obj.optString("image", obj.optString("imageUrl", obj.optString("thumbnail", obj.optString("thumb", obj.optString("icon", obj.optString("iconUrl", obj.optString("cover", obj.optString("backdrop", obj.optString("img", ""))))))))))))))).trim().takeIf { it.isNotBlank() }
+        val category = obj.optString("category", obj.optString("genre", obj.optString("genres", obj.optString("group", obj.optString("group-title", obj.optString("type_name", obj.optString("sport", obj.optString("tag", fallbackCategory)))))))).trim().ifBlank { fallbackCategory }
+        val description = obj.optString("description", obj.optString("plot", obj.optString("synopsis", obj.optString("overview", obj.optString("summary", obj.optString("story", obj.optString("about", obj.optString("details", "")))))))).trim().takeIf { it.isNotBlank() }
+
+        val year = obj.optString("year", obj.optString("release_date", obj.optString("releaseDate", obj.optString("release_year", obj.optString("releaseYear", obj.optString("date", "")))))).trim().takeIf { it.isNotBlank() }
+        val rating = obj.optString("rating", obj.optString("score", obj.optString("imdb", obj.optString("vote_average", obj.optString("imdb_rating", obj.optString("imdbRating", obj.optString("star", ""))))))).trim().takeIf { it.isNotBlank() }
+        val quality = obj.optString("quality", obj.optString("resolution", obj.optString("res", obj.optString("video_quality", "HD")))).trim().ifBlank { "HD" }
+        val country = obj.optString("country", obj.optString("lang", obj.optString("language", obj.optString("nation", "")))).trim().takeIf { it.isNotBlank() }
+
+        val drmScheme = obj.optString("drmScheme", obj.optString("license_type", obj.optString("drm_type", obj.optString("drm_scheme", "")))).trim().takeIf { it.isNotBlank() }
+        val drmLicenseUrl = obj.optString("drmLicenseUrl", obj.optString("license_url", obj.optString("drm_license_url", ""))).trim().takeIf { it.isNotBlank() }
+        val drmLicenseKey = obj.optString("drmLicenseKey", obj.optString("drm_key", obj.optString("clearkey", obj.optString("license_key", "")))).trim().takeIf { it.isNotBlank() }
+        val manifestType = obj.optString("manifestType", obj.optString("manifest_type", obj.optString("stream_type", ""))).trim().takeIf { it.isNotBlank() }
+
+        val userAgent = obj.optString("userAgent", obj.optString("user_agent", obj.optString("User-Agent", ""))).trim().takeIf { it.isNotBlank() }
+        val referrer = obj.optString("referrer", obj.optString("referer", obj.optString("Referer", ""))).trim().takeIf { it.isNotBlank() }
+        val origin = obj.optString("origin", obj.optString("Origin", "")).trim().takeIf { it.isNotBlank() }
+        val cookie = obj.optString("cookie", obj.optString("Cookie", "")).trim().takeIf { it.isNotBlank() }
+
+        val typeStr = obj.optString("type", "").uppercase()
+        val mediaType = when {
+            typeStr.contains("SERIES") || category.contains("Series", ignoreCase = true) || obj.has("episodes") || obj.has("seasons") -> MediaType.SERIES
+            typeStr.contains("EVENT") || typeStr.contains("SPORT") || category.contains("Sport", ignoreCase = true) || category.contains("Cricket", ignoreCase = true) || category.contains("Football", ignoreCase = true) -> MediaType.LIVE_EVENT
+            typeStr.contains("TV") || typeStr.contains("CHANNEL") || typeStr.contains("LIVE") -> MediaType.LIVE_TV
+            else -> MediaType.MOVIE
+        }
+
+        val id = explicitId ?: obj.optString("id", obj.optString("_id", obj.optString("stream_id", "movie_${Math.abs((title + "_" + primaryStream).hashCode())}")))
+
+        return MediaItem(
+            id = id,
+            title = title,
+            category = category,
+            type = mediaType,
+            streamUrl = primaryStream,
+            backupUrl = backupUrl,
+            servers = serversList,
+            logoUrl = logo,
+            description = description,
+            isLive = mediaType != MediaType.MOVIE && mediaType != MediaType.SERIES,
+            quality = quality,
+            rating = rating ?: if (mediaType == MediaType.MOVIE) "8.5" else null,
+            year = year ?: if (mediaType == MediaType.MOVIE) "2024" else null,
+            country = country,
+            userAgent = userAgent,
+            referrer = referrer,
+            origin = origin,
+            cookie = cookie,
+            drmScheme = drmScheme,
+            drmLicenseUrl = drmLicenseUrl,
+            drmLicenseKey = drmLicenseKey,
+            manifestType = manifestType
+        )
+    }
+
+    private suspend fun fetchSingleM3uUrl(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(url.trim())
+                .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+
+            val content = response.body?.string()?.trim() ?: return@withContext emptyList()
+            if (content.startsWith("[") || content.startsWith("{")) {
+                return@withContext parseMediaFromJsonString(content)
+            }
             parseM3uLines(content.lines())
         } catch (e: Exception) {
             e.printStackTrace()
@@ -1017,6 +1234,16 @@ class MediaRepository(private val context: Context) {
         val deleted = getDeletedIds()
         val defaultList = listOf(
             PlaylistInfo(
+                id = "pl_nafi_movies_json",
+                title = "NAFI Movies & Series (Official)",
+                url = DEFAULT_MOVIES_JSON_URL,
+                logoUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=200&fit=crop",
+                description = "সকল মুভি ও ওয়েব সিরিজ প্লেলিস্ট (movies.json)",
+                type = "JSON",
+                isAdmin = true,
+                isReadOnly = true
+            ),
+            PlaylistInfo(
                 id = "pl_mysave23",
                 title = "MySave TV (Xtream)",
                 url = "http://mysave23.com/get.php?username=OscarDuarte6295&password=naNMGtc9sK&type=m3u_plus&output=m3u8",
@@ -1712,7 +1939,11 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getSavedMoviesM3uUrl(): String {
-        return prefs.getString("saved_movies_m3u_url", DEFAULT_MOVIES_M3U_URL) ?: DEFAULT_MOVIES_M3U_URL
+        val stored = prefs.getString("saved_movies_m3u_url", null)
+        if (stored.isNullOrBlank() || stored.contains("NFmovie.m3u")) {
+            return DEFAULT_MOVIES_JSON_URL
+        }
+        return stored
     }
 
     // Push remote configuration (Live TV M3U, Sports M3U, Movies M3U) to Firebase RTDB and Firestore
