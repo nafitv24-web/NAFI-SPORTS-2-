@@ -48,10 +48,34 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
+        const val DEFAULT_TAPMAD_SPORTS_JSON_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.json"
+        const val DEFAULT_AXSPORTS_JSON_URL = "https://raw.githubusercontent.com/srhady/axsports/refs/heads/main/live_sports.json"
+        const val DEFAULT_SONYLIV_SPORTS_JSON_URL = "https://raw.githubusercontent.com/srhady/SonyLiv/refs/heads/main/sonyliv_playlist.json"
         const val DEFAULT_MOVIES_JSON_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/movies.json"
         const val DEFAULT_MOVIES_M3U_URL = DEFAULT_MOVIES_JSON_URL
         const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
         const val DEFAULT_ADMIN_PIN = "40541273"
+    }
+
+    fun getSavedTapmadSportsUrl(): String {
+        return prefs.getString("tapmad_sports_json_url", DEFAULT_TAPMAD_SPORTS_JSON_URL) ?: DEFAULT_TAPMAD_SPORTS_JSON_URL
+    }
+    fun saveTapmadSportsUrl(url: String) {
+        prefs.edit().putString("tapmad_sports_json_url", url).apply()
+    }
+
+    fun getSavedAxSportsUrl(): String {
+        return prefs.getString("axsports_json_url", DEFAULT_AXSPORTS_JSON_URL) ?: DEFAULT_AXSPORTS_JSON_URL
+    }
+    fun saveAxSportsUrl(url: String) {
+        prefs.edit().putString("axsports_json_url", url).apply()
+    }
+
+    fun getSavedSonyLivSportsUrl(): String {
+        return prefs.getString("sonyliv_sports_json_url", DEFAULT_SONYLIV_SPORTS_JSON_URL) ?: DEFAULT_SONYLIV_SPORTS_JSON_URL
+    }
+    fun saveSonyLivSportsUrl(url: String) {
+        prefs.edit().putString("sonyliv_sports_json_url", url).apply()
     }
 
     // Admin Privacy / PIN Management
@@ -238,6 +262,48 @@ class MediaRepository(private val context: Context) {
 
             val content = response.body?.string()?.trim() ?: return@withContext emptyList()
             parseMediaFromJsonString(content)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun fetchSportsEventsFromJsonUrl(
+        url: String,
+        defaultCategory: String = "Sports",
+        sourceTag: String? = null
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        try {
+            if (url.isBlank()) return@withContext emptyList()
+            val request = Request.Builder()
+                .url(url.trim())
+                .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+
+            val content = response.body?.string()?.trim() ?: return@withContext emptyList()
+            val parsed = if (content.startsWith("[") || content.startsWith("{")) {
+                parseMediaFromJsonString(content, defaultCategory)
+            } else {
+                parseM3uLines(content.lines())
+            }
+
+            parsed.map { item ->
+                val finalCat = if (item.category.isNotBlank() && item.category != "Movies" && item.category != "Live TV") {
+                    item.category
+                } else {
+                    defaultCategory
+                }
+                item.copy(
+                    type = MediaType.LIVE_EVENT,
+                    category = finalCat,
+                    isLive = true,
+                    status = if (item.status.isBlank() || item.status == "Live Now") "● Live Now" else item.status,
+                    tournament = item.tournament ?: sourceTag ?: finalCat
+                )
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -441,25 +507,91 @@ class MediaRepository(private val context: Context) {
         val quality = obj.optString("quality", obj.optString("resolution", obj.optString("res", obj.optString("video_quality", "HD")))).trim().ifBlank { "HD" }
         val country = obj.optString("country", obj.optString("lang", obj.optString("language", obj.optString("nation", "")))).trim().takeIf { it.isNotBlank() }
 
-        val drmScheme = obj.optString("drmScheme", obj.optString("license_type", obj.optString("drm_type", obj.optString("drm_scheme", "")))).trim().takeIf { it.isNotBlank() }
-        val drmLicenseUrl = obj.optString("drmLicenseUrl", obj.optString("license_url", obj.optString("drm_license_url", ""))).trim().takeIf { it.isNotBlank() }
-        val drmLicenseKey = obj.optString("drmLicenseKey", obj.optString("drm_key", obj.optString("clearkey", obj.optString("license_key", "")))).trim().takeIf { it.isNotBlank() }
-        val manifestType = obj.optString("manifestType", obj.optString("manifest_type", obj.optString("stream_type", ""))).trim().takeIf { it.isNotBlank() }
+        var userAgent = obj.optString("userAgent", obj.optString("user_agent", obj.optString("User-Agent", ""))).trim().takeIf { it.isNotBlank() }
+        var referrer = obj.optString("referrer", obj.optString("referer", obj.optString("Referer", ""))).trim().takeIf { it.isNotBlank() }
+        var origin = obj.optString("origin", obj.optString("Origin", "")).trim().takeIf { it.isNotBlank() }
+        var cookie = obj.optString("cookie", obj.optString("Cookie", "")).trim().takeIf { it.isNotBlank() }
 
-        val userAgent = obj.optString("userAgent", obj.optString("user_agent", obj.optString("User-Agent", ""))).trim().takeIf { it.isNotBlank() }
-        val referrer = obj.optString("referrer", obj.optString("referer", obj.optString("Referer", ""))).trim().takeIf { it.isNotBlank() }
-        val origin = obj.optString("origin", obj.optString("Origin", "")).trim().takeIf { it.isNotBlank() }
-        val cookie = obj.optString("cookie", obj.optString("Cookie", "")).trim().takeIf { it.isNotBlank() }
+        val headersObj = obj.optJSONObject("headers") ?: obj.optJSONObject("http_headers")
+        if (headersObj != null) {
+            if (userAgent == null) userAgent = headersObj.optString("User-Agent", headersObj.optString("user_agent", headersObj.optString("user-agent", ""))).trim().takeIf { it.isNotBlank() }
+            if (referrer == null) referrer = headersObj.optString("Referer", headersObj.optString("referer", headersObj.optString("referrer", ""))).trim().takeIf { it.isNotBlank() }
+            if (origin == null) origin = headersObj.optString("Origin", headersObj.optString("origin", "")).trim().takeIf { it.isNotBlank() }
+            if (cookie == null) cookie = headersObj.optString("Cookie", headersObj.optString("cookie", "")).trim().takeIf { it.isNotBlank() }
+        }
+
+        var drmScheme = obj.optString("drmScheme", obj.optString("license_type", obj.optString("drm_type", obj.optString("drm_scheme", "")))).trim().takeIf { it.isNotBlank() }
+        var drmLicenseUrl = obj.optString("drmLicenseUrl", obj.optString("license_url", obj.optString("drm_license_url", ""))).trim().takeIf { it.isNotBlank() }
+        var drmLicenseKey = obj.optString("drmLicenseKey", obj.optString("drm_key", obj.optString("clearkey", obj.optString("license_key", obj.optString("key", ""))))).trim().takeIf { it.isNotBlank() }
+
+        val drmObj = obj.optJSONObject("drm") ?: obj.optJSONObject("clearkey") ?: obj.optJSONObject("license")
+        if (drmObj != null) {
+            if (drmScheme == null) drmScheme = drmObj.optString("type", drmObj.optString("scheme", "clearkey")).trim().takeIf { it.isNotBlank() }
+            if (drmLicenseUrl == null) drmLicenseUrl = drmObj.optString("license_url", drmObj.optString("url", "")).trim().takeIf { it.isNotBlank() }
+            if (drmLicenseKey == null) {
+                val k1 = drmObj.optString("key_id", drmObj.optString("keyId", drmObj.optString("k1", ""))).trim()
+                val k2 = drmObj.optString("key", drmObj.optString("k2", "")).trim()
+                if (k1.isNotBlank() && k2.isNotBlank()) {
+                    drmLicenseKey = "$k1:$k2"
+                } else if (k2.isNotBlank()) {
+                    drmLicenseKey = k2
+                } else {
+                    drmLicenseKey = drmObj.optString("drm_key", drmObj.optString("license_key", "")).trim().takeIf { it.isNotBlank() }
+                }
+            }
+        }
+        val manifestType = obj.optString("manifestType", obj.optString("manifest_type", obj.optString("stream_type", ""))).trim().takeIf { it.isNotBlank() }
 
         val typeStr = obj.optString("type", "").uppercase()
         val mediaType = when {
             typeStr.contains("SERIES") || category.contains("Series", ignoreCase = true) || obj.has("episodes") || obj.has("seasons") -> MediaType.SERIES
-            typeStr.contains("EVENT") || typeStr.contains("SPORT") || category.contains("Sport", ignoreCase = true) || category.contains("Cricket", ignoreCase = true) || category.contains("Football", ignoreCase = true) -> MediaType.LIVE_EVENT
+            typeStr.contains("EVENT") || typeStr.contains("SPORT") || category.contains("Sport", ignoreCase = true) || category.contains("Cricket", ignoreCase = true) || category.contains("Football", ignoreCase = true) || fallbackCategory.contains("Sport", ignoreCase = true) || fallbackCategory.contains("Live", ignoreCase = true) -> MediaType.LIVE_EVENT
             typeStr.contains("TV") || typeStr.contains("CHANNEL") || typeStr.contains("LIVE") -> MediaType.LIVE_TV
             else -> MediaType.MOVIE
         }
 
-        val id = explicitId ?: obj.optString("id", obj.optString("_id", obj.optString("stream_id", "movie_${Math.abs((title + "_" + primaryStream).hashCode())}")))
+        // Extract detailed sports tournament, teams, scores, countdown, and match times
+        val tournament = listOf("tournament", "league", "series", "event_title", "event_name", "competition", "match_title", "event")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+
+        val stage = listOf("stage", "match_stage", "matchday", "match_day", "round", "group", "group_stage", "phase", "event_stage")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } } ?: if (mediaType == MediaType.LIVE_EVENT) "LIVE MATCH" else null
+
+        var team1 = listOf("team1", "team1_name", "team_1", "team_a", "teamA", "home_team", "homeTeam", "team1Name")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+        var team2 = listOf("team2", "team2_name", "team_2", "team_b", "teamB", "away_team", "awayTeam", "team2Name")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+
+        if (team1 == null && team2 == null && title.isNotBlank() && mediaType == MediaType.LIVE_EVENT) {
+            val vsRegex = Regex("""\s+(?:vs\.?|v\.?|VS|V|-)\s+""")
+            if (vsRegex.containsMatchIn(title)) {
+                val parts = title.split(vsRegex)
+                if (parts.size >= 2) {
+                    team1 = parts[0].trim()
+                    team2 = parts[1].trim()
+                }
+            }
+        }
+
+        val team1Logo = listOf("team1_logo", "team1Logo", "team1_flag", "team1Flag", "team_a_logo", "teamA_logo", "team_a_flag", "team1_img")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+        val team2Logo = listOf("team2_logo", "team2Logo", "team2_flag", "team2Flag", "team_b_logo", "teamB_logo", "team_b_flag", "team2_img")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+
+        val score1 = listOf("score1", "team1_score", "team1Score", "score_a", "team_a_score", "score_1")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+        val score2 = listOf("score2", "team2_score", "team2Score", "score_b", "team_b_score", "score_2")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+
+        val status = listOf("status", "match_status", "event_status", "state", "live_status")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } } ?: if (mediaType == MediaType.LIVE_EVENT) "● Live Now" else "Live Now"
+
+        val matchTimeFormatted = listOf("match_time", "matchTime", "time", "event_time", "eventTime", "start_time", "date_time", "schedule", "matchTimeFormatted")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+
+        val countdownTargetSeconds = obj.optLong("countdownTargetSeconds", obj.optLong("countdown", obj.optLong("countdown_seconds", obj.optLong("timestamp", obj.optLong("start_timestamp", 0L))))).takeIf { it > 0L }
+
+        val id = explicitId ?: obj.optString("id", obj.optString("_id", obj.optString("stream_id", "item_${Math.abs((title + "_" + primaryStream).hashCode())}")))
 
         return MediaItem(
             id = id,
@@ -472,6 +604,18 @@ class MediaRepository(private val context: Context) {
             logoUrl = logo,
             description = description,
             isLive = mediaType != MediaType.MOVIE && mediaType != MediaType.SERIES,
+            tournament = tournament,
+            stage = stage,
+            team1 = team1,
+            team2 = team2,
+            team1Logo = team1Logo,
+            team2Logo = team2Logo,
+            score1 = score1,
+            score2 = score2,
+            status = status,
+            eventTime = matchTimeFormatted,
+            matchTimeFormatted = matchTimeFormatted,
+            countdownTargetSeconds = countdownTargetSeconds,
             quality = quality,
             rating = rating ?: if (mediaType == MediaType.MOVIE) "8.5" else null,
             year = year ?: if (mediaType == MediaType.MOVIE) "2024" else null,

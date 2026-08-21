@@ -25,6 +25,7 @@ data class MediaItem(
     val isLive: Boolean = false,
     val eventTime: String? = null,
     val tournament: String? = null,
+    val stage: String? = null, // e.g. "GROUP STAGE", "MATCHDAY 2", "13TH T20"
     val status: String = "Live Now", // "LIVE NOW", "UPCOMING", "Finished"
     val team1: String? = null,
     val team2: String? = null,
