@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
@@ -691,18 +693,17 @@ fun NafiTvMainApp(
                                 }
                             )
 
-                            AppTab.MOVIES -> CloudStreamHomeScreen(
-                                repository = repository,
-                                movieProviders = allMovieProviders,
-                                activeProvider = activeMovieBrowserProvider,
-                                onSelectProvider = { activeMovieBrowserProvider = it },
-                                onOpenExtensions = { isExtensionsManagementActive = true },
-                                onPlayMovie = { item ->
+                            AppTab.MOVIES -> MoviesTabScreen(
+                                movies = moviesList,
+                                favoriteIds = favoriteIds,
+                                isTvMode = isTvMode,
+                                onSelectMedia = { item ->
                                     selectedMediaItem = item
-                                    activePlaybackPlaylist = listOf(item)
+                                    activePlaybackPlaylist = moviesList
                                 },
-                                onOpenMovieBrowser = { provider ->
-                                    activeMovieBrowserProvider = provider
+                                onToggleFavorite = { id ->
+                                    repository.toggleFavorite(id)
+                                    favoriteIds = repository.getFavoriteIds()
                                 }
                             )
 
@@ -993,18 +994,17 @@ fun NafiTvMainApp(
                             }
                         )
 
-                        AppTab.MOVIES -> CloudStreamHomeScreen(
-                            repository = repository,
-                            movieProviders = allMovieProviders,
-                            activeProvider = activeMovieBrowserProvider,
-                            onSelectProvider = { activeMovieBrowserProvider = it },
-                            onOpenExtensions = { isExtensionsManagementActive = true },
-                            onPlayMovie = { item ->
+                        AppTab.MOVIES -> MoviesTabScreen(
+                            movies = moviesList,
+                            favoriteIds = favoriteIds,
+                            isTvMode = isTvMode,
+                            onSelectMedia = { item ->
                                 selectedMediaItem = item
-                                activePlaybackPlaylist = listOf(item)
+                                activePlaybackPlaylist = moviesList
                             },
-                            onOpenMovieBrowser = { provider ->
-                                activeMovieBrowserProvider = provider
+                            onToggleFavorite = { id ->
+                                repository.toggleFavorite(id)
+                                favoriteIds = repository.getFavoriteIds()
                             }
                         )
 
@@ -7222,58 +7222,65 @@ fun LiveTvTabScreen(
 }
 
 // -------------------------------------------------------------
-// TAB 3: MOVIES SCREEN (Direct Cinema + CloudStream Repos & Sites)
+// TAB 3: MOVIES SCREEN (Direct JSON & M3U Movies & Web Series Catalog)
 // -------------------------------------------------------------
 @Composable
 fun MoviesTabScreen(
     movies: List<MediaItem>,
-    movieProviders: List<MovieProvider> = emptyList(),
-    cloudStreamRepos: List<CloudStreamRepo> = emptyList(),
     favoriteIds: Set<String>,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit,
-    onOpenMovieProvider: (MovieProvider) -> Unit = {},
-    onOpenExtensionManager: () -> Unit = {},
     onToggleFavorite: (String) -> Unit
 ) {
-    var movieSectionType by remember { mutableStateOf(if (movieProviders.isNotEmpty()) "REPOS_SITES" else "DIRECT_MOVIES") }
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
-    var selectedSiteCategory by remember { mutableStateOf("All") }
+    var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
 
-    val directCategories = listOf("All", "Bangla", "Hindi", "Hollywood", "Bollywood", "South", "Action", "Drama")
-    val siteCategories = listOf("All", "Bangla & Hindi", "Hollywood", "Dual Audio", "Anime", "Asian Drama")
-
-    val filteredMovies = movies.filter { item ->
-        val matchesSearch = item.title.contains(searchQuery, ignoreCase = true) ||
-                item.category.contains(searchQuery, ignoreCase = true)
-
-        val matchesCategory = when (selectedCategory) {
-            "All" -> true
-            else -> item.category.contains(selectedCategory, ignoreCase = true) ||
-                    (item.description != null && item.description.contains(selectedCategory, ignoreCase = true))
+    // Dynamically derive categories from loaded movies preserving natural order
+    val dynamicCategories = remember(movies) {
+        val extracted = mutableListOf<String>()
+        movies.forEach { m ->
+            val cat = m.category.trim()
+            if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true) && !cat.equals("General", ignoreCase = true)) {
+                if (!extracted.contains(cat)) {
+                    extracted.add(cat)
+                }
+            }
         }
-
-        matchesSearch && matchesCategory
+        listOf("All") + extracted + listOf("❤️ Favorites")
     }
 
-    val filteredProviders = movieProviders.filter { provider ->
-        val matchesSearch = provider.name.contains(searchQuery, ignoreCase = true) ||
-                provider.category.contains(searchQuery, ignoreCase = true) ||
-                (provider.description != null && provider.description.contains(searchQuery, ignoreCase = true)) ||
-                provider.url.contains(searchQuery, ignoreCase = true)
+    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
+        movies.filter { item ->
+            val matchesSearch = searchQuery.isBlank() ||
+                    item.title.contains(searchQuery, ignoreCase = true) ||
+                    item.category.contains(searchQuery, ignoreCase = true) ||
+                    (item.description != null && item.description.contains(searchQuery, ignoreCase = true)) ||
+                    (item.year != null && item.year.contains(searchQuery, ignoreCase = true))
 
-        val matchesCat = when (selectedSiteCategory) {
-            "All" -> true
-            "Bangla & Hindi" -> provider.category.contains("bangla", ignoreCase = true) || provider.category.contains("hindi", ignoreCase = true) || provider.name.contains("Bolly", ignoreCase = true)
-            "Hollywood" -> provider.category.contains("english", ignoreCase = true) || provider.category.contains("hollywood", ignoreCase = true) || provider.name.contains("Movie", ignoreCase = true)
-            "Dual Audio" -> provider.category.contains("dubbed", ignoreCase = true) || provider.category.contains("dual", ignoreCase = true) || provider.category.contains("hindi", ignoreCase = true)
-            "Anime" -> provider.category.contains("anime", ignoreCase = true) || provider.name.contains("anime", ignoreCase = true)
-            "Asian Drama" -> provider.category.contains("drama", ignoreCase = true) || provider.category.contains("asian", ignoreCase = true)
-            else -> provider.category.contains(selectedSiteCategory, ignoreCase = true)
+            val matchesCategory = when (selectedCategory) {
+                "All" -> true
+                "❤️ Favorites" -> favoriteIds.contains(item.id)
+                else -> item.category.equals(selectedCategory, ignoreCase = true) ||
+                        item.category.contains(selectedCategory, ignoreCase = true) ||
+                        (item.description != null && item.description.contains(selectedCategory, ignoreCase = true))
+            }
+
+            matchesSearch && matchesCategory
         }
+    }
 
-        matchesSearch && matchesCat
+    val featuredMovie = remember(movies) {
+        movies.firstOrNull { it.logoUrl != null } ?: movies.firstOrNull()
+    }
+
+    val categoriesWithMovies = remember(movies) {
+        val catMap = linkedMapOf<String, MutableList<MediaItem>>()
+        movies.forEach { movie ->
+            val cat = movie.category.ifBlank { "Movies" }.trim()
+            catMap.getOrPut(cat) { mutableListOf() }.add(movie)
+        }
+        catMap
     }
 
     Column(
@@ -7281,111 +7288,18 @@ fun MoviesTabScreen(
             .fillMaxSize()
             .background(Color(0xFF020617))
     ) {
-        // Section Switcher Header: CloudStream Sites vs Direct Movies
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (movieSectionType == "REPOS_SITES") Color(0xFF8B5CF6) else Color(0xFF1E293B),
-                border = androidx.compose.foundation.BorderStroke(1.dp, if (movieSectionType == "REPOS_SITES") Color(0xFFDDD6FE) else Color(0xFF334155)),
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { movieSectionType = "REPOS_SITES" }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Extension,
-                        contentDescription = null,
-                        tint = if (movieSectionType == "REPOS_SITES") Color.White else Color(0xFF94A3B8),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "🌐 ক্লাউড মুভি সাইট (${movieProviders.size})",
-                        color = if (movieSectionType == "REPOS_SITES") Color.White else Color(0xFF94A3B8),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (movieSectionType == "DIRECT_MOVIES") Color(0xFF2563EB) else Color(0xFF1E293B),
-                border = androidx.compose.foundation.BorderStroke(1.dp, if (movieSectionType == "DIRECT_MOVIES") Color(0xFF93C5FD) else Color(0xFF334155)),
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { movieSectionType = "DIRECT_MOVIES" }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Movie,
-                        contentDescription = null,
-                        tint = if (movieSectionType == "DIRECT_MOVIES") Color.White else Color(0xFF94A3B8),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "🎬 সরাসরি সিনেমা (${movies.size})",
-                        color = if (movieSectionType == "DIRECT_MOVIES") Color.White else Color(0xFF94A3B8),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1E293B),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f)),
-                modifier = Modifier.clickable { onOpenExtensionManager() }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Extension,
-                        contentDescription = "Extensions",
-                        tint = Color(0xFFC084FC),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "প্লাগইন",
-                        color = Color(0xFFC084FC),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
         // Search Bar
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
             placeholder = {
                 Text(
-                    if (movieSectionType == "REPOS_SITES") "মুভি ওয়েবসাইট খুঁজুন (যেমন: Phisher, BollyFlix, CineVood)" else "মুভি ও সিরিজ খুঁজুন (যেমন: Toofan, Jawan)",
+                    "মুভি ও ওয়েব সিরিজ খুঁজুন (যেমন: Jawan, Toofan, Leo, Panchayat)",
                     color = Color(0xFF94A3B8),
-                    fontSize = 12.sp
+                    fontSize = 12.5.sp
                 )
             },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = if (movieSectionType == "REPOS_SITES") Color(0xFF8B5CF6) else Color(0xFF00E5FF)) },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF)) },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { searchQuery = "" }) {
@@ -7395,198 +7309,325 @@ fun MoviesTabScreen(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp),
+                .padding(horizontal = 14.dp, vertical = 6.dp),
             shape = RoundedCornerShape(12.dp),
             colors = customFieldColors(),
             singleLine = true
         )
 
-        if (movieSectionType == "REPOS_SITES") {
-            // Filter Categories for Providers / Repos
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(vertical = 6.dp)
-            ) {
-                items(siteCategories) { category ->
-                    val isSelected = selectedSiteCategory == category
-                    var isCatFocused by remember { mutableStateOf(false) }
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = when {
-                            isCatFocused -> Color(0xFF8B5CF6)
-                            isSelected -> Color(0xFF7C3AED)
-                            else -> Color(0xFF1E293B)
-                        },
-                        border = when {
-                            isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                            isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFDDD6FE))
-                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                        },
-                        modifier = Modifier
-                            .scale(if (isCatFocused) 1.08f else 1.0f)
-                            .onFocusChanged { isCatFocused = it.isFocused }
-                            .focusable()
-                            .clickable { selectedSiteCategory = category }
-                    ) {
-                        Text(
-                            text = category,
-                            color = if (isCatFocused || isSelected) Color.White else Color(0xFFE2E8F0),
-                            fontSize = 11.sp,
-                            fontWeight = if (isCatFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
+        // Filter Categories Horizontal Scroll (from JSON)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp)
+        ) {
+            items(dynamicCategories) { category ->
+                val isSelected = selectedCategory == category
+                var isCatFocused by remember { mutableStateOf(false) }
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = when {
+                        isCatFocused -> Color(0xFF00E5FF)
+                        isSelected -> Color(0xFF2563EB)
+                        else -> Color(0xFF1E293B)
+                    },
+                    border = when {
+                        isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
+                        isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                    },
+                    modifier = Modifier
+                        .scale(if (isCatFocused) 1.08f else 1.0f)
+                        .onFocusChanged { isCatFocused = it.isFocused }
+                        .focusable()
+                        .clickable { selectedCategory = category }
+                ) {
+                    Text(
+                        text = category,
+                        color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
+                        fontSize = 12.sp,
+                        fontWeight = if (isCatFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                    )
                 }
             }
+        }
 
-            // Repositories & Movie Sites Content
-            if (filteredProviders.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+        if (filteredMovies.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Rounded.ExtensionOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(52.dp))
-                        Text("কোনো মুভি ওয়েবসাইট পাওয়া যায়নি", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text(
-                            "এডমিন প্যানেলে যান এবং Phisher Repo বা আপনার পছন্দের সাইট লিংক অ্যাড করুন।",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    Icon(Icons.Rounded.MovieFilter, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
+                    Text("কোনো মুভি পাওয়া যায়নি", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("অন্য কি-ওয়ার্ড বা ক্যাটাগরি বেছে নিন।", color = Color(0xFF94A3B8), fontSize = 12.sp)
                 }
-            } else {
-                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 4 else 2),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredProviders) { provider ->
-                        var isCardFocused by remember { mutableStateOf(false) }
+            }
+        } else if (selectedCategory == "All" && searchQuery.isBlank()) {
+            // OTT Netflix-style layout with categorized horizontal rows
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Hero Spotlight Banner
+                if (featuredMovie != null) {
+                    item {
+                        var isHeroFocused by remember { mutableStateOf(false) }
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .scale(if (isCardFocused) 1.06f else 1.0f)
-                                .onFocusChanged { isCardFocused = it.isFocused }
+                                .padding(horizontal = 12.dp)
+                                .height(210.dp)
+                                .scale(if (isHeroFocused) 1.02f else 1.0f)
+                                .onFocusChanged { isHeroFocused = it.isFocused }
                                 .focusable()
-                                .clickable { onOpenMovieProvider(provider) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isCardFocused) Color(0xFF312E81) else Color(0xFF1E293B)
-                            ),
-                            border = when {
-                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4338CA).copy(alpha = 0.5f))
-                            },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+                                .clickable { onSelectMedia(featuredMovie) },
+                            shape = RoundedCornerShape(16.dp),
+                            border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF)) else null
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFF0F172A)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (!provider.logoUrl.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = provider.logoUrl,
-                                                contentDescription = provider.name,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                AsyncImage(
+                                    model = featuredMovie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
+                                    contentDescription = featuredMovie.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    Color.Transparent,
+                                                    Color(0xFF0F172A).copy(alpha = 0.7f),
+                                                    Color(0xFF020617).copy(alpha = 0.98f)
+                                                )
                                             )
-                                        } else {
-                                            Icon(
-                                                Icons.Rounded.Language,
-                                                contentDescription = null,
-                                                tint = Color(0xFF8B5CF6),
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                    }
+                                        )
+                                )
 
+                                Column(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(16.dp)
+                                ) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF8B5CF6).copy(alpha = 0.2f),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6))
+                                        color = Color(0xFFE11D48)
                                     ) {
                                         Text(
-                                            text = provider.status,
-                                            color = Color(0xFFDDD6FE),
+                                            text = "⭐ FEATURED SPOTLIGHT",
+                                            color = Color.White,
                                             fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
+                                            fontWeight = FontWeight.Black,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = featuredMovie.title,
+                                        color = Color.White,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${featuredMovie.category} • ${featuredMovie.year ?: "2026"} • ${featuredMovie.quality}",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 11.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = { onSelectMedia(featuredMovie) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Play", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { selectedMovieForDetails = featuredMovie },
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.Info, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Info", fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Render each Category Row
+                categoriesWithMovies.forEach { (categoryName, catMovies) ->
+                    item(key = categoryName) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Category Row Header
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedCategory = categoryName }
+                                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFFE11D48)
+                                    ) {
+                                        Text(
+                                            text = "ORIGINAL",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = categoryName,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFF1E293B)
+                                    ) {
+                                        Text(
+                                            text = "${catMovies.size} Movies",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    text = provider.name,
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                Icon(
+                                    Icons.Rounded.ChevronRight,
+                                    contentDescription = "View All",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(20.dp)
                                 )
+                            }
 
-                                Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                                Text(
-                                    text = provider.category,
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1
-                                )
+                            // Horizontal list of Movie Cards
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(catMovies, key = { it.id }) { movie ->
+                                    val isFav = favoriteIds.contains(movie.id)
+                                    var isItemFocused by remember { mutableStateOf(false) }
 
-                                Spacer(modifier = Modifier.height(4.dp))
+                                    Card(
+                                        modifier = Modifier
+                                            .width(if (isTvMode) 160.dp else 125.dp)
+                                            .scale(if (isItemFocused) 1.05f else 1.0f)
+                                            .onFocusChanged { isItemFocused = it.isFocused }
+                                            .focusable()
+                                            .clickable { onSelectMedia(movie) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isItemFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                        ),
+                                        border = when {
+                                            isItemFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+                                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                                        }
+                                    ) {
+                                        Column {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .aspectRatio(2f / 3f)
+                                                    .background(Color.Black)
+                                            ) {
+                                                AsyncImage(
+                                                    model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400",
+                                                    contentDescription = movie.title,
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
 
-                                Text(
-                                    text = if (!provider.description.isNullOrBlank()) provider.description else provider.url,
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 10.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    lineHeight = 13.sp
-                                )
+                                                // Rating badge
+                                                Surface(
+                                                    shape = RoundedCornerShape(bottomStart = 6.dp),
+                                                    color = Color.Black.copy(alpha = 0.75f),
+                                                    modifier = Modifier.align(Alignment.TopEnd)
+                                                ) {
+                                                    Text(
+                                                        text = movie.rating ?: "8.0",
+                                                        color = Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                    )
+                                                }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                                // Favorite overlay
+                                                IconButton(
+                                                    onClick = { onToggleFavorite(movie.id) },
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomEnd)
+                                                        .size(24.dp)
+                                                        .padding(2.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                                        contentDescription = "Favorite",
+                                                        tint = if (isFav) Color(0xFFEF4444) else Color.White,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
 
-                                Button(
-                                    onClick = { onOpenMovieProvider(provider) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(34.dp),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF6D28D9),
-                                        contentColor = Color.White
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Rounded.OpenInBrowser, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("ওয়েবসাইটে প্রবেশ করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                                            ) {
+                                                Text(
+                                                    text = movie.title,
+                                                    color = Color.White,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = movie.year ?: "2026",
+                                                    color = Color(0xFF94A3B8),
+                                                    fontSize = 9.5.sp
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -7594,89 +7635,35 @@ fun MoviesTabScreen(
                 }
             }
         } else {
-            // Direct Movies View
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(vertical = 6.dp)
-            ) {
-                items(directCategories) { category ->
-                    val isSelected = selectedCategory == category
-                    var isCatFocused by remember { mutableStateOf(false) }
+            // Filtered / Search Grid View
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "🎬 $selectedCategory (${filteredMovies.size})",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = when {
-                            isCatFocused -> Color(0xFF00E5FF)
-                            isSelected -> Color(0xFF2563EB)
-                            else -> Color(0xFF1E293B)
-                        },
-                        border = when {
-                            isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                            isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
-                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                        },
-                        modifier = Modifier
-                            .scale(if (isCatFocused) 1.08f else 1.0f)
-                            .onFocusChanged { isCatFocused = it.isFocused }
-                            .focusable()
-                            .clickable { selectedCategory = category }
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF2563EB).copy(alpha = 0.2f)
                     ) {
                         Text(
-                            text = category,
-                            color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
-                            fontSize = 12.sp,
-                            fontWeight = if (isCatFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            text = "Ultra HD",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
-            }
 
-            // Section Title with dynamic count
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "📁 Movies Collection (${filteredMovies.size})",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF2563EB).copy(alpha = 0.2f)
-                ) {
-                    Text(
-                        text = "Ultra HD Cinema",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            if (filteredMovies.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Rounded.MovieFilter, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
-                        Text("কোনো মুভি পাওয়া যায়নি", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("অন্য কি-ওয়ার্ড বা ক্যাটাগরি বেছে নিন।", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    }
-                }
-            } else {
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                     columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 4 else 2),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -7684,7 +7671,7 @@ fun MoviesTabScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredMovies) { movie ->
+                    items(filteredMovies, key = { it.id }) { movie ->
                         val isFav = favoriteIds.contains(movie.id)
                         var isCardFocused by remember { mutableStateOf(false) }
                         Card(
@@ -7692,151 +7679,335 @@ fun MoviesTabScreen(
                                 .fillMaxWidth()
                                 .scale(if (isCardFocused) 1.06f else 1.0f)
                                 .onFocusChanged { isCardFocused = it.isFocused }
-                                .focusable()
-                                .clickable { onSelectMedia(movie) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isCardFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
-                            ),
-                            border = when {
-                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                            },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
-                        ) {
-                            Column {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(180.dp)
-                                ) {
-                                    AsyncImage(
-                                        model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400",
-                                        contentDescription = movie.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                            .focusable()
+                            .clickable { onSelectMedia(movie) },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isCardFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                        ),
+                        border = when {
+                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
+                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                        },
+                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+                    ) {
+                        Column {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(2f / 3f)
+                                    .background(Color.Black)
+                            ) {
+                                AsyncImage(
+                                    model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400",
+                                    contentDescription = movie.title,
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
 
-                                    if (isCardFocused) {
-                                        Surface(
-                                            shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
-                                            color = Color(0xFF00E5FF),
-                                            modifier = Modifier.align(Alignment.TopStart)
-                                        ) {
-                                            Text(
-                                                text = "▶ OK",
-                                                color = Color.Black,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Black,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-
-                                    // Gradient shade
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.verticalGradient(
-                                                    listOf(
-                                                        Color.Black.copy(alpha = 0.3f),
-                                                        Color.Transparent,
-                                                        Color(0xFF1E293B).copy(alpha = 0.95f)
-                                                    )
-                                                )
-                                            )
-                                    )
-
-                                    // Top-Left Quality Badge (HD / 4K)
+                                if (isCardFocused) {
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF2563EB),
-                                        modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(8.dp)
+                                        shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
+                                        color = Color(0xFF00E5FF),
+                                        modifier = Modifier.align(Alignment.TopStart)
                                     ) {
                                         Text(
-                                            text = movie.quality,
-                                            color = Color.White,
+                                            text = "▶ OK",
+                                            color = Color.Black,
                                             fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
+                                            fontWeight = FontWeight.Black,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-
-                                    // Top-Right Rating Badge
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFFF59E0B),
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(8.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.Star,
-                                                contentDescription = null,
-                                                tint = Color.Black,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(2.dp))
-                                            Text(
-                                                text = movie.rating ?: "8.5",
-                                                color = Color.Black,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-
-                                    // Favorite heart overlay
-                                    IconButton(
-                                        onClick = { onToggleFavorite(movie.id) },
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(4.dp)
-                                            .size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                            contentDescription = "Favorite",
-                                            tint = if (isFav) Color(0xFFEF4444) else Color.White,
-                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
 
-                                Column(
+                                // Top-Left Quality Badge (HD / 4K)
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF2563EB),
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        .align(Alignment.TopStart)
+                                        .padding(8.dp)
                                 ) {
                                     Text(
-                                        text = movie.title,
+                                        text = movie.quality,
                                         color = Color.White,
-                                        fontSize = 13.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${movie.category} • ${movie.year ?: "2024"}",
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
+
+                                // Top-Right Rating Badge
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFF59E0B),
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Star,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        Text(
+                                            text = movie.rating ?: "8.5",
+                                            color = Color.Black,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                // Multi-Server Badge
+                                if (movie.servers.size > 1) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF10B981),
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "⚡ ${movie.servers.size} Servers",
+                                            color = Color.Black,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                // Favorite heart overlay
+                                IconButton(
+                                    onClick = { onToggleFavorite(movie.id) },
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(4.dp)
+                                        .size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                        contentDescription = "Favorite",
+                                        tint = if (isFav) Color(0xFFEF4444) else Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = movie.title,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "${movie.category} • ${movie.year ?: "2024"}",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+    }
+
+    // Movie Details Dialog
+    if (selectedMovieForDetails != null) {
+        val movie = selectedMovieForDetails!!
+        var selectedServerIndex by remember { mutableStateOf(0) }
+        val servers = if (movie.servers.isNotEmpty()) movie.servers else listOf(StreamServer("Main Server", movie.streamUrl))
+
+        AlertDialog(
+            onDismissRequest = { selectedMovieForDetails = null },
+            containerColor = Color(0xFF0F172A),
+            shape = RoundedCornerShape(20.dp),
+            title = null,
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.Black)
+                    ) {
+                        AsyncImage(
+                            model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600",
+                            contentDescription = movie.title,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color(0xFF0F172A).copy(alpha = 0.9f)
+                                        )
+                                    )
+                                )
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF2563EB),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = movie.quality,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = movie.title,
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                        ) {
+                            Text(
+                                text = movie.category,
+                                color = Color(0xFF00E5FF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                        if (movie.year != null) {
+                            Text(
+                                text = "Year: ${movie.year}",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (movie.rating != null) {
+                            Text(
+                                text = "⭐ ${movie.rating}",
+                                color = Color(0xFFF59E0B),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (!movie.description.isNullOrBlank()) {
+                        Text(
+                            text = movie.description,
+                            color = Color(0xFFCBD5E1),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    // Server Selection
+                    Text(
+                        text = "⚡ স্ট্রিম সার্ভার নির্বাচন করুন (${servers.size} টি সার্ভার):",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(servers.size) { index ->
+                            val srv = servers[index]
+                            val isSelected = selectedServerIndex == index
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF334155)),
+                                modifier = Modifier.clickable { selectedServerIndex = index }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Dns,
+                                        contentDescription = null,
+                                        tint = if (isSelected) Color.Black else Color(0xFF60A5FA),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = srv.name,
+                                        color = if (isSelected) Color.Black else Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val chosenServer = servers.getOrNull(selectedServerIndex) ?: servers.first()
+                        val mediaToPlay = movie.copy(streamUrl = chosenServer.url)
+                        selectedMovieForDetails = null
+                        onSelectMedia(mediaToPlay)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Watch Movie Now (প্লে করুন)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedMovieForDetails = null }) {
+                    Text("Close", color = Color(0xFF94A3B8))
+                }
+            }
+        )
     }
 }
 

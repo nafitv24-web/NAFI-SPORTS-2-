@@ -1549,25 +1549,25 @@ fun MovieCardItem(
             .scale(if (isFocused) 1.06f else 1.0f)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
-            .clickable { onClick() }
+            .clickable { onPlay() }
     ) {
         Box(
             modifier = Modifier
                 .width(115.dp)
                 .height(165.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1E293B))
+                .background(Color.Black)
                 .border(
                     width = if (isFocused) 2.5.dp else 1.dp,
                     color = if (isFocused) Color(0xFF00E5FF) else Color(0xFF334155),
                     shape = RoundedCornerShape(12.dp)
                 )
         ) {
-            // Poster Image
+            // Poster Image - full visibility
             AsyncImage(
                 model = movie.posterUrl,
                 contentDescription = movie.title,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
 
