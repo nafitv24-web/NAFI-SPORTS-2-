@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -26,7 +25,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -39,7 +37,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -202,7 +199,7 @@ fun NafiTvMainApp(
                     e.printStackTrace()
                 }
 
-                // 1. Parallel asynchronous fetching of Sports M3U, Live Sports JSONs, Live TV M3U, Movies M3U and Firebase Cloud
+                // 1. Parallel asynchronous fetching of Sports M3U, Live TV M3U, Movies M3U and Firebase Cloud
                 val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                 val sportsM3uDeferred = async {
                     if (sportsM3uUrl.isNotBlank()) {
@@ -213,27 +210,6 @@ fun NafiTvMainApp(
                                 status = if (it.status.isBlank()) "LIVE" else it.status
                             )
                         }
-                    } else emptyList()
-                }
-
-                val tapmadSportsUrl = repository.getSavedTapmadSportsUrl()
-                val tapmadSportsDeferred = async {
-                    if (tapmadSportsUrl.isNotBlank()) {
-                        repository.fetchSportsEventsFromJsonUrl(tapmadSportsUrl, defaultCategory = "Tapmad Sports", sourceTag = "Tapmad BD")
-                    } else emptyList()
-                }
-
-                val axSportsUrl = repository.getSavedAxSportsUrl()
-                val axSportsDeferred = async {
-                    if (axSportsUrl.isNotBlank()) {
-                        repository.fetchSportsEventsFromJsonUrl(axSportsUrl, defaultCategory = "AX Sports", sourceTag = "AX Live Sports")
-                    } else emptyList()
-                }
-
-                val sonyLivSportsUrl = repository.getSavedSonyLivSportsUrl()
-                val sonyLivSportsDeferred = async {
-                    if (sonyLivSportsUrl.isNotBlank()) {
-                        repository.fetchSportsEventsFromJsonUrl(sonyLivSportsUrl, defaultCategory = "Sony LIV", sourceTag = "Sony LIV Sports")
                     } else emptyList()
                 }
 
@@ -248,11 +224,10 @@ fun NafiTvMainApp(
                 val moviesM3uDeferred = async {
                     if (moviesM3uUrl.isNotBlank()) {
                         repository.parseM3uFromUrl(moviesM3uUrl).map {
-                            val cat = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT" else it.category
                             it.copy(
                                 type = MediaType.MOVIE,
                                 tournament = "NAFI_OTT",
-                                category = cat
+                                category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
                             )
                         }
                     } else emptyList()
@@ -263,15 +238,10 @@ fun NafiTvMainApp(
 
                 // Await all parallel fetches
                 val parsedSportsM3u = sportsM3uDeferred.await().filterNot { deleted.contains(it.id) }
-                val parsedTapmadSports = tapmadSportsDeferred.await().filterNot { deleted.contains(it.id) }
-                val parsedAxSports = axSportsDeferred.await().filterNot { deleted.contains(it.id) }
-                val parsedSonyLivSports = sonyLivSportsDeferred.await().filterNot { deleted.contains(it.id) }
                 val parsedTvM3u = liveTvM3uDeferred.await().filterNot { deleted.contains(it.id) }
                 val parsedMoviesM3u = moviesM3uDeferred.await().filterNot { deleted.contains(it.id) }
                 val fbItems = fbItemsDeferred.await()
                 val fbPlaylists = fbPlaylistsDeferred.await()
-
-                val allParsedSports = (parsedSportsM3u + parsedTapmadSports + parsedAxSports + parsedSonyLivSports)
 
                 val fbSports = fbItems.filter { it.type == MediaType.LIVE_EVENT }
                 val fbTv = fbItems.filter { it.type == MediaType.LIVE_TV }
@@ -301,9 +271,9 @@ fun NafiTvMainApp(
                 val playlistIds = allPlaylists.map { it.id }.toSet()
 
                 // 3. Set distinct channel, sports & movie lists from Firebase Cloud + Sports M3U + Admin custom additions (Excluding Playlists)
-                sportsList = (customSports + fbSports + allParsedSports)
+                sportsList = (customSports + fbSports + parsedSportsM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
-                    .distinctBy { if (it.streamUrl.isNotBlank()) it.streamUrl else it.id }
+                    .distinctBy { it.id }
 
                 liveTvList = (customTv + fbTv + parsedTvM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
@@ -313,7 +283,7 @@ fun NafiTvMainApp(
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
 
-                m3uList = (allParsedSports + parsedTvM3u + parsedMoviesM3u)
+                m3uList = (parsedSportsM3u + parsedTvM3u + parsedMoviesM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
 
@@ -6298,6 +6268,10 @@ fun TeamLogoBadge(
         teamName.contains("Sri Lanka", ignoreCase = true) || teamName.contains("SL", ignoreCase = true) -> "https://flagcdn.com/w160/lk.png"
         teamName.contains("Pakistan", ignoreCase = true) || teamName.contains("PAK", ignoreCase = true) -> "https://flagcdn.com/w160/pk.png"
         teamName.contains("England", ignoreCase = true) || teamName.contains("ENG", ignoreCase = true) -> "https://flagcdn.com/w160/gb-eng.png"
+        teamName.contains("Trent Rockets", ignoreCase = true) -> "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=160"
+        teamName.contains("Southern Brave", ignoreCase = true) -> "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=160"
+        teamName.contains("Real Madrid", ignoreCase = true) -> "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=160"
+        teamName.contains("Barcelona", ignoreCase = true) -> "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=160"
         else -> null
     }
 
@@ -6360,16 +6334,12 @@ fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
             val currentDay = nowCal.get(java.util.Calendar.DAY_OF_MONTH)
 
             val patterns = listOf(
-                "yyyy-MM-dd HH:mm:ss",
                 "yyyy-MM-dd HH:mm",
                 "yyyy-MM-dd'T'HH:mm:ss",
-                "yyyy-MM-dd'T'HH:mm:ssZ",
                 "yyyy-MM-dd",
                 "hh:mm a, MMM dd yyyy",
                 "hh:mm a, MMM dd",
-                "hh:mm:ss a",
                 "hh:mm a",
-                "HH:mm:ss",
                 "HH:mm"
             )
             for (pattern in patterns) {
@@ -6381,18 +6351,13 @@ fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
                         val targetCal = java.util.Calendar.getInstance().apply { time = date }
                         if (pattern == "hh:mm a, MMM dd") {
                             targetCal.set(java.util.Calendar.YEAR, currentYear)
-                        } else if (pattern == "hh:mm a" || pattern == "HH:mm" || pattern == "HH:mm:ss" || pattern == "hh:mm:ss a") {
+                        } else if (pattern == "hh:mm a" || pattern == "HH:mm") {
                             targetCal.set(java.util.Calendar.YEAR, currentYear)
                             targetCal.set(java.util.Calendar.MONTH, currentMonth)
                             targetCal.set(java.util.Calendar.DAY_OF_MONTH, currentDay)
                         }
                         val diffMillis = targetCal.timeInMillis - System.currentTimeMillis()
-                        val diffSecs = diffMillis / 1000L
-                        if (diffSecs > 0L) {
-                            return diffSecs
-                        } else if (diffSecs >= -10800L) {
-                            return 0L
-                        }
+                        return maxOf(0L, diffMillis / 1000L)
                     }
                 } catch (_: Exception) {}
             }
@@ -6403,14 +6368,10 @@ fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
 }
 
 fun isEventLiveNow(sport: MediaItem, tickCount: Long): Boolean {
-    val statusUpper = sport.status.uppercase()
-    val rem = calculateEventRemainingSeconds(sport, tickCount)
-    if (statusUpper.contains("UPCOMING") && rem > 0L) {
-        return false
-    }
-    if (sport.isLive || statusUpper.contains("LIVE") || statusUpper.contains("PLAYING") || statusUpper.contains("RUNNING")) {
+    if (sport.isLive || sport.status.equals("LIVE", ignoreCase = true) || sport.status.contains("LIVE NOW", ignoreCase = true)) {
         return true
     }
+    val rem = calculateEventRemainingSeconds(sport, tickCount)
     if (rem == 0L && (sport.countdownTargetSeconds != null || !sport.eventTime.isNullOrBlank() || !sport.matchTimeFormatted.isNullOrBlank())) {
         return true
     }
@@ -6425,9 +6386,16 @@ fun EventsScreen(
     onSelectMedia: (MediaItem) -> Unit,
     onToggleFavorite: (String) -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableStateOf("All") } // "All", "Live", "Upcoming"
     var selectedCategory by remember { mutableStateOf("All") }
+    var selectedStatus by remember { mutableStateOf("All") }
+
+    // Dynamic categories extracted from all sports matches
+    val categories = remember(sports) {
+        val defaultCats = listOf("All", "Cricket", "Football", "Hockey", "More")
+        val uniqueCats = sports.map { it.category.trim() }.filter { it.isNotBlank() && !it.equals("All", ignoreCase = true) }.distinct()
+        (defaultCats + uniqueCats).distinct()
+    }
+    val statusFilters = listOf("All", "🔴 Live", "Upcoming", "Today", "Recent Results")
 
     // Live ticking countdown state
     var tickCount by remember { mutableStateOf(0L) }
@@ -6438,289 +6406,98 @@ fun EventsScreen(
         }
     }
 
-    // Dynamic categories extracted from sports matches
-    val categories = remember(sports) {
-        val defaultCats = listOf("All", "Cricket", "Football", "Tapmad Sports", "AX Sports", "Sony LIV")
-        val uniqueCats = sports.map { it.category.trim() }.filter { it.isNotBlank() && !it.equals("All", ignoreCase = true) }.distinct()
-        (defaultCats + uniqueCats).distinct()
-    }
-
-    // Dynamic Counts
-    val liveCount = remember(sports, tickCount) {
-        sports.count { isEventLiveNow(it, tickCount) }
-    }
-    val upcomingCount = remember(sports, tickCount) {
-        sports.count { !isEventLiveNow(it, tickCount) }
-    }
-
     val filteredSports = sports.filter { item ->
         val isLive = isEventLiveNow(item, tickCount)
-        val matchesSearch = searchQuery.isBlank() ||
-                item.title.contains(searchQuery, ignoreCase = true) ||
-                item.category.contains(searchQuery, ignoreCase = true) ||
-                (item.tournament != null && item.tournament.contains(searchQuery, ignoreCase = true)) ||
-                (item.team1 != null && item.team1.contains(searchQuery, ignoreCase = true)) ||
-                (item.team2 != null && item.team2.contains(searchQuery, ignoreCase = true)) ||
-                (item.description != null && item.description.contains(searchQuery, ignoreCase = true))
-
-        val tabMatches = when (selectedTab) {
-            "All" -> true
-            "Live" -> isLive
-            "Upcoming" -> !isLive
-            else -> true
-        }
-
         val catMatches = when (selectedCategory) {
             "All" -> true
             "Cricket" -> item.category.contains("Cricket", ignoreCase = true) || item.tournament?.contains("Cricket", ignoreCase = true) == true || item.title.contains("Cricket", ignoreCase = true) || item.team1?.contains("Cricket", ignoreCase = true) == true
             "Football" -> item.category.contains("Football", ignoreCase = true) || item.tournament?.contains("Football", ignoreCase = true) == true || item.title.contains("Football", ignoreCase = true) || item.team1?.contains("Football", ignoreCase = true) == true
-            "Tapmad Sports" -> item.category.contains("Tapmad", ignoreCase = true) || item.tournament?.contains("Tapmad", ignoreCase = true) == true || item.title.contains("Tapmad", ignoreCase = true)
-            "AX Sports" -> item.category.contains("AX", ignoreCase = true) || item.tournament?.contains("AX", ignoreCase = true) == true || item.title.contains("AX", ignoreCase = true)
-            "Sony LIV" -> item.category.contains("Sony", ignoreCase = true) || item.tournament?.contains("Sony", ignoreCase = true) == true || item.title.contains("Sony", ignoreCase = true)
+            "Hockey" -> item.category.contains("Hockey", ignoreCase = true) || item.tournament?.contains("Hockey", ignoreCase = true) == true || item.title.contains("Hockey", ignoreCase = true)
+            "More" -> !item.category.contains("Cricket", ignoreCase = true) && !item.category.contains("Football", ignoreCase = true)
             else -> item.category.contains(selectedCategory, ignoreCase = true) || item.tournament?.contains(selectedCategory, ignoreCase = true) == true || item.title.contains(selectedCategory, ignoreCase = true)
         }
-
-        matchesSearch && tabMatches && catMatches
+        val statusMatches = when (selectedStatus) {
+            "All" -> true
+            "🔴 Live" -> isLive || item.isLive || item.status.contains("Live", ignoreCase = true)
+            "Upcoming" -> !isLive && !item.isLive
+            "Today" -> true
+            "Recent Results" -> !isLive && !item.isLive
+            else -> true
+        }
+        catMatches && statusMatches
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF030712)),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(Color(0xFF020617)),
+        contentPadding = PaddingValues(top = 14.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // -------------------------------------------------------------
-        // HEADER: Tapmad Matches Metadata Banner & Search (Screenshots 1 & 2)
+        // FILTER ROW 1: SPORTS CATEGORIES (Cricket, Football, Hockey, More)
         // -------------------------------------------------------------
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Header Title Card
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                items(categories) { cat ->
+                    val isSelected = selectedCategory == cat
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFE11D48),
-                        modifier = Modifier.size(44.dp)
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.5f)),
+                        modifier = Modifier.clickable { selectedCategory = cat }
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "T",
-                                color = Color.White,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Tapmad Matches Metadata",
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Created by Md Sohanur Rahman Hady • আপডেট: 12:15 AM 22-08-2026",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 11.sp
+                            text = cat,
+                            color = if (isSelected) Color(0xFF020617) else Color(0xFF94A3B8),
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp)
                         )
                     }
                 }
+            }
+        }
 
-                // Search Bar: ম্যাচ, দল বা টুর্নামেন্ট খুঁজুন...
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF0F172A),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
+        // -------------------------------------------------------------
+        // FILTER ROW 2: STATUS FILTERS (🔴 Live, Upcoming, Today, Recent Results)
+        // -------------------------------------------------------------
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(statusFilters) { status ->
+                    val isSelected = selectedStatus == status
+                    var isChipFocused by remember { mutableStateOf(false) }
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = when {
+                            isChipFocused -> Color(0xFF00E5FF)
+                            isSelected -> Color(0xFF2563EB)
+                            else -> Color(0xFF1E293B)
+                        },
+                        border = when {
+                            isChipFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
+                            isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.5f))
+                        },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .scale(if (isChipFocused) 1.08f else 1.0f)
+                            .onFocusChanged { isChipFocused = it.isFocused }
+                            .focusable()
+                            .clickable { selectedStatus = status }
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Search,
-                            contentDescription = "Search",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(20.dp)
+                        Text(
+                            text = status,
+                            color = if (isChipFocused) Color.Black else if (isSelected) Color.White else if (status == "🔴 Live") Color(0xFFEF4444) else if (status == "Upcoming") Color(0xFFFBBF24) else Color(0xFF94A3B8),
+                            fontSize = 13.sp,
+                            fontWeight = if (isChipFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                         )
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(vertical = 6.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            singleLine = true,
-                            cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                            decorationBox = { innerTextField ->
-                                if (searchQuery.isBlank()) {
-                                    Text(
-                                        text = "ম্যাচ, দল বা টুর্নামেন্ট খুঁজুন...",
-                                        color = Color(0xFF64748B),
-                                        fontSize = 13.5.sp
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(
-                                onClick = { searchQuery = "" },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription = "Clear",
-                                    tint = Color(0xFF94A3B8),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Filter Buttons Row: সব ম্যাচ | লাইভ | আসন্ন
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val tabs = listOf(
-                        "All" to "সব ম্যাচ",
-                        "Live" to "লাইভ",
-                        "Upcoming" to "আসন্ন"
-                    )
-                    tabs.forEach { (key, label) ->
-                        val isSelected = selectedTab == key
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) Color(0xFF1E293B) else Color(0xFF0F172A),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFF3B82F6) else Color(0xFF1E293B)
-                            ),
-                            modifier = Modifier
-                                .clickable { selectedTab = key }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                if (key == "Live") {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isSelected) Color(0xFFEF4444) else Color(0xFF94A3B8))
-                                    )
-                                }
-                                Text(
-                                    text = label,
-                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Badge Counter Pills: 🔴 লাইভ: 2 | ⏳ আসন্ন: 17
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Live Badge Pill
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF450A0A).copy(alpha = 0.5f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
-                        modifier = Modifier.clickable { selectedTab = "Live" }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFEF4444))
-                            )
-                            Text(
-                                text = "লাইভ: $liveCount",
-                                color = Color(0xFFFCA5A5),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Upcoming Badge Pill
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF172554).copy(alpha = 0.5f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.6f)),
-                        modifier = Modifier.clickable { selectedTab = "Upcoming" }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "⏳",
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = "আসন্ন: $upcomingCount",
-                                color = Color(0xFF93C5FD),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                // Category Chips Row (Cricket, Football, Tapmad, AX, Sony LIV)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(vertical = 2.dp)
-                ) {
-                    items(categories) { cat ->
-                        val isSelected = selectedCategory == cat
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF0F172A),
-                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
-                            modifier = Modifier.clickable { selectedCategory = cat }
-                        ) {
-                            Text(
-                                text = cat,
-                                color = if (isSelected) Color.Black else Color(0xFF94A3B8),
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -6734,7 +6511,7 @@ fun EventsScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 50.dp),
+                        .padding(horizontal = 20.dp, vertical = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -6748,7 +6525,7 @@ fun EventsScreen(
                             modifier = Modifier.size(54.dp)
                         )
                         Text(
-                            text = "কোনো লাইভ বা আসন্ন ম্যাচ পাওয়া যায়নি",
+                            text = "কোনো লাইভ ম্যাচ বা ইভেন্ট পাওয়া যায়নি",
                             color = Color(0xFF94A3B8),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
@@ -6760,205 +6537,89 @@ fun EventsScreen(
         }
 
         // -------------------------------------------------------------
-        // EVENT MATCH CARDS (Screenshots 1 & 2 UI Layout)
+        // EVENT MATCH CARDS (Clean, direct & multi-server)
         // -------------------------------------------------------------
         items(filteredSports) { sport ->
             val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
             val isLiveNow = isEventLiveNow(sport, tickCount)
-            val matchTitle = when {
-                !sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank() -> "${sport.team1} vs ${sport.team2}"
+            val matchFullTitle = when {
+                !sport.tournament.isNullOrBlank() -> sport.tournament!!
                 !sport.title.isNullOrBlank() && !sport.title.equals("Live Match", ignoreCase = true) -> sport.title
-                else -> "${sport.category} Live Match"
+                !sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank() -> "${sport.category} 🏏 || ${sport.team1} vs ${sport.team2}"
+                else -> "${sport.category} || Live Match"
             }
-            val stageText = (sport.stage ?: if (sport.category.contains("Football", ignoreCase = true)) "MATCHDAY 2" else "GROUP STAGE").uppercase()
-            val tournamentText = sport.tournament ?: (sport.category + " 2026")
             val servers = sport.getAllServers()
-
             var isCardFocused by remember { mutableStateOf(false) }
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp)
-                    .scale(if (isCardFocused) 1.02f else 1.0f)
+                    .scale(if (isCardFocused) 1.03f else 1.0f)
                     .onFocusChanged { isCardFocused = it.isFocused }
                     .focusable()
                     .clickable {
                         onSelectMedia(sport)
                     },
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isCardFocused) Color(0xFF1E3A8A).copy(alpha = 0.95f) else Color(0xFF131D33)
+                ),
                 border = when {
-                    isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
-                    else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+                    isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
+                    else -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF2563EB).copy(alpha = 0.35f))
                 },
-                elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 10.dp else 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // 1. TOP POSTER / MATCH BANNER (16:9 Banner with VS Badges & Tournament Pill)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .background(Color(0xFF020617))
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Top Full-Width Notice Box for Match Title & Status (User requested: নোটিশ এর মতন সেই বক্সেই সম্পূর্ণ দেখায়)
+                    Surface(
+                        color = Color(0xFF1E293B),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Poster Image or Dynamic Sports Arena Canvas
-                        if (!sport.logoUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = sport.logoUrl,
-                                contentDescription = matchTitle,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            // High-Tech Sports Arena Background with Team Cards
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(Color(0xFF1E1B4B), Color(0xFF0F172A), Color(0xFF020617))
-                                        )
-                                    )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 16.dp, vertical = 20.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    // Team 1 Card
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFF1E293B),
-                                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF3B82F6)),
-                                            modifier = Modifier.size(68.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                if (!sport.team1Logo.isNullOrBlank()) {
-                                                    AsyncImage(
-                                                        model = sport.team1Logo,
-                                                        contentDescription = sport.team1,
-                                                        contentScale = ContentScale.Fit,
-                                                        modifier = Modifier.size(54.dp)
-                                                    )
-                                                } else {
-                                                    Icon(
-                                                        imageVector = if (sport.category.contains("Football", ignoreCase = true)) Icons.Rounded.SportsSoccer else Icons.Rounded.SportsCricket,
-                                                        contentDescription = null,
-                                                        tint = Color(0xFF60A5FA),
-                                                        modifier = Modifier.size(36.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = sport.team1 ?: "Team 1",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    // VS Badge
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFF0F172A),
-                                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
-                                            modifier = Modifier.size(38.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Text(
-                                                    text = "VS",
-                                                    color = Color(0xFF00E5FF),
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    // Team 2 Card
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFF1E293B),
-                                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444)),
-                                            modifier = Modifier.size(68.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                if (!sport.team2Logo.isNullOrBlank()) {
-                                                    AsyncImage(
-                                                        model = sport.team2Logo,
-                                                        contentDescription = sport.team2,
-                                                        contentScale = ContentScale.Fit,
-                                                        modifier = Modifier.size(54.dp)
-                                                    )
-                                                } else {
-                                                    Icon(
-                                                        imageVector = if (sport.category.contains("Football", ignoreCase = true)) Icons.Rounded.SportsSoccer else Icons.Rounded.SportsCricket,
-                                                        contentDescription = null,
-                                                        tint = Color(0xFFF87171),
-                                                        modifier = Modifier.size(36.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = sport.team2 ?: "Team 2",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Gradient Scrim Overlays
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        0.0f to Color.Black.copy(alpha = 0.5f),
-                                        0.4f to Color.Transparent,
-                                        1.0f to Color.Black.copy(alpha = 0.75f)
-                                    )
-                                )
-                        )
-
-                        // Top Right Status Badge (UPCOMING or LIVE)
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp)
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            Icon(
+                                imageVector = if (sport.category.contains("Football", ignoreCase = true)) Icons.Rounded.SportsSoccer else Icons.Rounded.SportsCricket,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(18.dp)
+                            )
+
+                            Text(
+                                text = matchFullTitle,
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .basicMarquee(
+                                        iterations = Int.MAX_VALUE,
+                                        initialDelayMillis = 800
+                                    ),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+
+                            // Status Badge
                             if (isLiveNow) {
                                 Surface(
+                                    color = Color(0xFFEF4444).copy(alpha = 0.2f),
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFDC2626)
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
@@ -6966,171 +6627,258 @@ fun EventsScreen(
                                             modifier = Modifier
                                                 .size(6.dp)
                                                 .clip(CircleShape)
-                                                .background(Color.White)
+                                                .background(Color(0xFFEF4444))
                                         )
                                         Text(
                                             text = "LIVE",
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Black
+                                            color = Color(0xFFEF4444),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold
                                         )
                                     }
                                 }
                             } else {
                                 Surface(
+                                    color = Color(0xFFF59E0B).copy(alpha = 0.2f),
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFD97706)
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.6f))
                                 ) {
                                     Text(
                                         text = "UPCOMING",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Bottom Left Tournament Pill Badge: 🏆 Caribbean Premier League 2026
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(12.dp)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.Black.copy(alpha = 0.75f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Text(text = "🏆", fontSize = 11.sp)
-                                    Text(
-                                        text = tournamentText,
-                                        color = Color(0xFFF1F5F9),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = Color(0xFFFBBF24),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                     )
                                 }
                             }
                         }
                     }
 
-                    // 2. CARD CONTENT SECTION
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    // Teams, Countdown / Score and Action Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Stage / Round text (e.g. GROUP STAGE / MATCHDAY 2)
-                        Text(
-                            text = stageText,
-                            color = Color(0xFFF97316),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 0.8.sp
-                        )
-
-                        // Match Title
-                        Text(
-                            text = matchTitle,
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = 22.sp
-                        )
-
-                        // 3. COUNTDOWN / LIVE STATUS BOX (Screenshots 1 & 2 Exact Match)
-                        MatchCountdownBox(
-                            sport = sport,
-                            isLive = isLiveNow,
-                            remainingSecs = remainingSecs
-                        )
-
-                        // Match Description if available
-                        if (!sport.description.isNullOrBlank()) {
+                        // Team 1 (Left)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            TeamLogoBadge(
+                                teamName = sport.team1 ?: "Team 1",
+                                logoUrl = sport.team1Logo
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = sport.description,
-                                color = Color(0xFF94A3B8),
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp,
-                                maxLines = 3,
+                                text = sport.team1 ?: "Team 1",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        // Multi-Server selector chips if multiple servers exist
-                        if (servers.size > 1) {
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                items(servers) { srv ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF1E293B),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                                        modifier = Modifier.clickable {
-                                            onSelectMedia(sport.copy(streamUrl = srv.url))
-                                        }
+                        // Center: Live Score or Countdown Timer or Match Time
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.weight(1.6f)
+                        ) {
+                            if (sport.score1 != null && sport.score2 != null && (sport.score1!!.isNotBlank() || sport.score2!!.isNotBlank())) {
+                                // Live Score Display
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF0F172A),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Dns,
-                                                contentDescription = null,
-                                                tint = Color(0xFF60A5FA),
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                            Text(
-                                                text = srv.name,
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
+                                        Text(
+                                            text = sport.score1 ?: "0",
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                        Text("-", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                                        Text(
+                                            text = sport.score2 ?: "0",
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            } else if (!isLiveNow && remainingSecs > 0L) {
+                                // Dynamic Live Ticking Countdown Calculation (Ticks every second)
+                                val days = remainingSecs / 86400L
+                                val hours = (remainingSecs % 86400L) / 3600L
+                                val mins = (remainingSecs % 3600L) / 60L
+                                val secs = remainingSecs % 60L
+                                val countdownStr = if (days > 0) {
+                                    String.format("⏳ %dd %02dh %02dm %02ds", days, hours, mins, secs)
+                                } else {
+                                    String.format("⏳ %02dh %02dm %02ds", hours, mins, secs)
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF450A0A).copy(alpha = 0.6f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
+                                ) {
+                                    Text(
+                                        text = countdownStr,
+                                        color = Color(0xFFFCA5A5),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                            } else {
+                                // Live Match streaming indicator
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF1E3A8A).copy(alpha = 0.5f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.6f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF60A5FA))
+                                        )
+                                        Text(
+                                            text = sport.matchTimeFormatted ?: sport.eventTime ?: "LIVE MATCH",
+                                            color = Color(0xFF93C5FD),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
                                     }
                                 }
                             }
                         }
 
-                        // 4. ACTION BUTTON: ▶ লাইভ স্ট্রিম ওপেন করুন (Screenshots 1 & 2)
-                        Button(
-                            onClick = { onSelectMedia(sport) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFE11D48),
-                                contentColor = Color.White
+                        // Team 2 (Right)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            TeamLogoBadge(
+                                teamName = sport.team2 ?: "Team 2",
+                                logoUrl = sport.team2Logo
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = sport.team2 ?: "Team 2",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Multi-Server Selector Row & Play Action
+                    HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Multi Server Chips
+                        LazyRow(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(servers) { srv ->
+                                var isServerFocused by remember { mutableStateOf(false) }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isServerFocused) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                    border = when {
+                                        isServerFocused -> androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFFFFD600))
+                                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                                    },
+                                    modifier = Modifier
+                                        .scale(if (isServerFocused) 1.08f else 1.0f)
+                                        .onFocusChanged { isServerFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable {
+                                            onSelectMedia(sport.copy(streamUrl = srv.url))
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Dns,
+                                            contentDescription = null,
+                                            tint = if (isServerFocused) Color.Black else Color(0xFF60A5FA),
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Text(
+                                            text = srv.name,
+                                            color = if (isServerFocused) Color.Black else Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isServerFocused) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Watch Live / Play Button
+                        var isPlayBtnFocused by remember { mutableStateOf(false) }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = when {
+                                isPlayBtnFocused -> Color(0xFF00E5FF)
+                                isLiveNow -> Color(0xFFDC2626)
+                                else -> Color(0xFF2563EB)
+                            },
+                            border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFFFFD600)) else null,
+                            modifier = Modifier
+                                .scale(if (isPlayBtnFocused) 1.08f else 1.0f)
+                                .onFocusChanged { isPlayBtnFocused = it.isFocused }
+                                .focusable()
+                                .clickable {
+                                    onSelectMedia(sport)
+                                }
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.PlayArrow,
                                     contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (isPlayBtnFocused) Color.Black else Color.White,
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "লাইভ স্ট্রিম ওপেন করুন",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp
+                                    text = if (isLiveNow) "Watch Live" else "Play",
+                                    color = if (isPlayBtnFocused) Color.Black else Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -7139,150 +6887,6 @@ fun EventsScreen(
             }
         }
     }
-}
-
-@Composable
-fun MatchCountdownBox(
-    sport: MediaItem,
-    isLive: Boolean,
-    remainingSecs: Long,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF080D1A),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Top Row of box: ⏱ ম্যাচ শুরুর কাউন্টডাউন: | Time
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Text(
-                        text = "⏱",
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        text = "ম্যাচ শুরুর কাউন্টডাউন:",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                val rightTime = sport.matchTimeFormatted ?: sport.eventTime ?: if (isLive) "LIVE NOW" else "05:00:00"
-                Text(
-                    text = rightTime,
-                    color = Color(0xFF64748B),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            if (isLive || remainingSecs <= 0L) {
-                // Live match active indicator: ● ম্যাচটি এখন লাইভ চলছে
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                    val alpha by infiniteTransition.animateFloat(
-                        initialValue = 0.3f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(750, easing = LinearEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "liveAlpha"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF10B981).copy(alpha = alpha))
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "ম্যাচটি এখন লাইভ চলছে",
-                        color = Color(0xFF10B981),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-            } else {
-                // Upcoming Live Ticking Countdown with Bengali Units
-                val days = remainingSecs / 86400L
-                val hours = (remainingSecs % 86400L) / 3600L
-                val mins = (remainingSecs % 3600L) / 60L
-                val secs = remainingSecs % 60L
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    if (days > 0) {
-                        CountdownUnit(value = String.format("%02d", days), label = "দিন")
-                        CountdownColon()
-                    }
-                    CountdownUnit(value = String.format("%02d", hours), label = "ঘণ্টা")
-                    CountdownColon()
-                    CountdownUnit(value = String.format("%02d", mins), label = "মিনিট")
-                    CountdownColon()
-                    CountdownUnit(value = String.format("%02d", secs), label = "সেকেন্ড", isAccent = true)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CountdownUnit(value: String, label: String, isAccent: Boolean = false) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(horizontal = 8.dp)
-    ) {
-        Text(
-            text = value,
-            color = if (isAccent) Color(0xFFEF4444) else Color.White,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.5.sp
-        )
-        Text(
-            text = label,
-            color = Color(0xFF94A3B8),
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-private fun CountdownColon() {
-    Text(
-        text = ":",
-        color = Color(0xFF64748B),
-        fontSize = 18.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(bottom = 12.dp)
-    )
 }
 
 // -------------------------------------------------------------
