@@ -255,8 +255,27 @@ class MediaRepository(private val context: Context) {
                 for (i in 0 until jsonArray.length()) {
                     val element = jsonArray.opt(i)
                     if (element is JSONObject) {
-                        val parsed = parseSingleMediaFromJson(element, i, defaultCategory)
-                        if (parsed != null) items.add(parsed)
+                        // Check if this object is a Category container containing a movies/items list
+                        val catName = element.optString("category_name", element.optString("category", element.optString("name", element.optString("title", element.optString("cat_name", defaultCategory))))).trim().ifBlank { defaultCategory }
+                        val innerArr = element.optJSONArray("movies")
+                            ?: element.optJSONArray("items")
+                            ?: element.optJSONArray("content")
+                            ?: element.optJSONArray("streams")
+                            ?: element.optJSONArray("list")
+                            ?: element.optJSONArray("channels")
+
+                        if (innerArr != null && innerArr.length() > 0) {
+                            for (j in 0 until innerArr.length()) {
+                                val mObj = innerArr.optJSONObject(j)
+                                if (mObj != null) {
+                                    val parsed = parseSingleMediaFromJson(mObj, items.size, catName)
+                                    if (parsed != null) items.add(parsed)
+                                }
+                            }
+                        } else {
+                            val parsed = parseSingleMediaFromJson(element, i, defaultCategory)
+                            if (parsed != null) items.add(parsed)
+                        }
                     } else if (element is String && (element.startsWith("http://") || element.startsWith("https://"))) {
                         items.add(
                             MediaItem(
@@ -275,14 +294,23 @@ class MediaRepository(private val context: Context) {
             } else if (trimmed.startsWith("{")) {
                 val rootObj = JSONObject(trimmed)
 
-                // Check for categories array
-                val categoriesArr = rootObj.optJSONArray("categories") ?: rootObj.optJSONArray("genres") ?: rootObj.optJSONArray("sections")
+                // 1. Check for explicit categories arrays
+                val categoriesArr = rootObj.optJSONArray("categories")
+                    ?: rootObj.optJSONArray("category_list")
+                    ?: rootObj.optJSONArray("genres")
+                    ?: rootObj.optJSONArray("sections")
+
                 if (categoriesArr != null) {
                     for (c in 0 until categoriesArr.length()) {
                         val catObj = categoriesArr.optJSONObject(c)
                         if (catObj != null) {
-                            val catName = catObj.optString("name", catObj.optString("category", catObj.optString("title", defaultCategory)))
-                            val catItemsArr = catObj.optJSONArray("movies") ?: catObj.optJSONArray("items") ?: catObj.optJSONArray("streams") ?: catObj.optJSONArray("content") ?: catObj.optJSONArray("list")
+                            val catName = catObj.optString("category_name", catObj.optString("name", catObj.optString("category", catObj.optString("title", catObj.optString("cat_name", defaultCategory))))).trim().ifBlank { defaultCategory }
+                            val catItemsArr = catObj.optJSONArray("movies")
+                                ?: catObj.optJSONArray("items")
+                                ?: catObj.optJSONArray("streams")
+                                ?: catObj.optJSONArray("content")
+                                ?: catObj.optJSONArray("list")
+                                ?: catObj.optJSONArray("channels")
                             if (catItemsArr != null) {
                                 for (i in 0 until catItemsArr.length()) {
                                     val itemObj = catItemsArr.optJSONObject(i)
@@ -296,7 +324,10 @@ class MediaRepository(private val context: Context) {
                     }
                 }
 
-                // Check for standard collection keys
+                // 2. Check if root object has a specific category_name (e.g., { "category_name": "HINDI MOVIES", "movies": [...] })
+                val rootCatName = rootObj.optString("category_name", rootObj.optString("category", rootObj.optString("cat_name", ""))).trim()
+
+                // 3. Check for standard collection keys
                 val collectionKeys = listOf(
                     "movies", "movie_list", "series", "tv_series", "channels", "streams",
                     "items", "data", "results", "list", "content", "videos", "playlist", "feed"
@@ -304,7 +335,13 @@ class MediaRepository(private val context: Context) {
                 for (key in collectionKeys) {
                     val arr = rootObj.optJSONArray(key)
                     if (arr != null) {
-                        val inferredCat = if (key.contains("series", ignoreCase = true)) "Web Series" else defaultCategory
+                        val inferredCat = if (rootCatName.isNotBlank()) {
+                            rootCatName
+                        } else if (key.contains("series", ignoreCase = true)) {
+                            "Web Series"
+                        } else {
+                            defaultCategory
+                        }
                         for (i in 0 until arr.length()) {
                             val itemObj = arr.optJSONObject(i)
                             if (itemObj != null) {
@@ -315,13 +352,14 @@ class MediaRepository(private val context: Context) {
                     }
                 }
 
-                // If root object itself is a single media item
+                // 4. If root object itself is a single media item
                 if (items.isEmpty() && (rootObj.has("url") || rootObj.has("streamUrl") || rootObj.has("link") || rootObj.has("file") || rootObj.has("servers") || rootObj.has("sources"))) {
-                    val parsed = parseSingleMediaFromJson(rootObj, 0, defaultCategory)
+                    val catName = if (rootCatName.isNotBlank()) rootCatName else defaultCategory
+                    val parsed = parseSingleMediaFromJson(rootObj, 0, catName)
                     if (parsed != null) items.add(parsed)
                 }
 
-                // If root object has dynamic keys as items (like Firebase Realtime DB object map)
+                // 5. If root object has dynamic keys as items (like Firebase Realtime DB object map)
                 if (items.isEmpty()) {
                     val keys = rootObj.keys()
                     var count = 0
@@ -329,7 +367,8 @@ class MediaRepository(private val context: Context) {
                         val k = keys.next()
                         val itemObj = rootObj.optJSONObject(k)
                         if (itemObj != null) {
-                            val parsed = parseSingleMediaFromJson(itemObj, count++, defaultCategory, explicitId = k)
+                            val catName = if (rootCatName.isNotBlank()) rootCatName else defaultCategory
+                            val parsed = parseSingleMediaFromJson(itemObj, count++, catName, explicitId = k)
                             if (parsed != null) items.add(parsed)
                         }
                     }
@@ -353,12 +392,19 @@ class MediaRepository(private val context: Context) {
         val backupUrl = obj.optString("backupUrl", obj.optString("backup_url", obj.optString("backup", obj.optString("mirror", obj.optString("fallbackUrl", ""))))).trim().takeIf { it.isNotBlank() }
 
         val serversList = mutableListOf<StreamServer>()
-        val serversArr = obj.optJSONArray("servers") ?: obj.optJSONArray("sources") ?: obj.optJSONArray("links") ?: obj.optJSONArray("streams") ?: obj.optJSONArray("qualities") ?: obj.optJSONArray("mirrors") ?: obj.optJSONArray("episodes")
+        val serversArr = obj.optJSONArray("servers")
+            ?: obj.optJSONArray("sources")
+            ?: obj.optJSONArray("links")
+            ?: obj.optJSONArray("streams")
+            ?: obj.optJSONArray("qualities")
+            ?: obj.optJSONArray("mirrors")
+            ?: obj.optJSONArray("episodes")
+
         if (serversArr != null) {
             for (s in 0 until serversArr.length()) {
                 val sObj = serversArr.optJSONObject(s)
                 if (sObj != null) {
-                    val sName = sObj.optString("name", sObj.optString("label", sObj.optString("server", sObj.optString("title", sObj.optString("quality", sObj.optString("res", "সার্ভার ${s + 1}"))))))
+                    val sName = sObj.optString("server_name", sObj.optString("serverName", sObj.optString("name", sObj.optString("label", sObj.optString("server", sObj.optString("title", sObj.optString("quality", sObj.optString("res", "সার্ভার ${s + 1}"))))))))
                     val sUrl = sObj.optString("url", sObj.optString("file", sObj.optString("link", sObj.optString("src", sObj.optString("streamUrl", sObj.optString("stream_url", "")))))).trim()
                     if (sUrl.isNotBlank()) {
                         serversList.add(StreamServer(sName, sUrl))
@@ -384,8 +430,10 @@ class MediaRepository(private val context: Context) {
             }
         }
 
-        val logo = obj.optString("logo", obj.optString("logoUrl", obj.optString("logo_url", obj.optString("poster", obj.optString("posterUrl", obj.optString("poster_url", obj.optString("image", obj.optString("imageUrl", obj.optString("thumbnail", obj.optString("thumb", obj.optString("icon", obj.optString("iconUrl", obj.optString("cover", obj.optString("backdrop", obj.optString("img", ""))))))))))))))).trim().takeIf { it.isNotBlank() }
-        val category = obj.optString("category", obj.optString("genre", obj.optString("genres", obj.optString("group", obj.optString("group-title", obj.optString("type_name", obj.optString("sport", obj.optString("tag", fallbackCategory)))))))).trim().ifBlank { fallbackCategory }
+        val logo = listOf("poster", "posterUrl", "poster_url", "logo", "logoUrl", "logo_url", "image", "imageUrl", "thumbnail", "thumb", "icon", "iconUrl", "cover", "backdrop", "img")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } }
+        val category = listOf("category_name", "category", "genre", "genres", "group", "group-title", "type_name", "sport", "tag")
+            .firstNotNullOfOrNull { obj.optString(it, "").trim().takeIf { s -> s.isNotBlank() } } ?: fallbackCategory
         val description = obj.optString("description", obj.optString("plot", obj.optString("synopsis", obj.optString("overview", obj.optString("summary", obj.optString("story", obj.optString("about", obj.optString("details", "")))))))).trim().takeIf { it.isNotBlank() }
 
         val year = obj.optString("year", obj.optString("release_date", obj.optString("releaseDate", obj.optString("release_year", obj.optString("releaseYear", obj.optString("date", "")))))).trim().takeIf { it.isNotBlank() }

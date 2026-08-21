@@ -259,13 +259,6 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Immediately trigger buffering state whenever channel or server URL changes
-    LaunchedEffect(currentMedia.id, currentUrl) {
-        hasStartedPlaying = false
-        isBuffering = true
-        isActuallyBuffering = true
-        errorMessage = null
-    }
     var showControls by remember { mutableStateOf(true) }
     var isMuted by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
@@ -274,6 +267,18 @@ fun VideoPlayerScreen(
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var showQuickChannelDrawer by remember { mutableStateOf(false) }
+
+    // Immediately trigger buffering state whenever channel or server URL changes
+    LaunchedEffect(currentMedia.id, currentUrl) {
+        hasStartedPlaying = false
+        isBuffering = true
+        isActuallyBuffering = true
+        errorMessage = null
+        currentPositionMs = 0L
+        durationMs = 0L
+        sliderPosition = 0f
+        isDraggingSlider = false
+    }
 
     // Intercept system/mobile back press to safely exit player and return to previous list
     BackHandler {
@@ -529,13 +534,16 @@ fun VideoPlayerScreen(
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
             .setBandwidthMeter(bandwidthMeter)
-            .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+            .setSeekParameters(androidx.media3.exoplayer.SeekParameters.EXACT)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
             .build().apply {
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(finalCleanUrl)
-                    .setLiveConfiguration(
+
+                val isLiveStream = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
+                if (isLiveStream) {
+                    mediaItemBuilder.setLiveConfiguration(
                         androidx.media3.common.MediaItem.LiveConfiguration.Builder()
                             .setTargetOffsetMs(20000L) // 20s safe distance from live broadcast edge prevents running out of chunks
                             .setMinOffsetMs(8000L)
@@ -544,6 +552,7 @@ fun VideoPlayerScreen(
                             .setMaxPlaybackSpeed(1.0f)
                             .build()
                     )
+                }
 
                 if (drmConfig != null) {
                     val drmConfigBuilder = MediaItem.DrmConfiguration.Builder(drmConfig.schemeUuid)
@@ -591,7 +600,10 @@ fun VideoPlayerScreen(
                                 hasStartedPlaying = true
                                 errorMessage = null
                                 isPlaying = playWhenReady
-                                durationMs = duration.coerceAtLeast(0L)
+                                val dur = duration
+                                if (dur > 0 && dur != C.TIME_UNSET) {
+                                    durationMs = dur
+                                }
                             }
                             Player.STATE_ENDED -> {
                                 isBuffering = false
@@ -600,6 +612,13 @@ fun VideoPlayerScreen(
                             Player.STATE_IDLE -> {
                                 isBuffering = false
                             }
+                        }
+                    }
+
+                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                        val dur = duration
+                        if (dur > 0 && dur != C.TIME_UNSET) {
+                            durationMs = dur
                         }
                     }
 
@@ -724,13 +743,17 @@ fun VideoPlayerScreen(
     }
 
     // Periodic time progress tracker
-    LaunchedEffect(exoPlayer, isPlaying) {
+    LaunchedEffect(exoPlayer) {
         while (true) {
-            if (exoPlayer.isPlaying && !isDraggingSlider) {
-                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-                durationMs = exoPlayer.duration.coerceAtLeast(0L)
+            val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val dur = exoPlayer.duration
+            if (dur > 0 && dur != C.TIME_UNSET) {
+                durationMs = dur
             }
-            delay(500)
+            if (!isDraggingSlider) {
+                currentPositionMs = cur
+            }
+            delay(250)
         }
     }
 
@@ -922,9 +945,10 @@ fun VideoPlayerScreen(
     }
 
     fun adjustSeekDelta(deltaSec: Float) {
-        if (durationMs > 0) {
+        val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+        if (effDuration > 0) {
             seekGestureOffsetSec += deltaSec.toInt()
-            val target = (currentPositionMs + seekGestureOffsetSec * 1000L).coerceIn(0L, durationMs)
+            val target = (currentPositionMs + seekGestureOffsetSec * 1000L).coerceIn(0L, effDuration)
             seekGestureTargetMs = target
             seekGestureKey = System.currentTimeMillis()
             isSeekGestureActive = true
@@ -934,8 +958,10 @@ fun VideoPlayerScreen(
     }
 
     fun confirmSeek() {
-        if (isSeekGestureActive && durationMs > 0) {
+        val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+        if (isSeekGestureActive && effDuration > 0) {
             exoPlayer.seekTo(seekGestureTargetMs)
+            currentPositionMs = seekGestureTargetMs
             seekGestureOffsetSec = 0
         }
     }
@@ -1216,14 +1242,17 @@ fun VideoPlayerScreen(
                     availableSubtitles = availableSubtitles,
                     onOpenSubtitleDialog = { showSubtitleDialog = true },
                     onSeekRewind10 = {
-                        if (durationMs > 0) {
-                            exoPlayer.seekTo(maxOf(0L, currentPositionMs - 10000L))
-                        }
+                        val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
+                        val seekTarget = maxOf(0L, cur - 10000L)
+                        exoPlayer.seekTo(seekTarget)
+                        currentPositionMs = seekTarget
                     },
                     onSeekForward10 = {
-                        if (durationMs > 0) {
-                            exoPlayer.seekTo(minOf(durationMs, currentPositionMs + 10000L))
-                        }
+                        val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
+                        val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+                        val seekTarget = if (effDuration > 0) minOf(effDuration, cur + 10000L) else (cur + 10000L)
+                        exoPlayer.seekTo(seekTarget)
+                        currentPositionMs = seekTarget
                     },
                     onSliderChange = {
                         isDraggingSlider = true
@@ -1231,9 +1260,11 @@ fun VideoPlayerScreen(
                     },
                     onSliderChangeFinished = {
                         isDraggingSlider = false
-                        if (durationMs > 0) {
-                            val seekTo = (sliderPosition * durationMs).toLong()
+                        val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+                        if (effDuration > 0) {
+                            val seekTo = (sliderPosition * effDuration).toLong()
                             exoPlayer.seekTo(seekTo)
+                            currentPositionMs = seekTo
                         }
                     },
                     onPlayPause = {
@@ -1452,18 +1483,20 @@ fun VideoPlayerScreen(
                         detectTapGestures(
                             onTap = { showControls = !showControls },
                             onDoubleTap = { offset ->
+                                val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
+                                val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
                                 if (offset.x < size.width / 2) {
-                                    if (durationMs > 0) {
-                                        exoPlayer.seekTo(maxOf(0L, currentPositionMs - 10000L))
-                                        doubleTapSeekLeft = true
-                                        doubleTapSeekRight = false
-                                    }
+                                    val seekTarget = maxOf(0L, cur - 10000L)
+                                    exoPlayer.seekTo(seekTarget)
+                                    currentPositionMs = seekTarget
+                                    doubleTapSeekLeft = true
+                                    doubleTapSeekRight = false
                                 } else {
-                                    if (durationMs > 0) {
-                                        exoPlayer.seekTo(minOf(durationMs, currentPositionMs + 10000L))
-                                        doubleTapSeekRight = true
-                                        doubleTapSeekLeft = false
-                                    }
+                                    val seekTarget = if (effDuration > 0) minOf(effDuration, cur + 10000L) else (cur + 10000L)
+                                    exoPlayer.seekTo(seekTarget)
+                                    currentPositionMs = seekTarget
+                                    doubleTapSeekRight = true
+                                    doubleTapSeekLeft = false
                                 }
                             }
                         )
@@ -1770,8 +1803,11 @@ fun VideoPlayerScreen(
                                     },
                                     onValueChangeFinished = {
                                         isDraggingSlider = false
-                                        if (durationMs > 0) {
-                                            exoPlayer.seekTo((sliderPosition * durationMs).toLong())
+                                        val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+                                        if (effDuration > 0) {
+                                            val seekTo = (sliderPosition * effDuration).toLong()
+                                            exoPlayer.seekTo(seekTo)
+                                            currentPositionMs = seekTo
                                         }
                                     },
                                     modifier = Modifier
