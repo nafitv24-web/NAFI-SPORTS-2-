@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.nafitv.ifmvfb"
     minSdk = 24
     targetSdk = 36
-    versionCode = 26
-    versionName = "2.5.4"
+    versionCode = 27
+    versionName = "2.5.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
