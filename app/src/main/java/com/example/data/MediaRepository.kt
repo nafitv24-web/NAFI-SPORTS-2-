@@ -2120,7 +2120,7 @@ class MediaRepository(private val context: Context) {
                 }
 
                 val serversList = mutableListOf<StreamServer>()
-                val primaryServerName = if (isFree) "Watch Free" else "TAPMAD"
+                val primaryServerName = if (isFree) "Watch Free" else "Live HD"
                 if (streamUrl.isNotBlank()) {
                     serversList.add(StreamServer(primaryServerName, streamUrl))
                 }
@@ -2132,21 +2132,28 @@ class MediaRepository(private val context: Context) {
                 }
                 for (m in matchingM3u) {
                     if (m.streamUrl.isNotBlank() && serversList.none { it.url.trim().equals(m.streamUrl.trim(), ignoreCase = true) }) {
-                        val srvName = if (m.title.contains("Watch Free", ignoreCase = true)) "Watch Free" else "TAPMAD HD"
+                        val srvName = if (m.title.contains("Watch Free", ignoreCase = true)) {
+                            "Watch Free"
+                        } else {
+                            "HD Server ${serversList.size + 1}"
+                        }
                         serversList.add(StreamServer(srvName, m.streamUrl))
                     }
                 }
 
                 val primaryStream = serversList.firstOrNull()?.url ?: streamUrl
 
-                val displayTitle = if (categoryName.isNotBlank() && !videoName.contains(categoryName, ignoreCase = true)) {
-                    "$videoName | $categoryName"
+                val cleanCat = categoryName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
+                val cleanVidName = videoName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
+
+                val displayTitle = if (cleanCat.isNotBlank() && !cleanVidName.contains(cleanCat, ignoreCase = true)) {
+                    "$cleanVidName | $cleanCat"
                 } else {
-                    videoName
+                    cleanVidName
                 }
 
                 val stageHeader = if (stageName.isNotBlank()) stageName.uppercase() else "GROUP STAGE"
-                val tournamentBadge = if (categoryName.isNotBlank()) categoryName else "$sportCategory 2026"
+                val tournamentBadge = if (cleanCat.isNotBlank()) cleanCat else "$sportCategory 2026"
 
                 items.add(
                     MediaItem(

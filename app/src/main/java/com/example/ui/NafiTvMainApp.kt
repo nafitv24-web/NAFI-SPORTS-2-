@@ -1861,7 +1861,7 @@ fun AdminControlAppScreen(
                                             team1LogoUrl = "https://flagcdn.com/w160/bd.png"
                                             team2Name = "Australia"
                                             team2LogoUrl = "https://flagcdn.com/w160/au.png"
-                                            matchTimeFormatted = "06:30 AM, Aug 13"
+                                            matchTimeFormatted = "06:00 AM, Aug 23"
                                             countdownHours = ""
                                             sportsServers = listOf(
                                                 StreamServer("T SPORTS", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
@@ -2142,7 +2142,16 @@ fun AdminControlAppScreen(
                                             tournamentName.ifBlank { "Live Match" }
                                         }
 
-                                        val parsedCountdown = countdownHours.toLongOrNull()?.let { it * 3600L } ?: countdownHours.toLongOrNull()
+                                        val parsedCountdown: Long? = when {
+                                            countdownHours.isNotBlank() && countdownHours.toDoubleOrNull() != null -> {
+                                                val hrs = countdownHours.toDouble()
+                                                System.currentTimeMillis() + (hrs * 3600 * 1000L).toLong()
+                                            }
+                                            matchTimeFormatted.isNotBlank() -> {
+                                                parseEventTimeStringToEpochMillis(matchTimeFormatted)
+                                            }
+                                            else -> null
+                                        }
 
                                         val matchItem = MediaItem(
                                             id = "sport_${System.currentTimeMillis()}",
@@ -4469,7 +4478,16 @@ fun AdminControlAppScreen(
                                         editTournament.ifBlank { target.title }
                                     }
 
-                                    val parsedCountdown = editCountdownHours.toLongOrNull()?.let { it * 3600L } ?: editCountdownHours.toLongOrNull()
+                                    val parsedCountdown: Long? = when {
+                                        editCountdownHours.isNotBlank() && editCountdownHours.toDoubleOrNull() != null -> {
+                                            val hrs = editCountdownHours.toDouble()
+                                            System.currentTimeMillis() + (hrs * 3600 * 1000L).toLong()
+                                        }
+                                        editMatchTime.isNotBlank() -> {
+                                            parseEventTimeStringToEpochMillis(editMatchTime)
+                                        }
+                                        else -> target.countdownTargetSeconds
+                                    }
 
                                     val updatedMatch = target.copy(
                                         title = matchTitle,
@@ -6345,57 +6363,97 @@ fun TeamLogoBadge(
     }
 }
 
+fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
+    if (timeStr.isNullOrBlank()) return null
+    val clean = timeStr.trim()
+    if (clean.equals("Live", ignoreCase = true) || clean.equals("Live Now", ignoreCase = true) || clean.equals("UPCOMING", ignoreCase = true)) return null
+
+    val nowGmt6Cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("GMT+6"))
+    val currentYear = nowGmt6Cal.get(java.util.Calendar.YEAR)
+    val currentMonth = nowGmt6Cal.get(java.util.Calendar.MONTH)
+    val currentDay = nowGmt6Cal.get(java.util.Calendar.DAY_OF_MONTH)
+
+    val patterns = listOf(
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd",
+        "hh:mm a, dd MMM yyyy",
+        "hh:mm a, MMM dd yyyy",
+        "dd MMM yyyy, hh:mm a",
+        "MMM dd yyyy, hh:mm a",
+        "hh:mm a, dd MMM",
+        "hh:mm a, MMM dd",
+        "dd MMM, hh:mm a",
+        "MMM dd, hh:mm a",
+        "dd/MM/yyyy HH:mm",
+        "dd-MM-yyyy HH:mm",
+        "yyyy/MM/dd HH:mm",
+        "hh:mm a",
+        "HH:mm"
+    )
+
+    // Check in GMT+6 first (Bangladesh standard time used in match playlists & BD live streaming), then system local, then UTC
+    val timeZonesToCheck = listOf("GMT+6", java.util.TimeZone.getDefault().id, "UTC").distinct()
+
+    for (timeZoneId in timeZonesToCheck) {
+        val tz = java.util.TimeZone.getTimeZone(timeZoneId)
+        for (pattern in patterns) {
+            try {
+                val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
+                sdf.timeZone = tz
+                sdf.isLenient = false
+                val date = sdf.parse(clean)
+                if (date != null) {
+                    val targetCal = java.util.Calendar.getInstance(tz).apply { time = date }
+                    if (!pattern.contains("yyyy") && !pattern.contains("yyyy-")) {
+                        targetCal.set(java.util.Calendar.YEAR, currentYear)
+                    }
+                    if (!pattern.contains("dd") && !pattern.contains("MMM") && !pattern.contains("MM")) {
+                        targetCal.set(java.util.Calendar.YEAR, currentYear)
+                        targetCal.set(java.util.Calendar.MONTH, currentMonth)
+                        targetCal.set(java.util.Calendar.DAY_OF_MONTH, currentDay)
+                    }
+                    return targetCal.timeInMillis
+                }
+            } catch (_: Exception) {}
+        }
+    }
+    return null
+}
+
 fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
+    // If explicitly marked Live, no countdown
+    if (sport.isLive || sport.status.equals("LIVE", ignoreCase = true) || sport.status.contains("LIVE NOW", ignoreCase = true)) {
+        return 0L
+    }
+
+    val nowMillis = System.currentTimeMillis()
+
+    // 1. Check countdownTargetSeconds epoch timestamp first (exact epoch from DB/API)
     val raw = sport.countdownTargetSeconds
     if (raw != null && raw > 0L) {
-        if (raw > 1_000_000_000_000L) {
-            val diff = raw - System.currentTimeMillis()
+        if (raw > 1_000_000_000_000L) { // Milliseconds epoch timestamp
+            val diff = raw - nowMillis
             return maxOf(0L, diff / 1000L)
-        } else if (raw > 1_000_000_000L) {
-            val nowSec = System.currentTimeMillis() / 1000L
+        } else if (raw > 1_000_000_000L) { // Seconds epoch timestamp
+            val nowSec = nowMillis / 1000L
             return maxOf(0L, raw - nowSec)
-        } else {
-            return maxOf(0L, raw - tickCount)
         }
     }
 
-    val timeStr = sport.eventTime ?: sport.matchTimeFormatted
-    if (!timeStr.isNullOrBlank()) {
-        try {
-            val nowCal = java.util.Calendar.getInstance()
-            val currentYear = nowCal.get(java.util.Calendar.YEAR)
-            val currentMonth = nowCal.get(java.util.Calendar.MONTH)
-            val currentDay = nowCal.get(java.util.Calendar.DAY_OF_MONTH)
+    // 2. Parse exact scheduled time string (e.g. "06:00 AM, 23 Aug" or "2026-08-23 06:00:00")
+    val timeStr = sport.matchTimeFormatted?.takeIf { it.isNotBlank() } ?: sport.eventTime?.takeIf { it.isNotBlank() }
+    val parsedEpoch = parseEventTimeStringToEpochMillis(timeStr)
+    if (parsedEpoch != null) {
+        val diff = parsedEpoch - nowMillis
+        return maxOf(0L, diff / 1000L)
+    }
 
-            val patterns = listOf(
-                "yyyy-MM-dd HH:mm",
-                "yyyy-MM-dd'T'HH:mm:ss",
-                "yyyy-MM-dd",
-                "hh:mm a, MMM dd yyyy",
-                "hh:mm a, MMM dd",
-                "hh:mm a",
-                "HH:mm"
-            )
-            for (pattern in patterns) {
-                try {
-                    val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
-                    sdf.timeZone = java.util.TimeZone.getDefault()
-                    val date = sdf.parse(timeStr.trim())
-                    if (date != null) {
-                        val targetCal = java.util.Calendar.getInstance().apply { time = date }
-                        if (pattern == "hh:mm a, MMM dd") {
-                            targetCal.set(java.util.Calendar.YEAR, currentYear)
-                        } else if (pattern == "hh:mm a" || pattern == "HH:mm") {
-                            targetCal.set(java.util.Calendar.YEAR, currentYear)
-                            targetCal.set(java.util.Calendar.MONTH, currentMonth)
-                            targetCal.set(java.util.Calendar.DAY_OF_MONTH, currentDay)
-                        }
-                        val diffMillis = targetCal.timeInMillis - System.currentTimeMillis()
-                        return maxOf(0L, diffMillis / 1000L)
-                    }
-                } catch (_: Exception) {}
-            }
-        } catch (_: Exception) {}
+    // 3. Relative seconds fallback if passed as small integer
+    if (raw != null && raw in 1L..1_000_000_000L) {
+        return maxOf(0L, raw - tickCount)
     }
 
     return 0L
@@ -6406,7 +6464,21 @@ fun isEventLiveNow(sport: MediaItem, tickCount: Long): Boolean {
         return true
     }
     val rem = calculateEventRemainingSeconds(sport, tickCount)
-    if (rem == 0L && (sport.countdownTargetSeconds != null || !sport.eventTime.isNullOrBlank() || !sport.matchTimeFormatted.isNullOrBlank())) {
+    if (rem > 0L) {
+        return false
+    }
+
+    // If remaining seconds is 0, check if event has scheduled time in the recent past (within 8 hours match duration)
+    val timeStr = sport.matchTimeFormatted?.takeIf { it.isNotBlank() } ?: sport.eventTime?.takeIf { it.isNotBlank() }
+    val scheduledTimeMillis = (sport.countdownTargetSeconds?.takeIf { it > 1_000_000_000_000L })
+        ?: parseEventTimeStringToEpochMillis(timeStr)
+
+    if (scheduledTimeMillis != null) {
+        val elapsed = System.currentTimeMillis() - scheduledTimeMillis
+        if (elapsed in 0L..(8 * 3600 * 1000L)) {
+            return true
+        }
+    } else if (sport.countdownTargetSeconds != null || !sport.eventTime.isNullOrBlank() || !sport.matchTimeFormatted.isNullOrBlank()) {
         return true
     }
     return false
@@ -7026,15 +7098,15 @@ fun JsonPosterEventCard(
         "GROUP STAGE"
     }
 
-    val tournamentTag = sport.tournament?.takeIf { it.isNotBlank() } ?: "${sport.category} 2026"
+    val rawTag = sport.tournament?.takeIf { it.isNotBlank() } ?: "${sport.category} 2026"
+    val tournamentTag = rawTag.replace("Tapmad BD", "", ignoreCase = true)
+        .replace("Tapmad", "", ignoreCase = true)
+        .trim()
 
     val playlistSource = when {
-        sport.id.startsWith("tapmad_") -> "Tapmad BD"
         sport.id.startsWith("custom_") || sport.id.startsWith("admin_") -> "এডমিন প্যানেল"
         sport.id.startsWith("rtdb_") -> "Firebase RTDB"
-        sport.streamUrl.contains("tapmad", ignoreCase = true) -> "Tapmad BD"
-        !sport.category.isNullOrBlank() && sport.category.contains("Tapmad", ignoreCase = true) -> "Tapmad BD"
-        else -> "Tapmad BD"
+        else -> ""
     }
 
     val hasVideoLink = (sport.streamUrl.isNotBlank() && !sport.streamUrl.equals("null", ignoreCase = true)) ||
@@ -7112,63 +7184,22 @@ fun JsonPosterEventCard(
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // 1. Top Poster Image / Banner with Badges
+            // 1. Top Poster Image / Banner with Badges (Full uncropped view)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp)
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .background(Color(0xFF090E1A)),
+                contentAlignment = Alignment.Center
             ) {
                 val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
                 AsyncImage(
                     model = bannerModel,
                     contentDescription = sport.title,
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize()
                 )
-
-                // Dark Bottom Gradient
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color(0x55000000),
-                                    Color(0xEE0F172A)
-                                )
-                            )
-                        )
-                )
-
-                // Top-Left Playlist Source Badge
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xDD090E1A),
-                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.PlaylistPlay,
-                            contentDescription = null,
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = playlistSource,
-                            color = Color(0xFFE0F2FE),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
 
                 // Top-Right Status Badge (• LIVE / • UPCOMING)
                 if (isLiveNow) {
@@ -7217,26 +7248,28 @@ fun JsonPosterEventCard(
                 }
 
                 // Bottom-Left Tournament Badge (🏆 Cricket 2026)
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xCC000000),
-                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0x66FFFFFF)),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                if (tournamentTag.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xDD000000),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0x66FFFFFF)),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(10.dp)
                     ) {
-                        Text(text = "🏆", fontSize = 12.sp)
-                        Text(
-                            text = tournamentTag,
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(text = "🏆", fontSize = 12.sp)
+                            Text(
+                                text = tournamentTag,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -7248,7 +7281,7 @@ fun JsonPosterEventCard(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Stage Header & Playlist Source
+                // Stage Header & Optional Playlist Source
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -7262,28 +7295,30 @@ fun JsonPosterEventCard(
                         letterSpacing = 0.5.sp
                     )
 
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF1E293B),
-                        border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFF334155))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    if (playlistSource.isNotBlank() && !playlistSource.contains("Tapmad", ignoreCase = true)) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFF334155))
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PlaylistPlay,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(11.dp)
-                            )
-                            Text(
-                                text = "প্লেলিস্ট: $playlistSource",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PlaylistPlay,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Text(
+                                    text = "প্লেলিস্ট: $playlistSource",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
