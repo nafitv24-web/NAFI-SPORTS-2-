@@ -199,7 +199,15 @@ fun NafiTvMainApp(
                     e.printStackTrace()
                 }
 
-                // 1. Parallel asynchronous fetching of Sports M3U, Live TV M3U, Movies M3U and Firebase Cloud
+                // 1. Parallel asynchronous fetching of Tapmad Sports, Sports M3U, Live TV M3U, Movies M3U and Firebase Cloud
+                val tapmadSportsDeferred = async {
+                    try {
+                        repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+
                 val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                 val sportsM3uDeferred = async {
                     if (sportsM3uUrl.isNotBlank()) {
@@ -237,6 +245,7 @@ fun NafiTvMainApp(
                 val fbPlaylistsDeferred = async { repository.fetchPlaylistsFromFirebase() }
 
                 // Await all parallel fetches
+                val tapmadSports = tapmadSportsDeferred.await()
                 val parsedSportsM3u = sportsM3uDeferred.await().filterNot { deleted.contains(it.id) }
                 val parsedTvM3u = liveTvM3uDeferred.await().filterNot { deleted.contains(it.id) }
                 val parsedMoviesM3u = moviesM3uDeferred.await().filterNot { deleted.contains(it.id) }
@@ -270,8 +279,8 @@ fun NafiTvMainApp(
                 playlistsList = allPlaylists
                 val playlistIds = allPlaylists.map { it.id }.toSet()
 
-                // 3. Set distinct channel, sports & movie lists from Firebase Cloud + Sports M3U + Admin custom additions (Excluding Playlists)
-                sportsList = (customSports + fbSports + parsedSportsM3u)
+                // 3. Set distinct channel, sports & movie lists from Tapmad Events + Firebase Cloud + Sports M3U + Admin custom additions (Excluding Playlists)
+                sportsList = (tapmadSports + customSports + fbSports + parsedSportsM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
 
@@ -6264,14 +6273,39 @@ fun TeamLogoBadge(
     val fallbackFlagUrl = when {
         teamName.contains("Bangladesh", ignoreCase = true) || teamName.contains("BD", ignoreCase = true) -> "https://flagcdn.com/w160/bd.png"
         teamName.contains("Australia", ignoreCase = true) || teamName.contains("AUS", ignoreCase = true) -> "https://flagcdn.com/w160/au.png"
-        teamName.contains("India", ignoreCase = true) || teamName.contains("IND", ignoreCase = true) -> "https://flagcdn.com/w160/in.png"
-        teamName.contains("Sri Lanka", ignoreCase = true) || teamName.contains("SL", ignoreCase = true) -> "https://flagcdn.com/w160/lk.png"
         teamName.contains("Pakistan", ignoreCase = true) || teamName.contains("PAK", ignoreCase = true) -> "https://flagcdn.com/w160/pk.png"
         teamName.contains("England", ignoreCase = true) || teamName.contains("ENG", ignoreCase = true) -> "https://flagcdn.com/w160/gb-eng.png"
+        teamName.contains("India", ignoreCase = true) || teamName.contains("IND", ignoreCase = true) -> "https://flagcdn.com/w160/in.png"
+        teamName.contains("Sri Lanka", ignoreCase = true) || teamName.contains("SL", ignoreCase = true) -> "https://flagcdn.com/w160/lk.png"
+        teamName.contains("New Zealand", ignoreCase = true) || teamName.contains("NZ", ignoreCase = true) -> "https://flagcdn.com/w160/nz.png"
+        teamName.contains("South Africa", ignoreCase = true) || teamName.contains("SA", ignoreCase = true) -> "https://flagcdn.com/w160/za.png"
+        teamName.contains("West Indies", ignoreCase = true) || teamName.contains("WI", ignoreCase = true) -> "https://flagcdn.com/w160/jm.png"
+        teamName.contains("Afghanistan", ignoreCase = true) || teamName.contains("AFG", ignoreCase = true) -> "https://flagcdn.com/w160/af.png"
+        teamName.contains("Ireland", ignoreCase = true) || teamName.contains("IRE", ignoreCase = true) -> "https://flagcdn.com/w160/ie.png"
+        teamName.contains("Scotland", ignoreCase = true) || teamName.contains("SCO", ignoreCase = true) -> "https://flagcdn.com/w160/gb-sct.png"
+        teamName.contains("Wales", ignoreCase = true) -> "https://flagcdn.com/w160/gb-wls.png"
+        teamName.contains("Poland", ignoreCase = true) -> "https://flagcdn.com/w160/pl.png"
+        teamName.contains("Hungary", ignoreCase = true) -> "https://flagcdn.com/w160/hu.png"
+        teamName.contains("Netherlands", ignoreCase = true) -> "https://flagcdn.com/w160/nl.png"
+        teamName.contains("Zimbabwe", ignoreCase = true) || teamName.contains("ZIM", ignoreCase = true) -> "https://flagcdn.com/w160/zw.png"
+        teamName.contains("Nepal", ignoreCase = true) -> "https://flagcdn.com/w160/np.png"
+        teamName.contains("Oman", ignoreCase = true) -> "https://flagcdn.com/w160/om.png"
+        teamName.contains("USA", ignoreCase = true) || teamName.contains("United States", ignoreCase = true) -> "https://flagcdn.com/w160/us.png"
+        teamName.contains("Canada", ignoreCase = true) -> "https://flagcdn.com/w160/ca.png"
+        teamName.contains("UAE", ignoreCase = true) -> "https://flagcdn.com/w160/ae.png"
+        teamName.contains("Germany", ignoreCase = true) -> "https://flagcdn.com/w160/de.png"
+        teamName.contains("Spain", ignoreCase = true) -> "https://flagcdn.com/w160/es.png"
+        teamName.contains("France", ignoreCase = true) -> "https://flagcdn.com/w160/fr.png"
+        teamName.contains("Italy", ignoreCase = true) -> "https://flagcdn.com/w160/it.png"
+        teamName.contains("Argentina", ignoreCase = true) -> "https://flagcdn.com/w160/ar.png"
+        teamName.contains("Brazil", ignoreCase = true) -> "https://flagcdn.com/w160/br.png"
+        teamName.contains("Portugal", ignoreCase = true) -> "https://flagcdn.com/w160/pt.png"
         teamName.contains("Trent Rockets", ignoreCase = true) -> "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=160"
         teamName.contains("Southern Brave", ignoreCase = true) -> "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=160"
         teamName.contains("Real Madrid", ignoreCase = true) -> "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=160"
         teamName.contains("Barcelona", ignoreCase = true) -> "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=160"
+        teamName.contains("Bayern", ignoreCase = true) -> "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=160"
+        teamName.contains("Aston Villa", ignoreCase = true) -> "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=160"
         else -> null
     }
 
@@ -6537,351 +6571,678 @@ fun EventsScreen(
         }
 
         // -------------------------------------------------------------
-        // EVENT MATCH CARDS (Clean, direct & multi-server)
+        // EVENT MATCH CARDS (Admin custom matches vs JSON playlist matches)
         // -------------------------------------------------------------
         items(filteredSports) { sport ->
             val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
             val isLiveNow = isEventLiveNow(sport, tickCount)
-            val matchFullTitle = when {
-                !sport.tournament.isNullOrBlank() -> sport.tournament!!
-                !sport.title.isNullOrBlank() && !sport.title.equals("Live Match", ignoreCase = true) -> sport.title
-                !sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank() -> "${sport.category} 🏏 || ${sport.team1} vs ${sport.team2}"
-                else -> "${sport.category} || Live Match"
+            val isAdminCustomEvent = sport.id.startsWith("custom_") || sport.id.startsWith("admin_")
+
+            if (isAdminCustomEvent) {
+                AdminEventMatchCard(
+                    sport = sport,
+                    isLiveNow = isLiveNow,
+                    remainingSecs = remainingSecs,
+                    onSelectMedia = onSelectMedia
+                )
+            } else {
+                JsonPosterEventCard(
+                    sport = sport,
+                    isLiveNow = isLiveNow,
+                    remainingSecs = remainingSecs,
+                    onSelectMedia = onSelectMedia
+                )
             }
-            val servers = sport.getAllServers()
-            var isCardFocused by remember { mutableStateOf(false) }
+        }
+    }
+}
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .scale(if (isCardFocused) 1.03f else 1.0f)
-                    .onFocusChanged { isCardFocused = it.isFocused }
-                    .focusable()
-                    .clickable {
-                        onSelectMedia(sport)
-                    },
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isCardFocused) Color(0xFF1E3A8A).copy(alpha = 0.95f) else Color(0xFF131D33)
-                ),
-                border = when {
-                    isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                    else -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF2563EB).copy(alpha = 0.35f))
-                },
-                elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+@Composable
+fun AdminEventMatchCard(
+    sport: MediaItem,
+    isLiveNow: Boolean,
+    remainingSecs: Long,
+    onSelectMedia: (MediaItem) -> Unit
+) {
+    val sportEmoji = when {
+        sport.category.contains("Cricket", ignoreCase = true) -> "🏏"
+        sport.category.contains("Football", ignoreCase = true) || sport.category.contains("Soccer", ignoreCase = true) -> "⚽"
+        sport.category.contains("Hockey", ignoreCase = true) -> "🏑"
+        sport.category.contains("Kabaddi", ignoreCase = true) -> "🤼"
+        else -> "🏆"
+    }
+
+    val matchFullTitle = when {
+        !sport.tournament.isNullOrBlank() && sport.tournament!!.contains("Series", ignoreCase = true) -> "$sportEmoji | ${sport.tournament}"
+        !sport.tournament.isNullOrBlank() && !sport.tournament!!.equals("Sports", ignoreCase = true) -> "$sportEmoji | ${sport.tournament}"
+        !sport.title.isNullOrBlank() && !sport.title.equals("Live Match", ignoreCase = true) -> "$sportEmoji | ${sport.title}"
+        !sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank() -> "$sportEmoji | ${sport.team1} vs ${sport.team2}"
+        else -> "$sportEmoji | Live Event"
+    }
+    val servers = sport.getAllServers()
+    var isCardFocused by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp)
+            .scale(if (isCardFocused) 1.03f else 1.0f)
+            .onFocusChanged { isCardFocused = it.isFocused }
+            .focusable()
+            .clickable {
+                onSelectMedia(sport)
+            },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isCardFocused) Color(0xFF1E3A8A).copy(alpha = 0.95f) else Color(0xFF0D1B2A)
+        ),
+        border = when {
+            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+            else -> androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF1E3A5F).copy(alpha = 0.8f))
+        },
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Top Full-Width Notice Box for Match Title & Status
+            Surface(
+                color = Color(0xFF132238),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Top Full-Width Notice Box for Match Title & Status (User requested: নোটিশ এর মতন সেই বক্সেই সম্পূর্ণ দেখায়)
-                    Surface(
-                        color = Color(0xFF1E293B),
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.45f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Text(
+                        text = matchFullTitle,
+                        color = Color(0xFFE2E8F0),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .weight(1f)
+                            .basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                initialDelayMillis = 800
+                            ),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+
+                    // Status Badge (UPCOMING or LIVE)
+                    if (isLiveNow) {
+                        Surface(
+                            color = Color(0xFFEF4444).copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
                         ) {
-                            Icon(
-                                imageVector = if (sport.category.contains("Football", ignoreCase = true)) Icons.Rounded.SportsSoccer else Icons.Rounded.SportsCricket,
-                                contentDescription = null,
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(18.dp)
-                            )
-
-                            Text(
-                                text = matchFullTitle,
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .basicMarquee(
-                                        iterations = Int.MAX_VALUE,
-                                        initialDelayMillis = 800
-                                    ),
-                                maxLines = 1,
-                                softWrap = false
-                            )
-
-                            // Status Badge
-                            if (isLiveNow) {
-                                Surface(
-                                    color = Color(0xFFEF4444).copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFEF4444))
-                                        )
-                                        Text(
-                                            text = "LIVE",
-                                            color = Color(0xFFEF4444),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                    }
-                                }
-                            } else {
-                                Surface(
-                                    color = Color(0xFFF59E0B).copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.6f))
-                                ) {
-                                    Text(
-                                        text = "UPCOMING",
-                                        color = Color(0xFFFBBF24),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Teams, Countdown / Score and Action Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Team 1 (Left)
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            TeamLogoBadge(
-                                teamName = sport.team1 ?: "Team 1",
-                                logoUrl = sport.team1Logo
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = sport.team1 ?: "Team 1",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // Center: Live Score or Countdown Timer or Match Time
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.weight(1.6f)
-                        ) {
-                            if (sport.score1 != null && sport.score2 != null && (sport.score1!!.isNotBlank() || sport.score2!!.isNotBlank())) {
-                                // Live Score Display
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF0F172A),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = sport.score1 ?: "0",
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                        Text("-", color = Color(0xFF94A3B8), fontSize = 13.sp)
-                                        Text(
-                                            text = sport.score2 ?: "0",
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                    }
-                                }
-                            } else if (!isLiveNow && remainingSecs > 0L) {
-                                // Dynamic Live Ticking Countdown Calculation (Ticks every second)
-                                val days = remainingSecs / 86400L
-                                val hours = (remainingSecs % 86400L) / 3600L
-                                val mins = (remainingSecs % 3600L) / 60L
-                                val secs = remainingSecs % 60L
-                                val countdownStr = if (days > 0) {
-                                    String.format("⏳ %dd %02dh %02dm %02ds", days, hours, mins, secs)
-                                } else {
-                                    String.format("⏳ %02dh %02dm %02ds", hours, mins, secs)
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF450A0A).copy(alpha = 0.6f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
-                                ) {
-                                    Text(
-                                        text = countdownStr,
-                                        color = Color(0xFFFCA5A5),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                                    )
-                                }
-                            } else {
-                                // Live Match streaming indicator
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF1E3A8A).copy(alpha = 0.5f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.6f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF60A5FA))
-                                        )
-                                        Text(
-                                            text = sport.matchTimeFormatted ?: sport.eventTime ?: "LIVE MATCH",
-                                            color = Color(0xFF93C5FD),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Team 2 (Right)
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            TeamLogoBadge(
-                                teamName = sport.team2 ?: "Team 2",
-                                logoUrl = sport.team2Logo
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = sport.team2 ?: "Team 2",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    // Multi-Server Selector Row & Play Action
-                    HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Multi Server Chips
-                        LazyRow(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(servers) { srv ->
-                                var isServerFocused by remember { mutableStateOf(false) }
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isServerFocused) Color(0xFF00E5FF) else Color(0xFF1E293B),
-                                    border = when {
-                                        isServerFocused -> androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFFFFD600))
-                                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                                    },
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
                                     modifier = Modifier
-                                        .scale(if (isServerFocused) 1.08f else 1.0f)
-                                        .onFocusChanged { isServerFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable {
-                                            onSelectMedia(sport.copy(streamUrl = srv.url))
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Dns,
-                                            contentDescription = null,
-                                            tint = if (isServerFocused) Color.Black else Color(0xFF60A5FA),
-                                            modifier = Modifier.size(11.dp)
-                                        )
-                                        Text(
-                                            text = srv.name,
-                                            color = if (isServerFocused) Color.Black else Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isServerFocused) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    }
-                                }
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFEF4444))
+                                )
+                                Text(
+                                    text = "LIVE",
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
                             }
                         }
+                    } else {
+                        Surface(
+                            color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.7f))
+                        ) {
+                            Text(
+                                text = "UPCOMING",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+            // Teams, Countdown / Score and Action Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Team 1 (Left)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    TeamLogoBadge(
+                        teamName = sport.team1 ?: "Team 1",
+                        logoUrl = sport.team1Logo
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = sport.team1 ?: "Team 1",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
-                        // Watch Live / Play Button
-                        var isPlayBtnFocused by remember { mutableStateOf(false) }
+                // Center: Live Score or Countdown Timer or Match Time
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.weight(1.6f)
+                ) {
+                    if (sport.score1 != null && sport.score2 != null && (sport.score1!!.isNotBlank() || sport.score2!!.isNotBlank())) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = when {
-                                isPlayBtnFocused -> Color(0xFF00E5FF)
-                                isLiveNow -> Color(0xFFDC2626)
-                                else -> Color(0xFF2563EB)
+                            color = Color(0xFF0F172A),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = sport.score1 ?: "0",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text("-", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                                Text(
+                                    text = sport.score2 ?: "0",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    } else if (!isLiveNow && remainingSecs > 0L) {
+                        val days = remainingSecs / 86400L
+                        val hours = (remainingSecs % 86400L) / 3600L
+                        val mins = (remainingSecs % 3600L) / 60L
+                        val secs = remainingSecs % 60L
+                        val countdownStr = if (days > 0) {
+                            String.format("⌛ %dd %02dh %02dm %02ds", days, hours, mins, secs)
+                        } else {
+                            String.format("⌛ %02dh %02dm %02ds", hours, mins, secs)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF3D1214),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.8f))
+                        ) {
+                            Text(
+                                text = countdownStr,
+                                color = Color(0xFFFCA5A5),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF1E3A8A).copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.6f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF60A5FA))
+                                )
+                                Text(
+                                    text = sport.matchTimeFormatted ?: sport.eventTime ?: "LIVE MATCH",
+                                    color = Color(0xFF93C5FD),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Team 2 (Right)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    TeamLogoBadge(
+                        teamName = sport.team2 ?: "Team 2",
+                        logoUrl = sport.team2Logo
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = sport.team2 ?: "Team 2",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Multi-Server Selector Row & Play Action
+            HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Multi Server Chips
+                LazyRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(servers) { srv ->
+                        var isServerFocused by remember { mutableStateOf(false) }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isServerFocused) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                            border = when {
+                                isServerFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600))
+                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
                             },
-                            border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFFFFD600)) else null,
                             modifier = Modifier
-                                .scale(if (isPlayBtnFocused) 1.08f else 1.0f)
-                                .onFocusChanged { isPlayBtnFocused = it.isFocused }
+                                .scale(if (isServerFocused) 1.08f else 1.0f)
+                                .onFocusChanged { isServerFocused = it.isFocused }
                                 .focusable()
                                 .clickable {
-                                    onSelectMedia(sport)
+                                    onSelectMedia(sport.copy(streamUrl = srv.url))
                                 }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
+                                    imageVector = Icons.Rounded.FolderOpen,
                                     contentDescription = null,
-                                    tint = if (isPlayBtnFocused) Color.Black else Color.White,
-                                    modifier = Modifier.size(14.dp)
+                                    tint = if (isServerFocused) Color.Black else Color(0xFF60A5FA),
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = if (isLiveNow) "Watch Live" else "Play",
-                                    color = if (isPlayBtnFocused) Color.Black else Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = srv.name,
+                                    color = if (isServerFocused) Color.Black else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isServerFocused) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Play Button
+                var isPlayBtnFocused by remember { mutableStateOf(false) }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = when {
+                        isPlayBtnFocused -> Color(0xFF00E5FF)
+                        isLiveNow -> Color(0xFFDC2626)
+                        else -> Color(0xFF2563EB)
+                    },
+                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600)) else null,
+                    modifier = Modifier
+                        .scale(if (isPlayBtnFocused) 1.08f else 1.0f)
+                        .onFocusChanged { isPlayBtnFocused = it.isFocused }
+                        .focusable()
+                        .clickable {
+                            onSelectMedia(sport)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = if (isPlayBtnFocused) Color.Black else Color.White,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = "Play",
+                            color = if (isPlayBtnFocused) Color.Black else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun JsonPosterEventCard(
+    sport: MediaItem,
+    isLiveNow: Boolean,
+    remainingSecs: Long,
+    onSelectMedia: (MediaItem) -> Unit
+) {
+    var isCardFocused by remember { mutableStateOf(false) }
+    var isPlayBtnFocused by remember { mutableStateOf(false) }
+
+    val stageHeader = if (!sport.status.isNullOrBlank() && !sport.status.equals("LIVE", ignoreCase = true) && !sport.status.equals("UPCOMING", ignoreCase = true)) {
+        sport.status.uppercase()
+    } else {
+        "GROUP STAGE"
+    }
+
+    val tournamentTag = sport.tournament?.takeIf { it.isNotBlank() } ?: "${sport.category} 2026"
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp)
+            .scale(if (isCardFocused) 1.02f else 1.0f)
+            .onFocusChanged { isCardFocused = it.isFocused }
+            .focusable()
+            .clickable { onSelectMedia(sport) },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF0F172A)
+        ),
+        border = when {
+            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+        },
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // 1. Top Poster Image / Banner with Badges
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            ) {
+                val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
+                coil.compose.AsyncImage(
+                    model = bannerModel,
+                    contentDescription = sport.title,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Dark Bottom Gradient
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0x55000000),
+                                    Color(0xEE0F172A)
+                                )
+                            )
+                        )
+                )
+
+                // Top-Right Status Badge (• LIVE / • UPCOMING)
+                if (isLiveNow) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFDC2626),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                            Text(
+                                text = "LIVE",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFF59E0B),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = "• UPCOMING",
+                            color = Color.Black,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Bottom-Left Tournament Badge (🏆 Cricket 2026)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xCC000000),
+                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0x66FFFFFF)),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(text = "🏆", fontSize = 12.sp)
+                        Text(
+                            text = tournamentTag,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // 2. Body Details
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Stage Header (GROUP STAGE)
+                Text(
+                    text = stageHeader,
+                    color = Color(0xFFF59E0B),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.5.sp
+                )
+
+                // Match Title
+                Text(
+                    text = sport.title,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 21.sp
+                )
+
+                // 3. Dark Countdown / Status Container
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF090E1A),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Schedule,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "ম্যাচ শুরুর কাউন্টডাউন:",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                            }
+
+                            Text(
+                                text = if (isLiveNow) "LIVE NOW" else (sport.matchTimeFormatted ?: "UPCOMING"),
+                                color = Color(0xFF64748B),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (isLiveNow) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981))
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "ম্যাচটি এখন লাইভ চলছে",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else if (remainingSecs > 0L) {
+                            val days = remainingSecs / 86400L
+                            val hours = (remainingSecs % 86400L) / 3600L
+                            val mins = (remainingSecs % 3600L) / 60L
+                            val secs = remainingSecs % 60L
+                            val countdownText = if (days > 0) {
+                                "${days} দিন ${hours} ঘন্টা ${mins} মিনিট ${secs} সেকেন্ড"
+                            } else {
+                                "${hours} ঘন্টা ${mins} মিনিট ${secs} সেকেন্ড"
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "⌛ $countdownText",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "ম্যাচ শীঘ্রই শুরু হবে",
+                                    color = Color(0xFF60A5FA),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Red Full-Width Action Button (▶ লাইভ স্ট্রিম ওপেন করুন)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isPlayBtnFocused) Color(0xFF00E5FF) else Color(0xFFDC2626),
+                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600)) else null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .scale(if (isPlayBtnFocused) 1.02f else 1.0f)
+                        .onFocusChanged { isPlayBtnFocused = it.isFocused }
+                        .focusable()
+                        .clickable { onSelectMedia(sport) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = if (isPlayBtnFocused) Color.Black else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "লাইভ স্ট্রিম ওপেন করুন",
+                            color = if (isPlayBtnFocused) Color.Black else Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
