@@ -6604,6 +6604,9 @@ fun AdminEventMatchCard(
     remainingSecs: Long,
     onSelectMedia: (MediaItem) -> Unit
 ) {
+    val context = LocalContext.current
+    var showNoLinkDialog by remember { mutableStateOf(false) }
+
     val sportEmoji = when {
         sport.category.contains("Cricket", ignoreCase = true) -> "🏏"
         sport.category.contains("Football", ignoreCase = true) || sport.category.contains("Soccer", ignoreCase = true) -> "⚽"
@@ -6622,6 +6625,63 @@ fun AdminEventMatchCard(
     val servers = sport.getAllServers()
     var isCardFocused by remember { mutableStateOf(false) }
 
+    val hasVideoLink = (sport.streamUrl.isNotBlank() && !sport.streamUrl.equals("null", ignoreCase = true)) ||
+            servers.any { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }
+
+    val handleAdminMatchClick: (MediaItem) -> Unit = { targetItem ->
+        val linkToPlay = targetItem.streamUrl.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            ?: targetItem.getAllServers().firstOrNull { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }?.url
+
+        if (!linkToPlay.isNullOrBlank()) {
+            onSelectMedia(targetItem.copy(streamUrl = linkToPlay))
+        } else {
+            showNoLinkDialog = true
+            Toast.makeText(context, "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (showNoLinkDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoLinkDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = Color(0xFFF59E0B),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "লাইভ স্ট্রিম নোটিশ",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ",
+                    color = Color(0xFFE2E8F0),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showNoLinkDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("ঠিক আছে", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color(0xFF0F172A),
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 8.dp
+        )
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -6630,7 +6690,7 @@ fun AdminEventMatchCard(
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable {
-                onSelectMedia(sport)
+                handleAdminMatchClick(sport)
             },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -6879,7 +6939,7 @@ fun AdminEventMatchCard(
                                 .onFocusChanged { isServerFocused = it.isFocused }
                                 .focusable()
                                 .clickable {
-                                    onSelectMedia(sport.copy(streamUrl = srv.url))
+                                    handleAdminMatchClick(sport.copy(streamUrl = srv.url))
                                 }
                         ) {
                             Row(
@@ -6921,7 +6981,7 @@ fun AdminEventMatchCard(
                         .onFocusChanged { isPlayBtnFocused = it.isFocused }
                         .focusable()
                         .clickable {
-                            onSelectMedia(sport)
+                            handleAdminMatchClick(sport)
                         }
                 ) {
                     Row(
@@ -6955,8 +7015,10 @@ fun JsonPosterEventCard(
     remainingSecs: Long,
     onSelectMedia: (MediaItem) -> Unit
 ) {
+    val context = LocalContext.current
     var isCardFocused by remember { mutableStateOf(false) }
     var isPlayBtnFocused by remember { mutableStateOf(false) }
+    var showNoLinkDialog by remember { mutableStateOf(false) }
 
     val stageHeader = if (!sport.status.isNullOrBlank() && !sport.status.equals("LIVE", ignoreCase = true) && !sport.status.equals("UPCOMING", ignoreCase = true)) {
         sport.status.uppercase()
@@ -6966,6 +7028,69 @@ fun JsonPosterEventCard(
 
     val tournamentTag = sport.tournament?.takeIf { it.isNotBlank() } ?: "${sport.category} 2026"
 
+    val playlistSource = when {
+        sport.id.startsWith("tapmad_") -> "Tapmad BD"
+        sport.id.startsWith("custom_") || sport.id.startsWith("admin_") -> "এডমিন প্যানেল"
+        sport.id.startsWith("rtdb_") -> "Firebase RTDB"
+        sport.streamUrl.contains("tapmad", ignoreCase = true) -> "Tapmad BD"
+        !sport.category.isNullOrBlank() && sport.category.contains("Tapmad", ignoreCase = true) -> "Tapmad BD"
+        else -> "Tapmad BD"
+    }
+
+    val hasVideoLink = (sport.streamUrl.isNotBlank() && !sport.streamUrl.equals("null", ignoreCase = true)) ||
+            sport.getAllServers().any { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }
+
+    val handleEventClick: () -> Unit = {
+        if (hasVideoLink) {
+            onSelectMedia(sport)
+        } else {
+            showNoLinkDialog = true
+            Toast.makeText(context, "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (showNoLinkDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoLinkDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = Color(0xFFF59E0B),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "লাইভ স্ট্রিম নোটিশ",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ",
+                    color = Color(0xFFE2E8F0),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showNoLinkDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("ঠিক আছে", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color(0xFF0F172A),
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 8.dp
+        )
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -6973,7 +7098,7 @@ fun JsonPosterEventCard(
             .scale(if (isCardFocused) 1.02f else 1.0f)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
-            .clickable { onSelectMedia(sport) },
+            .clickable { handleEventClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color(0xFF0F172A)
@@ -6994,10 +7119,10 @@ fun JsonPosterEventCard(
                     .height(180.dp)
             ) {
                 val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
-                coil.compose.AsyncImage(
+                AsyncImage(
                     model = bannerModel,
                     contentDescription = sport.title,
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -7006,7 +7131,7 @@ fun JsonPosterEventCard(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                            Brush.verticalGradient(
                                 colors = listOf(
                                     Color.Transparent,
                                     Color(0x55000000),
@@ -7015,6 +7140,35 @@ fun JsonPosterEventCard(
                             )
                         )
                 )
+
+                // Top-Left Playlist Source Badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xDD090E1A),
+                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlaylistPlay,
+                            contentDescription = null,
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = playlistSource,
+                            color = Color(0xFFE0F2FE),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
 
                 // Top-Right Status Badge (• LIVE / • UPCOMING)
                 if (isLiveNow) {
@@ -7094,14 +7248,45 @@ fun JsonPosterEventCard(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Stage Header (GROUP STAGE)
-                Text(
-                    text = stageHeader,
-                    color = Color(0xFFF59E0B),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 0.5.sp
-                )
+                // Stage Header & Playlist Source
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stageHeader,
+                        color = Color(0xFFF59E0B),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B),
+                        border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFF334155))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlaylistPlay,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Text(
+                                text = "প্লেলিস্ট: $playlistSource",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
 
                 // Match Title
                 Text(
@@ -7139,7 +7324,7 @@ fun JsonPosterEventCard(
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Text(
-                                    text = "ম্যাচ শুরুর কাউন্টডাউন:",
+                                    text = "ম্যাচ শুরু হওয়ার বাকি আছে:",
                                     color = Color(0xFF94A3B8),
                                     fontSize = 11.sp
                                 )
@@ -7213,17 +7398,51 @@ fun JsonPosterEventCard(
                     }
                 }
 
-                // 4. Red Full-Width Action Button (▶ লাইভ স্ট্রিম ওপেন করুন)
+                // 4. Warning notice if no video link is present
+                if (!hasVideoLink) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF451A03).copy(alpha = 0.85f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.7f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.WarningAmber,
+                                contentDescription = null,
+                                tint = Color(0xFFFBBF24),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ",
+                                color = Color(0xFFFEF3C7),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+
+                // 5. Red Full-Width Action Button (▶ লাইভ স্ট্রিম ওপেন করুন)
                 Surface(
                     shape = RoundedCornerShape(10.dp),
-                    color = if (isPlayBtnFocused) Color(0xFF00E5FF) else Color(0xFFDC2626),
+                    color = when {
+                        isPlayBtnFocused -> Color(0xFF00E5FF)
+                        !hasVideoLink -> Color(0xFF475569)
+                        else -> Color(0xFFDC2626)
+                    },
                     border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600)) else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .scale(if (isPlayBtnFocused) 1.02f else 1.0f)
                         .onFocusChanged { isPlayBtnFocused = it.isFocused }
                         .focusable()
-                        .clickable { onSelectMedia(sport) }
+                        .clickable { handleEventClick() }
                 ) {
                     Row(
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -7231,14 +7450,14 @@ fun JsonPosterEventCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.PlayArrow,
+                            imageVector = if (hasVideoLink) Icons.Rounded.PlayArrow else Icons.Rounded.HourglassEmpty,
                             contentDescription = null,
                             tint = if (isPlayBtnFocused) Color.Black else Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "লাইভ স্ট্রিম ওপেন করুন",
+                            text = if (hasVideoLink) "লাইভ স্ট্রিম ওপেন করুন" else "চ্যানেল লিংক শীঘ্রই আসছে",
                             color = if (isPlayBtnFocused) Color.Black else Color.White,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
