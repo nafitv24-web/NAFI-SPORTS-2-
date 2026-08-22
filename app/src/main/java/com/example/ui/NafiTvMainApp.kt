@@ -1686,17 +1686,17 @@ fun AdminControlAppScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.SportsSoccer, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("⚽ স্পোর্টস ম্যাচ M3U ও JSON প্লেলিস্ট লিংক (Sports M3U & JSON)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("⚽ স্পোর্টস ম্যাচ M3U প্লেলিস্ট লিংক (Sports M3U)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                             Text(
-                                text = "এখানে এক বা একাধিক স্পোর্টস M3U অথবা JSON প্লেলিস্ট লিংক দিতে পারবেন (Tapmad, AxSports, SonyLiv, BingStream ইত্যাদি)। সমস্ত লিংক ক্লাউড ডেটাবেস দিয়ে ইউজারের অ্যাপে সিঙ্ক হয়ে যাবে।",
+                                text = "এখানে এক বা একাধিক M3U প্লেলিস্ট লিংক দিতে পারবেন (প্রতি লাইনে একটি করে অথবা কমা দিয়ে)। সমস্ত লিংক স্বয়ংক্রিয়ভাবে ক্লাউড ডেটাবেস দিয়ে ইউজারের অ্যাপে সিঙ্ক হয়ে যাবে।",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.sp
                             )
                             OutlinedTextField(
                                 value = sportsM3uInput,
                                 onValueChange = { sportsM3uInput = it },
-                                placeholder = { Text("https://url.m3u\nhttps://url.json", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                placeholder = { Text("https://url1.m3u\nhttps://url2.m3u", color = Color(0xFF64748B), fontSize = 12.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = customFieldColors(),
                                 shape = RoundedCornerShape(12.dp),
@@ -2816,12 +2816,12 @@ fun AdminControlAppScreen(
                                 maxLines = 5
                             )
 
-                            // 2. Sports Matches M3U / JSON URL
-                            Text("2. লাইভ স্পোর্টস ম্যাচ M3U / JSON URL (একাধিক দেওয়া যাবে):", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            // 2. Sports Matches M3U URL
+                            Text("2. লাইভ স্পোর্টস ম্যাচ M3U URL (একাধিক দেওয়া যাবে):", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             OutlinedTextField(
                                 value = sportsM3uInput,
                                 onValueChange = { sportsM3uInput = it },
-                                placeholder = { Text("https://url.m3u\nhttps://url.json", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                placeholder = { Text("https://url1.m3u\nhttps://url2.m3u", color = Color(0xFF64748B), fontSize = 12.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = customFieldColors(),
                                 shape = RoundedCornerShape(12.dp),
