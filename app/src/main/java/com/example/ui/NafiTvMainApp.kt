@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -438,13 +439,13 @@ fun NafiTvMainApp(
                             val isSelected = currentTab == tab
                             var isFocused by remember { mutableStateOf(false) }
                             val tabScale by animateFloatAsState(
-                                targetValue = if (isFocused) 1.14f else 1.0f,
-                                animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                targetValue = if (isFocused) 1.05f else 1.0f,
+                                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
                                 label = "tvTabScale"
                             )
                             val containerColor by animateColorAsState(
                                 targetValue = when {
-                                    isFocused -> Color(0xFF00E5FF).copy(alpha = 0.45f)
+                                    isFocused -> Color(0xFF1E3A8A).copy(alpha = 0.65f)
                                     isSelected -> Color(0xFF2563EB).copy(alpha = 0.35f)
                                     else -> Color.Transparent
                                 },
@@ -452,14 +453,14 @@ fun NafiTvMainApp(
                                 label = "tvTabColor"
                             )
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 color = containerColor,
                                 border = when {
-                                    isFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                                    isSelected -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.7f))
+                                    isFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                                    isSelected -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
                                     else -> null
                                 },
-                                shadowElevation = if (isFocused) 16.dp else 0.dp,
+                                shadowElevation = if (isFocused) 4.dp else 0.dp,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .scale(tabScale)
@@ -483,24 +484,24 @@ fun NafiTvMainApp(
                                             AppTab.MENU -> Icons.Rounded.Menu
                                         },
                                         contentDescription = tab.englishLabel,
-                                        tint = if (isFocused || isSelected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                        tint = if (isFocused || isSelected) Color(0xFF38BDF8) else Color(0xFF94A3B8),
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Text(
                                         text = tab.englishLabel,
                                         color = if (isFocused || isSelected) Color.White else Color(0xFF94A3B8),
                                         fontSize = 11.sp,
-                                        fontWeight = if (isFocused || isSelected) FontWeight.Black else FontWeight.Medium,
+                                        fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium,
                                         textAlign = TextAlign.Center,
                                         maxLines = 1
                                     )
-                                    if (isFocused) {
+                                    if (isFocused || isSelected) {
                                         Box(
                                             modifier = Modifier
-                                                .width(18.dp)
+                                                .width(16.dp)
                                                 .height(3.dp)
                                                 .clip(RoundedCornerShape(2.dp))
-                                                .background(Color(0xFF00E5FF))
+                                                .background(Color(0xFF38BDF8))
                                         )
                                     }
                                 }
@@ -581,19 +582,19 @@ fun NafiTvMainApp(
                                 // Layout Toggle: Mobile Pill
                                 var isMobileBtnFocused by remember { mutableStateOf(false) }
                                 val mobileBtnScale by animateFloatAsState(
-                                    targetValue = if (isMobileBtnFocused) 1.12f else 1.0f,
-                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                    targetValue = if (isMobileBtnFocused) 1.05f else 1.0f,
+                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
                                     label = "mobileBtnScale"
                                 )
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
-                                    color = if (!isTvMode) Color(0xFF00E5FF).copy(alpha = 0.25f) else if (isMobileBtnFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B),
+                                    color = if (!isTvMode) Color(0xFF0284C7).copy(alpha = 0.25f) else if (isMobileBtnFocused) Color(0xFF1E3A8A).copy(alpha = 0.6f) else Color(0xFF1E293B),
                                     border = when {
-                                        isMobileBtnFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
-                                        !isTvMode -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF))
+                                        isMobileBtnFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                                        !isTvMode -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8))
                                         else -> null
                                     },
-                                    shadowElevation = if (isMobileBtnFocused) 12.dp else 0.dp,
+                                    shadowElevation = if (isMobileBtnFocused) 4.dp else 0.dp,
                                     modifier = Modifier
                                         .scale(mobileBtnScale)
                                         .onFocusChanged { isMobileBtnFocused = it.isFocused }
@@ -612,13 +613,13 @@ fun NafiTvMainApp(
                                         Icon(
                                             imageVector = Icons.Rounded.Smartphone,
                                             contentDescription = "Mobile Mode",
-                                            tint = if (!isTvMode || isMobileBtnFocused) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            tint = if (!isTvMode || isMobileBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
                                             modifier = Modifier.size(13.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "Mobile",
-                                            color = if (!isTvMode || isMobileBtnFocused) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            color = if (!isTvMode || isMobileBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -628,19 +629,19 @@ fun NafiTvMainApp(
                                 // Layout Toggle: TV Pill
                                 var isTvBtnFocused by remember { mutableStateOf(false) }
                                 val tvBtnScale by animateFloatAsState(
-                                    targetValue = if (isTvBtnFocused) 1.12f else 1.0f,
-                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                    targetValue = if (isTvBtnFocused) 1.05f else 1.0f,
+                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
                                     label = "tvBtnScale"
                                 )
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
-                                    color = if (isTvMode) Color(0xFF00E5FF).copy(alpha = 0.25f) else if (isTvBtnFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B),
+                                    color = if (isTvMode) Color(0xFF0284C7).copy(alpha = 0.25f) else if (isTvBtnFocused) Color(0xFF1E3A8A).copy(alpha = 0.6f) else Color(0xFF1E293B),
                                     border = when {
-                                        isTvBtnFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
-                                        isTvMode -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF))
+                                        isTvBtnFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                                        isTvMode -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8))
                                         else -> null
                                     },
-                                    shadowElevation = if (isTvBtnFocused) 12.dp else 0.dp,
+                                    shadowElevation = if (isTvBtnFocused) 4.dp else 0.dp,
                                     modifier = Modifier
                                         .scale(tvBtnScale)
                                         .onFocusChanged { isTvBtnFocused = it.isFocused }
@@ -659,13 +660,13 @@ fun NafiTvMainApp(
                                         Icon(
                                             imageVector = Icons.Rounded.Tv,
                                             contentDescription = "TV Mode",
-                                            tint = if (isTvMode || isTvBtnFocused) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            tint = if (isTvMode || isTvBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
                                             modifier = Modifier.size(13.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "TV",
-                                            color = if (isTvMode || isTvBtnFocused) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            color = if (isTvMode || isTvBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -675,15 +676,15 @@ fun NafiTvMainApp(
                                 // Refresh Button
                                 var isRefreshFocused by remember { mutableStateOf(false) }
                                 val refreshScale by animateFloatAsState(
-                                    targetValue = if (isRefreshFocused) 1.15f else 1.0f,
-                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                    targetValue = if (isRefreshFocused) 1.08f else 1.0f,
+                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
                                     label = "refreshScale"
                                 )
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (isRefreshFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B),
-                                    border = if (isRefreshFocused) androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF)) else null,
-                                    shadowElevation = if (isRefreshFocused) 12.dp else 0.dp,
+                                    color = if (isRefreshFocused) Color(0xFF1E3A8A).copy(alpha = 0.6f) else Color(0xFF1E293B),
+                                    border = if (isRefreshFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
+                                    shadowElevation = if (isRefreshFocused) 4.dp else 0.dp,
                                     modifier = Modifier
                                         .scale(refreshScale)
                                         .onFocusChanged { isRefreshFocused = it.isFocused }
@@ -6577,45 +6578,61 @@ fun EventsScreen(
         catMatches && statusMatches
     }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF020617)),
-        contentPadding = PaddingValues(top = 14.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .background(Color(0xFF020617))
     ) {
-        // -------------------------------------------------------------
-        // FILTER ROW 1: SPORTS CATEGORIES (Cricket, Football, Hockey, More)
-        // -------------------------------------------------------------
-        item {
+        // TOP FILTER HEADERS (Sticky & neatly placed)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Category Filter Row
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(categories) { cat ->
                     val isSelected = selectedCategory == cat
+                    var isCatFocused by remember { mutableStateOf(false) }
+                    val catScale by animateFloatAsState(
+                        targetValue = if (isCatFocused) 1.05f else 1.0f,
+                        animationSpec = tween(180, easing = FastOutSlowInEasing),
+                        label = "catScale"
+                    )
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
-                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.5f)),
-                        modifier = Modifier.clickable { selectedCategory = cat }
+                        color = when {
+                            isCatFocused -> Color(0xFF1E3A8A).copy(alpha = 0.8f)
+                            isSelected -> Color(0xFF0284C7)
+                            else -> Color(0xFF1E293B)
+                        },
+                        border = when {
+                            isCatFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                            isSelected -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8))
+                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.5f))
+                        },
+                        modifier = Modifier
+                            .scale(catScale)
+                            .onFocusChanged { isCatFocused = it.isFocused }
+                            .focusable()
+                            .clickable { selectedCategory = cat }
                     ) {
                         Text(
                             text = cat,
-                            color = if (isSelected) Color(0xFF020617) else Color(0xFF94A3B8),
+                            color = if (isCatFocused || isSelected) Color.White else Color(0xFF94A3B8),
                             fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp)
+                            fontWeight = if (isCatFocused || isSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                         )
                     }
                 }
             }
-        }
 
-        // -------------------------------------------------------------
-        // FILTER ROW 2: STATUS FILTERS (🔴 Live, Upcoming, Today, Recent Results)
-        // -------------------------------------------------------------
-        item {
+            // Status Filter Row
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -6623,91 +6640,134 @@ fun EventsScreen(
                 items(statusFilters) { status ->
                     val isSelected = selectedStatus == status
                     var isChipFocused by remember { mutableStateOf(false) }
+                    val statusScale by animateFloatAsState(
+                        targetValue = if (isChipFocused) 1.05f else 1.0f,
+                        animationSpec = tween(180, easing = FastOutSlowInEasing),
+                        label = "statusScale"
+                    )
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = when {
-                            isChipFocused -> Color(0xFF00E5FF)
+                            isChipFocused -> Color(0xFF1E3A8A).copy(alpha = 0.8f)
                             isSelected -> Color(0xFF2563EB)
                             else -> Color(0xFF1E293B)
                         },
                         border = when {
-                            isChipFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                            isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                            isChipFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                            isSelected -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF60A5FA))
                             else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.5f))
                         },
                         modifier = Modifier
-                            .scale(if (isChipFocused) 1.08f else 1.0f)
+                            .scale(statusScale)
                             .onFocusChanged { isChipFocused = it.isFocused }
                             .focusable()
                             .clickable { selectedStatus = status }
                     ) {
                         Text(
                             text = status,
-                            color = if (isChipFocused) Color.Black else if (isSelected) Color.White else if (status == "🔴 Live") Color(0xFFEF4444) else if (status == "Upcoming") Color(0xFFFBBF24) else Color(0xFF94A3B8),
-                            fontSize = 13.sp,
-                            fontWeight = if (isChipFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                            color = when {
+                                isChipFocused || isSelected -> Color.White
+                                status == "🔴 Live" -> Color(0xFFEF4444)
+                                status == "Upcoming" -> Color(0xFFFBBF24)
+                                else -> Color(0xFF94A3B8)
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = if (isChipFocused || isSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
                     }
                 }
             }
         }
 
-        // -------------------------------------------------------------
-        // EMPTY STATE IF NO MATCHES
-        // -------------------------------------------------------------
+        // MAIN EVENTS CONTAINER (TV: 2-column Grid, Mobile: List)
         if (filteredSports.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 40.dp),
-                    contentAlignment = Alignment.Center
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.EmojiEvents,
-                            contentDescription = null,
-                            tint = Color(0xFF475569),
-                            modifier = Modifier.size(54.dp)
+                    Icon(
+                        imageVector = Icons.Rounded.EmojiEvents,
+                        contentDescription = null,
+                        tint = Color(0xFF475569),
+                        modifier = Modifier.size(54.dp)
+                    )
+                    Text(
+                        text = "কোনো লাইভ ম্যাচ বা ইভেন্ট পাওয়া যায়নি",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else if (isTvMode) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(filteredSports, key = { it.id }) { sport ->
+                    val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
+                    val isLiveNow = isEventLiveNow(sport, tickCount)
+                    val isAdminCustomEvent = sport.id.startsWith("custom_") || sport.id.startsWith("admin_")
+
+                    if (isAdminCustomEvent) {
+                        AdminEventMatchCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = true,
+                            onSelectMedia = onSelectMedia
                         )
-                        Text(
-                            text = "কোনো লাইভ ম্যাচ বা ইভেন্ট পাওয়া যায়নি",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center
+                    } else {
+                        JsonPosterEventCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = true,
+                            onSelectMedia = onSelectMedia
                         )
                     }
                 }
             }
-        }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(filteredSports, key = { it.id }) { sport ->
+                    val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
+                    val isLiveNow = isEventLiveNow(sport, tickCount)
+                    val isAdminCustomEvent = sport.id.startsWith("custom_") || sport.id.startsWith("admin_")
 
-        // -------------------------------------------------------------
-        // EVENT MATCH CARDS (Admin custom matches vs JSON playlist matches)
-        // -------------------------------------------------------------
-        items(filteredSports) { sport ->
-            val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
-            val isLiveNow = isEventLiveNow(sport, tickCount)
-            val isAdminCustomEvent = sport.id.startsWith("custom_") || sport.id.startsWith("admin_")
-
-            if (isAdminCustomEvent) {
-                AdminEventMatchCard(
-                    sport = sport,
-                    isLiveNow = isLiveNow,
-                    remainingSecs = remainingSecs,
-                    onSelectMedia = onSelectMedia
-                )
-            } else {
-                JsonPosterEventCard(
-                    sport = sport,
-                    isLiveNow = isLiveNow,
-                    remainingSecs = remainingSecs,
-                    onSelectMedia = onSelectMedia
-                )
+                    if (isAdminCustomEvent) {
+                        AdminEventMatchCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = false,
+                            onSelectMedia = onSelectMedia
+                        )
+                    } else {
+                        JsonPosterEventCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = false,
+                            onSelectMedia = onSelectMedia
+                        )
+                    }
+                }
             }
         }
     }
@@ -6718,6 +6778,7 @@ fun AdminEventMatchCard(
     sport: MediaItem,
     isLiveNow: Boolean,
     remainingSecs: Long,
+    isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit
 ) {
     val context = LocalContext.current
@@ -6799,30 +6860,26 @@ fun AdminEventMatchCard(
     }
 
     val adminCardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) 1.05f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (isCardFocused) 1.035f else 1.0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "adminSportCardScale"
     )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp)
             .scale(adminCardScale)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable {
                 handleAdminMatchClick(sport)
             },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.35f) else Color(0xFF0D1B2A)
+            containerColor = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0D1B2A)
         ),
-        border = when {
-            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-            else -> androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF1E3A5F).copy(alpha = 0.8f))
-        },
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
+        border = if (isCardFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.8f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 8.dp else 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -7049,15 +7106,20 @@ fun AdminEventMatchCard(
                 ) {
                     items(servers) { srv ->
                         var isServerFocused by remember { mutableStateOf(false) }
+                        val srvScale by animateFloatAsState(
+                            targetValue = if (isServerFocused) 1.04f else 1.0f,
+                            animationSpec = tween(180, easing = FastOutSlowInEasing),
+                            label = "srvScale"
+                        )
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isServerFocused) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isServerFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B),
                             border = when {
-                                isServerFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600))
+                                isServerFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
                                 else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
                             },
                             modifier = Modifier
-                                .scale(if (isServerFocused) 1.08f else 1.0f)
+                                .scale(srvScale)
                                 .onFocusChanged { isServerFocused = it.isFocused }
                                 .focusable()
                                 .clickable {
@@ -7065,19 +7127,19 @@ fun AdminEventMatchCard(
                                 }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.FolderOpen,
                                     contentDescription = null,
-                                    tint = if (isServerFocused) Color.Black else Color(0xFF60A5FA),
+                                    tint = if (isServerFocused) Color(0xFF38BDF8) else Color(0xFF60A5FA),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
                                     text = srv.name,
-                                    color = if (isServerFocused) Color.Black else Color.White,
+                                    color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = if (isServerFocused) FontWeight.Bold else FontWeight.Medium
                                 )
@@ -7090,16 +7152,21 @@ fun AdminEventMatchCard(
 
                 // Play Button
                 var isPlayBtnFocused by remember { mutableStateOf(false) }
+                val playBtnScale by animateFloatAsState(
+                    targetValue = if (isPlayBtnFocused) 1.04f else 1.0f,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    label = "playBtnScale"
+                )
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = when {
-                        isPlayBtnFocused -> Color(0xFF00E5FF)
+                        isPlayBtnFocused -> Color(0xFF0284C7)
                         isLiveNow -> Color(0xFFDC2626)
                         else -> Color(0xFF2563EB)
                     },
-                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600)) else null,
+                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
                     modifier = Modifier
-                        .scale(if (isPlayBtnFocused) 1.08f else 1.0f)
+                        .scale(playBtnScale)
                         .onFocusChanged { isPlayBtnFocused = it.isFocused }
                         .focusable()
                         .clickable {
@@ -7107,20 +7174,20 @@ fun AdminEventMatchCard(
                         }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.PlayArrow,
                             contentDescription = null,
-                            tint = if (isPlayBtnFocused) Color.Black else Color.White,
-                            modifier = Modifier.size(15.dp)
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
                         )
                         Text(
                             text = "Play",
-                            color = if (isPlayBtnFocused) Color.Black else Color.White,
-                            fontSize = 12.sp,
+                            color = Color.White,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -7135,6 +7202,7 @@ fun JsonPosterEventCard(
     sport: MediaItem,
     isLiveNow: Boolean,
     remainingSecs: Long,
+    isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit
 ) {
     val context = LocalContext.current
@@ -7214,28 +7282,24 @@ fun JsonPosterEventCard(
     }
 
     val sportCardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) 1.05f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (isCardFocused) 1.035f else 1.0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "sportCardScale"
     )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp)
             .scale(sportCardScale)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable { handleEventClick() },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.35f) else Color(0xFF0F172A)
+            containerColor = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A)
         ),
-        border = when {
-            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
-        },
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 4.dp)
+        border = if (isCardFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 8.dp else 3.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth()
@@ -7520,37 +7584,42 @@ fun JsonPosterEventCard(
                 }
 
                 // 5. Red Full-Width Action Button (▶ লাইভ স্ট্রিম ওপেন করুন)
+                val playBtnScale by animateFloatAsState(
+                    targetValue = if (isPlayBtnFocused) 1.02f else 1.0f,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    label = "playBtnScale"
+                )
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = when {
-                        isPlayBtnFocused -> Color(0xFF00E5FF)
-                        !hasVideoLink -> Color(0xFF475569)
+                        isPlayBtnFocused -> Color(0xFF0284C7)
+                        !hasVideoLink -> Color(0xFF334155)
                         else -> Color(0xFFDC2626)
                     },
-                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD600)) else null,
+                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .scale(if (isPlayBtnFocused) 1.02f else 1.0f)
+                        .scale(playBtnScale)
                         .onFocusChanged { isPlayBtnFocused = it.isFocused }
                         .focusable()
                         .clickable { handleEventClick() }
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 12.dp),
+                        modifier = Modifier.padding(vertical = 10.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = if (hasVideoLink) Icons.Rounded.PlayArrow else Icons.Rounded.HourglassEmpty,
                             contentDescription = null,
-                            tint = if (isPlayBtnFocused) Color.Black else Color.White,
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = if (hasVideoLink) "লাইভ স্ট্রিম ওপেন করুন" else "চ্যানেল লিংক শীঘ্রই আসছে",
-                            color = if (isPlayBtnFocused) Color.Black else Color.White,
-                            fontSize = 14.sp,
+                            color = Color.White,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
