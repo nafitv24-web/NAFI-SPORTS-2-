@@ -7,6 +7,12 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -431,21 +437,32 @@ fun NafiTvMainApp(
                         AppTab.values().forEach { tab ->
                             val isSelected = currentTab == tab
                             var isFocused by remember { mutableStateOf(false) }
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = when {
-                                    isFocused -> Color(0xFF00E5FF).copy(alpha = 0.35f)
-                                    isSelected -> Color(0xFF2563EB).copy(alpha = 0.3f)
+                            val tabScale by animateFloatAsState(
+                                targetValue = if (isFocused) 1.14f else 1.0f,
+                                animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                label = "tvTabScale"
+                            )
+                            val containerColor by animateColorAsState(
+                                targetValue = when {
+                                    isFocused -> Color(0xFF00E5FF).copy(alpha = 0.45f)
+                                    isSelected -> Color(0xFF2563EB).copy(alpha = 0.35f)
                                     else -> Color.Transparent
                                 },
+                                animationSpec = tween(150),
+                                label = "tvTabColor"
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = containerColor,
                                 border = when {
-                                    isFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+                                    isFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
                                     isSelected -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.7f))
                                     else -> null
                                 },
+                                shadowElevation = if (isFocused) 16.dp else 0.dp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .scale(if (isFocused) 1.08f else 1.0f)
+                                    .scale(tabScale)
                                     .onFocusChanged { isFocused = it.isFocused }
                                     .focusable()
                                     .clickable { currentTab = tab }
@@ -471,12 +488,21 @@ fun NafiTvMainApp(
                                     )
                                     Text(
                                         text = tab.englishLabel,
-                                        color = if (isFocused || isSelected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                        color = if (isFocused || isSelected) Color.White else Color(0xFF94A3B8),
                                         fontSize = 11.sp,
-                                        fontWeight = if (isFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                        fontWeight = if (isFocused || isSelected) FontWeight.Black else FontWeight.Medium,
                                         textAlign = TextAlign.Center,
                                         maxLines = 1
                                     )
+                                    if (isFocused) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(18.dp)
+                                                .height(3.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(Color(0xFF00E5FF))
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -554,16 +580,22 @@ fun NafiTvMainApp(
                             ) {
                                 // Layout Toggle: Mobile Pill
                                 var isMobileBtnFocused by remember { mutableStateOf(false) }
+                                val mobileBtnScale by animateFloatAsState(
+                                    targetValue = if (isMobileBtnFocused) 1.12f else 1.0f,
+                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                    label = "mobileBtnScale"
+                                )
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
-                                    color = if (!isTvMode) Color(0xFF00E5FF).copy(alpha = 0.2f) else if (isMobileBtnFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B),
+                                    color = if (!isTvMode) Color(0xFF00E5FF).copy(alpha = 0.25f) else if (isMobileBtnFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B),
                                     border = when {
-                                        isMobileBtnFocused -> androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFF00E5FF))
+                                        isMobileBtnFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
                                         !isTvMode -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF))
                                         else -> null
                                     },
+                                    shadowElevation = if (isMobileBtnFocused) 12.dp else 0.dp,
                                     modifier = Modifier
-                                        .scale(if (isMobileBtnFocused) 1.08f else 1.0f)
+                                        .scale(mobileBtnScale)
                                         .onFocusChanged { isMobileBtnFocused = it.isFocused }
                                         .focusable()
                                         .clickable {
@@ -595,16 +627,22 @@ fun NafiTvMainApp(
 
                                 // Layout Toggle: TV Pill
                                 var isTvBtnFocused by remember { mutableStateOf(false) }
+                                val tvBtnScale by animateFloatAsState(
+                                    targetValue = if (isTvBtnFocused) 1.12f else 1.0f,
+                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                    label = "tvBtnScale"
+                                )
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
-                                    color = if (isTvMode) Color(0xFF00E5FF).copy(alpha = 0.2f) else if (isTvBtnFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B),
+                                    color = if (isTvMode) Color(0xFF00E5FF).copy(alpha = 0.25f) else if (isTvBtnFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B),
                                     border = when {
-                                        isTvBtnFocused -> androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFF00E5FF))
+                                        isTvBtnFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
                                         isTvMode -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF))
                                         else -> null
                                     },
+                                    shadowElevation = if (isTvBtnFocused) 12.dp else 0.dp,
                                     modifier = Modifier
-                                        .scale(if (isTvBtnFocused) 1.08f else 1.0f)
+                                        .scale(tvBtnScale)
                                         .onFocusChanged { isTvBtnFocused = it.isFocused }
                                         .focusable()
                                         .clickable {
@@ -636,12 +674,18 @@ fun NafiTvMainApp(
 
                                 // Refresh Button
                                 var isRefreshFocused by remember { mutableStateOf(false) }
+                                val refreshScale by animateFloatAsState(
+                                    targetValue = if (isRefreshFocused) 1.15f else 1.0f,
+                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
+                                    label = "refreshScale"
+                                )
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (isRefreshFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B),
-                                    border = if (isRefreshFocused) androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFF00E5FF)) else null,
+                                    color = if (isRefreshFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B),
+                                    border = if (isRefreshFocused) androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF)) else null,
+                                    shadowElevation = if (isRefreshFocused) 12.dp else 0.dp,
                                     modifier = Modifier
-                                        .scale(if (isRefreshFocused) 1.1f else 1.0f)
+                                        .scale(refreshScale)
                                         .onFocusChanged { isRefreshFocused = it.isFocused }
                                         .focusable()
                                         .clickable { refreshAllData() }
@@ -6754,11 +6798,17 @@ fun AdminEventMatchCard(
         )
     }
 
+    val adminCardScale by animateFloatAsState(
+        targetValue = if (isCardFocused) 1.05f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "adminSportCardScale"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp)
-            .scale(if (isCardFocused) 1.03f else 1.0f)
+            .scale(adminCardScale)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable {
@@ -6766,13 +6816,13 @@ fun AdminEventMatchCard(
             },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCardFocused) Color(0xFF1E3A8A).copy(alpha = 0.95f) else Color(0xFF0D1B2A)
+            containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.35f) else Color(0xFF0D1B2A)
         ),
         border = when {
-            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
             else -> androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF1E3A5F).copy(alpha = 0.8f))
         },
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -7163,23 +7213,29 @@ fun JsonPosterEventCard(
         )
     }
 
+    val sportCardScale by animateFloatAsState(
+        targetValue = if (isCardFocused) 1.05f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "sportCardScale"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp)
-            .scale(if (isCardFocused) 1.02f else 1.0f)
+            .scale(sportCardScale)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable { handleEventClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF0F172A)
+            containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.35f) else Color(0xFF0F172A)
         ),
         border = when {
-            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
             else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
         },
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 4.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth()
@@ -7615,6 +7671,11 @@ fun LiveTvTabScreen(
             items(categories) { category ->
                 val isSelected = selectedCategory == category
                 var isCatFocused by remember { mutableStateOf(false) }
+                val catScale by animateFloatAsState(
+                    targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                    label = "liveCatScale"
+                )
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = when {
@@ -7627,8 +7688,9 @@ fun LiveTvTabScreen(
                         isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
                         else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
                     },
+                    shadowElevation = if (isCatFocused) 12.dp else 0.dp,
                     modifier = Modifier
-                        .scale(if (isCatFocused) 1.08f else 1.0f)
+                        .scale(catScale)
                         .onFocusChanged { isCatFocused = it.isFocused }
                         .focusable()
                         .clickable { selectedCategory = category }
@@ -7637,7 +7699,7 @@ fun LiveTvTabScreen(
                         text = category,
                         color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
                         fontSize = 12.sp,
-                        fontWeight = if (isCatFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                     )
                 }
@@ -7700,23 +7762,28 @@ fun LiveTvTabScreen(
                 items(filtered) { channel ->
                     val isFav = favoriteIds.contains(channel.id)
                     var isCardFocused by remember { mutableStateOf(false) }
+                    val cardScale by animateFloatAsState(
+                        targetValue = if (isCardFocused) (if (isTvMode) 1.12f else 1.08f) else 1.0f,
+                        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                        label = "channelCardScale"
+                    )
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(if (isTvMode) 145.dp else 135.dp)
-                            .scale(if (isCardFocused) 1.06f else 1.0f)
+                            .height(if (isTvMode) 150.dp else 138.dp)
+                            .scale(cardScale)
                             .onFocusChanged { isCardFocused = it.isFocused }
                             .focusable()
                             .clickable { onSelectMedia(channel) },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isCardFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                            containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
                         ),
                         border = when {
-                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
                             else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                         },
-                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 10.dp else 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             // Focus badge on top left
@@ -7939,6 +8006,11 @@ fun MoviesTabScreen(
             items(dynamicCategories) { category ->
                 val isSelected = selectedCategory == category
                 var isCatFocused by remember { mutableStateOf(false) }
+                val catScale by animateFloatAsState(
+                    targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                    label = "movieCatScale"
+                )
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = when {
@@ -7951,8 +8023,9 @@ fun MoviesTabScreen(
                         isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
                         else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
                     },
+                    shadowElevation = if (isCatFocused) 12.dp else 0.dp,
                     modifier = Modifier
-                        .scale(if (isCatFocused) 1.08f else 1.0f)
+                        .scale(catScale)
                         .onFocusChanged { isCatFocused = it.isFocused }
                         .focusable()
                         .clickable { selectedCategory = category }
@@ -7961,7 +8034,7 @@ fun MoviesTabScreen(
                         text = category,
                         color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
                         fontSize = 12.sp,
-                        fontWeight = if (isCatFocused || isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                     )
                 }
@@ -7995,17 +8068,23 @@ fun MoviesTabScreen(
                 if (featuredMovie != null) {
                     item {
                         var isHeroFocused by remember { mutableStateOf(false) }
+                        val heroScale by animateFloatAsState(
+                            targetValue = if (isHeroFocused) 1.04f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
+                            label = "heroScale"
+                        )
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp)
                                 .height(210.dp)
-                                .scale(if (isHeroFocused) 1.02f else 1.0f)
+                                .scale(heroScale)
                                 .onFocusChanged { isHeroFocused = it.isFocused }
                                 .focusable()
                                 .clickable { onSelectMedia(featuredMovie) },
                             shape = RoundedCornerShape(16.dp),
-                            border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF)) else null
+                            border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF)) else null,
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isHeroFocused) 16.dp else 4.dp)
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 AsyncImage(
@@ -8159,22 +8238,28 @@ fun MoviesTabScreen(
                                 items(catMovies, key = { it.id }) { movie ->
                                     val isFav = favoriteIds.contains(movie.id)
                                     var isItemFocused by remember { mutableStateOf(false) }
+                                    val movieItemScale by animateFloatAsState(
+                                        targetValue = if (isItemFocused) 1.12f else 1.0f,
+                                        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                                        label = "movieRowCardScale"
+                                    )
 
                                     Card(
                                         modifier = Modifier
                                             .width(if (isTvMode) 160.dp else 125.dp)
-                                            .scale(if (isItemFocused) 1.05f else 1.0f)
+                                            .scale(movieItemScale)
                                             .onFocusChanged { isItemFocused = it.isFocused }
                                             .focusable()
                                             .clickable { onSelectMedia(movie) },
                                         shape = RoundedCornerShape(12.dp),
                                         colors = CardDefaults.cardColors(
-                                            containerColor = if (isItemFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                            containerColor = if (isItemFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
                                         ),
                                         border = when {
-                                            isItemFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+                                            isItemFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
                                             else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                                        }
+                                        },
+                                        elevation = CardDefaults.cardElevation(defaultElevation = if (isItemFocused) 16.dp else 2.dp)
                                     ) {
                                         Column {
                                             Box(
@@ -8289,23 +8374,28 @@ fun MoviesTabScreen(
                     items(filteredMovies, key = { it.id }) { movie ->
                         val isFav = favoriteIds.contains(movie.id)
                         var isCardFocused by remember { mutableStateOf(false) }
+                        val movieCardScale by animateFloatAsState(
+                            targetValue = if (isCardFocused) 1.12f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                            label = "movieGridCardScale"
+                        )
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .scale(if (isCardFocused) 1.06f else 1.0f)
+                                .scale(movieCardScale)
                                 .onFocusChanged { isCardFocused = it.isFocused }
-                            .focusable()
-                            .clickable { onSelectMedia(movie) },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isCardFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
-                        ),
-                        border = when {
-                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                        },
-                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
-                    ) {
+                                .focusable()
+                                .clickable { onSelectMedia(movie) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
+                            ),
+                            border = when {
+                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
+                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                            },
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
+                        ) {
                         Column {
                             Box(
                                 modifier = Modifier
@@ -8841,6 +8931,11 @@ fun PlaylistTabScreen(
                         items(categories) { cat ->
                             val isSelected = (selectedChannelCategory == cat)
                             var isCatFocused by remember { mutableStateOf(false) }
+                            val plCatScale by animateFloatAsState(
+                                targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                                label = "plCatScale"
+                            )
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = when {
@@ -8853,8 +8948,9 @@ fun PlaylistTabScreen(
                                     isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
                                     else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
                                 },
+                                shadowElevation = if (isCatFocused) 12.dp else 0.dp,
                                 modifier = Modifier
-                                    .scale(if (isCatFocused) 1.08f else 1.0f)
+                                    .scale(plCatScale)
                                     .onFocusChanged { isCatFocused = it.isFocused }
                                     .focusable()
                                     .clickable { selectedChannelCategory = cat }
@@ -8863,7 +8959,7 @@ fun PlaylistTabScreen(
                                     text = cat,
                                     color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFCBD5E1),
                                     fontSize = 11.sp,
-                                    fontWeight = if (isCatFocused || isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                                    fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Normal,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
                             }
@@ -8881,23 +8977,28 @@ fun PlaylistTabScreen(
                 ) {
                     items(filteredChannels) { channel ->
                         var isChanFocused by remember { mutableStateOf(false) }
+                        val plChanScale by animateFloatAsState(
+                            targetValue = if (isChanFocused) (if (isTvMode) 1.12f else 1.08f) else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                            label = "plChanScale"
+                        )
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(if (isTvMode) 145.dp else 135.dp)
-                                .scale(if (isChanFocused) 1.06f else 1.0f)
+                                .height(if (isTvMode) 150.dp else 138.dp)
+                                .scale(plChanScale)
                                 .onFocusChanged { isChanFocused = it.isFocused }
                                 .focusable()
                                 .clickable { onSelectMedia(channel, playlistChannels) },
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isChanFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                containerColor = if (isChanFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
                             ),
                             border = when {
-                                isChanFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
+                                isChanFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
                                 else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                             },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isChanFocused) 10.dp else 2.dp)
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isChanFocused) 16.dp else 2.dp)
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 // Focus badge on top left
@@ -9207,23 +9308,28 @@ fun PlaylistTabScreen(
                     items(filteredPlaylists) { playlist ->
                         var showCardMenu by remember { mutableStateOf(false) }
                         var isCardFocused by remember { mutableStateOf(false) }
+                        val plCardScale by animateFloatAsState(
+                            targetValue = if (isCardFocused) 1.10f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                            label = "plCardScale"
+                        )
 
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .scale(if (isCardFocused) 1.05f else 1.0f)
+                                .scale(plCardScale)
                                 .onFocusChanged { isCardFocused = it.isFocused }
                                 .focusable()
                                 .clickable { loadPlaylist(playlist) },
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isCardFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
                             ),
                             border = when {
                                 isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
                                 else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                             },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 12.dp else 2.dp)
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),

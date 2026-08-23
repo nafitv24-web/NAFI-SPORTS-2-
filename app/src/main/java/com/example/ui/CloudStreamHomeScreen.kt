@@ -3,6 +3,7 @@ package com.example.ui
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -897,11 +898,16 @@ private fun LiveMovieRow(
         ) {
             items(movies, key = { it.id }) { item ->
                 var isFocused by remember { mutableStateOf(false) }
+                val rowItemScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isFocused) 1.10f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+                    label = "csRowItemScale"
+                )
 
                 Column(
                     modifier = Modifier
                         .width(115.dp)
-                        .scale(if (isFocused) 1.06f else 1.0f)
+                        .scale(rowItemScale)
                         .onFocusChanged { isFocused = it.isFocused }
                         .focusable()
                         .clickable { onMovieClick(item) }
@@ -910,8 +916,12 @@ private fun LiveMovieRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(165.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(Color(0xFF1E293B))
+                            .then(
+                                if (isFocused) Modifier.border(3.dp, Color(0xFF00E5FF), RoundedCornerShape(10.dp))
+                                else Modifier
+                            )
                     ) {
                         AsyncImage(
                             model = item.logoUrl,
@@ -919,6 +929,22 @@ private fun LiveMovieRow(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
+
+                        if (isFocused) {
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 10.dp, bottomEnd = 8.dp),
+                                color = Color(0xFF00E5FF),
+                                modifier = Modifier.align(Alignment.TopStart)
+                            ) {
+                                Text(
+                                    text = "▶ OK",
+                                    color = Color.Black,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
 
                         Surface(
                             shape = RoundedCornerShape(bottomStart = 6.dp),

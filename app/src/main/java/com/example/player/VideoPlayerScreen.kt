@@ -268,6 +268,42 @@ fun VideoPlayerScreen(
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var showQuickChannelDrawer by remember { mutableStateOf(false) }
 
+    // TV Remote OSD & Number Input
+    var showChannelOsd by remember { mutableStateOf(false) }
+    var channelOsdKey by remember { mutableLongStateOf(0L) }
+    var remoteNumberBuffer by remember { mutableStateOf("") }
+    var remoteNumberKey by remember { mutableLongStateOf(0L) }
+
+    // Auto-hide Channel OSD banner
+    LaunchedEffect(channelOsdKey) {
+        if (channelOsdKey > 0L) {
+            showChannelOsd = true
+            delay(3500)
+            showChannelOsd = false
+        }
+    }
+
+    // Auto-commit remote channel number input (e.g. user types "5" or "12")
+    LaunchedEffect(remoteNumberKey) {
+        if (remoteNumberKey > 0L && remoteNumberBuffer.isNotEmpty()) {
+            delay(1200)
+            val channelNum = remoteNumberBuffer.toIntOrNull()
+            if (channelNum != null && playlist.isNotEmpty()) {
+                val targetIdx = (channelNum - 1).coerceIn(0, playlist.size - 1)
+                val nextItem = playlist[targetIdx]
+                isBuffering = true
+                currentMedia = nextItem
+                selectedServerIndex = 0
+                val newServers = nextItem.getAllServers()
+                currentUrl = newServers.firstOrNull()?.url ?: nextItem.streamUrl
+                errorMessage = null
+                onSelectMedia(nextItem)
+                channelOsdKey = System.currentTimeMillis()
+            }
+            remoteNumberBuffer = ""
+        }
+    }
+
     // Immediately trigger buffering state whenever channel or server URL changes
     LaunchedEffect(currentMedia.id, currentUrl) {
         hasStartedPlaying = false
@@ -778,6 +814,12 @@ fun VideoPlayerScreen(
         } catch (_: Exception) {}
     }
 
+    // Handle Direct Channel Number input from Remote (0-9)
+    fun handleNumberInput(digit: String) {
+        remoteNumberBuffer = (remoteNumberBuffer + digit).take(4)
+        remoteNumberKey = System.currentTimeMillis()
+    }
+
     // Switch to Next / Previous Channel (Smoothly switches in fullscreen without exiting)
     fun switchChannel(delta: Int) {
         val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
@@ -792,6 +834,7 @@ fun VideoPlayerScreen(
             currentUrl = newServers.firstOrNull()?.url ?: nextItem.streamUrl
             errorMessage = null
             onSelectMedia(nextItem)
+            channelOsdKey = System.currentTimeMillis()
         }
     }
 
@@ -810,6 +853,7 @@ fun VideoPlayerScreen(
         val nativeEvent = keyEvent.nativeKeyEvent
         val keyCode = nativeEvent.keyCode
         return when (keyCode) {
+            // Play / Pause & Toggle Controls
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_SPACE -> {
                 if (showControls) {
                     if (isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -818,36 +862,74 @@ fun VideoPlayerScreen(
                 }
                 true
             }
+
+            // UP / DOWN -> Change Channel (উপর-নিচে ক্লিক করলে চ্যানেল পরিবর্তন)
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
                 switchChannel(-1)
-                showControls = true
                 true
             }
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
                 switchChannel(1)
-                showControls = true
                 true
             }
-            KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (durationMs > 0) {
+
+            // LEFT -> Rewind / Seekbar Control (বাম পাশে ক্লিক করলে ভিডিও কন্ট্রোল বার/সিকবার রিওয়াইন্ড)
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
+                val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+                if (effDuration > 0) {
                     val target = maxOf(0L, currentPositionMs - 10000L)
                     exoPlayer.seekTo(target)
-                } else {
-                    switchChannel(-1)
-                }
-                showControls = true
-                true
-            }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (durationMs > 0) {
-                    val target = minOf(durationMs, currentPositionMs + 10000L)
+                    currentPositionMs = target
+                    seekGestureTargetMs = target
+                    seekGestureOffsetSec = -10
+                    seekGestureKey = System.currentTimeMillis()
+                    isSeekGestureActive = true
+                    doubleTapSeekLeft = true
+                    doubleTapSeekRight = false
+                } else if (exoPlayer.isCurrentMediaItemSeekable) {
+                    val cur = exoPlayer.currentPosition
+                    val target = maxOf(0L, cur - 10000L)
                     exoPlayer.seekTo(target)
+                    currentPositionMs = target
+                    doubleTapSeekLeft = true
+                    doubleTapSeekRight = false
                 } else {
-                    switchChannel(1)
+                    doubleTapSeekLeft = true
+                    doubleTapSeekRight = false
                 }
                 showControls = true
                 true
             }
+
+            // RIGHT -> Forward / Seekbar Control (ডান পাশে ক্লিক করলে ভিডিও কন্ট্রোল বার/সিকবার ফরোয়ার্ড)
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
+                val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+                if (effDuration > 0) {
+                    val target = minOf(effDuration, currentPositionMs + 10000L)
+                    exoPlayer.seekTo(target)
+                    currentPositionMs = target
+                    seekGestureTargetMs = target
+                    seekGestureOffsetSec = 10
+                    seekGestureKey = System.currentTimeMillis()
+                    isSeekGestureActive = true
+                    doubleTapSeekRight = true
+                    doubleTapSeekLeft = false
+                } else if (exoPlayer.isCurrentMediaItemSeekable) {
+                    val cur = exoPlayer.currentPosition
+                    val target = cur + 10000L
+                    exoPlayer.seekTo(target)
+                    currentPositionMs = target
+                    doubleTapSeekRight = true
+                    doubleTapSeekLeft = false
+                } else {
+                    doubleTapSeekRight = true
+                    doubleTapSeekLeft = false
+                }
+                showControls = true
+                true
+            }
+
+            // Media Buttons
             KeyEvent.KEYCODE_MEDIA_PLAY -> {
                 exoPlayer.play()
                 isPlaying = true
@@ -864,30 +946,33 @@ fun VideoPlayerScreen(
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
                 switchChannel(1)
-                showControls = true
                 true
             }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
                 switchChannel(-1)
-                showControls = true
                 true
             }
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                if (durationMs > 0) {
-                    exoPlayer.seekTo(minOf(durationMs, currentPositionMs + 10000L))
-                }
-                true
-            }
-            KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                if (durationMs > 0) {
-                    exoPlayer.seekTo(maxOf(0L, currentPositionMs - 10000L))
-                }
-                true
-            }
-            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BUTTON_Y -> {
+
+            // Remote Number Keys (0-9) to directly jump to channel
+            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0 -> { handleNumberInput("0"); true }
+            KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_NUMPAD_1 -> { handleNumberInput("1"); true }
+            KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_NUMPAD_2 -> { handleNumberInput("2"); true }
+            KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_NUMPAD_3 -> { handleNumberInput("3"); true }
+            KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4 -> { handleNumberInput("4"); true }
+            KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5 -> { handleNumberInput("5"); true }
+            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6 -> { handleNumberInput("6"); true }
+            KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_NUMPAD_7 -> { handleNumberInput("7"); true }
+            KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8 -> { handleNumberInput("8"); true }
+            KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> { handleNumberInput("9"); true }
+
+            // TV Menu / Info / Guide -> Toggle Channel Drawer
+            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_BUTTON_Y,
+            KeyEvent.KEYCODE_PROG_RED, KeyEvent.KEYCODE_PROG_GREEN, KeyEvent.KEYCODE_PROG_YELLOW, KeyEvent.KEYCODE_PROG_BLUE -> {
                 showQuickChannelDrawer = !showQuickChannelDrawer
                 true
             }
+
+            // Back / Escape
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                 if (showQuickChannelDrawer) {
                     showQuickChannelDrawer = false
@@ -1198,6 +1283,27 @@ fun VideoPlayerScreen(
             }
             if (doubleTapSeekRight) {
                 MxDoubleTapRipple(isForward = true, modifier = Modifier.align(Alignment.CenterEnd))
+            }
+
+            // TV Channel Switch OSD Banner (Appears when changing channel with Remote Up/Down or Numbers)
+            if (showChannelOsd) {
+                val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+                val curIdx = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }.coerceAtLeast(0)
+                TvChannelOsdBanner(
+                    media = currentMedia,
+                    currentIndex = curIdx,
+                    totalCount = list.size,
+                    selectedServerName = servers.getOrNull(selectedServerIndex)?.name,
+                    modifier = Modifier.align(Alignment.TopStart)
+                )
+            }
+
+            // TV Remote Number Dialing Overlay
+            if (remoteNumberBuffer.isNotEmpty()) {
+                TvNumberDialOverlay(
+                    dialedNumber = remoteNumberBuffer,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                )
             }
 
             // Error Overlay
@@ -1717,6 +1823,27 @@ fun VideoPlayerScreen(
 
                 if (doubleTapSeekRight) {
                     MxDoubleTapRipple(isForward = true, modifier = Modifier.align(Alignment.CenterEnd))
+                }
+
+                // TV Channel Switch OSD Banner
+                if (showChannelOsd) {
+                    val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+                    val curIdx = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }.coerceAtLeast(0)
+                    TvChannelOsdBanner(
+                        media = currentMedia,
+                        currentIndex = curIdx,
+                        totalCount = list.size,
+                        selectedServerName = servers.getOrNull(selectedServerIndex)?.name,
+                        modifier = Modifier.align(Alignment.TopStart)
+                    )
+                }
+
+                // TV Remote Number Dialing Overlay
+                if (remoteNumberBuffer.isNotEmpty()) {
+                    TvNumberDialOverlay(
+                        dialedNumber = remoteNumberBuffer,
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    )
                 }
 
                 // Buffering Overlay with NAFI TV Logo & Bengali Loading text
@@ -3614,4 +3741,133 @@ fun SubtitleSelectionDialog(
         }
     )
 }
+
+@Composable
+fun TvChannelOsdBanner(
+    media: com.example.model.MediaItem,
+    currentIndex: Int,
+    totalCount: Int,
+    selectedServerName: String?,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF0F172A).copy(alpha = 0.95f),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.8f)),
+        shadowElevation = 12.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Channel Logo
+                AsyncImage(
+                    model = media.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
+                    contentDescription = media.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+
+                Column(modifier = Modifier.weight(1f, fill = false)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF00E5FF)
+                        ) {
+                            Text(
+                                text = if (totalCount > 0) "CH ${currentIndex + 1}/$totalCount" else "LIVE",
+                                color = Color.Black,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        if (media.category.isNotBlank()) {
+                            Text(
+                                text = media.category,
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = media.title,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                    if (selectedServerName != null) {
+                        Text(
+                            text = "সার্ভার: $selectedServerName",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            // Remote hint legend bar
+            Row(
+                modifier = Modifier
+                    .background(Color(0xFF1E293B).copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "▲ ▼ চ্যানেল পরিবর্তন  •  ◀ ▶ সিকবার  •  OK প্লে/পজ  •  MENU চ্যানেল তালিকা",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TvNumberDialOverlay(
+    dialedNumber: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(24.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF0F172A).copy(alpha = 0.95f),
+        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Rounded.Tv, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(28.dp))
+            Column {
+                Text(
+                    text = "চ্যানেল নং [ $dialedNumber ]",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "চ্যানেলে যাওয়া হচ্ছে...",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+
 
