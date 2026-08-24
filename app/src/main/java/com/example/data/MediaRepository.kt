@@ -3,13 +3,16 @@ package com.example.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import com.example.model.AppNotification
 import com.example.model.AppUpdateInfo
 import com.example.model.CloudStreamRepo
 import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
+import com.example.model.NotificationType
 import com.example.model.PlaylistInfo
 import com.example.model.StreamServer
+import com.example.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -4127,5 +4130,302 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
         return@withContext null
+    }
+
+    // -------------------------------------------------------------
+    // Notification Center & Broadcast Management
+    // -------------------------------------------------------------
+    fun getStoredNotifications(): List<AppNotification> {
+        val jsonStr = prefs.getString("stored_notifications", "[]") ?: "[]"
+        val list = mutableListOf<AppNotification>()
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(parseNotificationFromJsonObj(obj))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list.sortedByDescending { it.timestamp }
+    }
+
+    fun saveNotification(notification: AppNotification, showSystemPopup: Boolean = false) {
+        val current = getStoredNotifications().toMutableList()
+        current.removeAll { it.id == notification.id }
+        current.add(0, notification)
+        saveNotificationList(current)
+        if (showSystemPopup) {
+            NotificationHelper.showSystemNotification(context, notification)
+        }
+    }
+
+    fun saveNotificationList(list: List<AppNotification>) {
+        val jsonArray = JSONArray()
+        list.take(100).forEach { notif ->
+            jsonArray.put(serializeNotificationToJsonObj(notif))
+        }
+        prefs.edit().putString("stored_notifications", jsonArray.toString()).apply()
+    }
+
+    fun markNotificationAsRead(id: String) {
+        val current = getStoredNotifications().map {
+            if (it.id == id) it.copy(isRead = true) else it
+        }
+        saveNotificationList(current)
+    }
+
+    fun markAllNotificationsAsRead() {
+        val current = getStoredNotifications().map { it.copy(isRead = true) }
+        saveNotificationList(current)
+    }
+
+    fun deleteNotification(id: String) {
+        val current = getStoredNotifications().filterNot { it.id == id }
+        saveNotificationList(current)
+    }
+
+    fun clearAllNotifications() {
+        prefs.edit().remove("stored_notifications").apply()
+    }
+
+    fun getUnreadNotificationCount(): Int {
+        return getStoredNotifications().count { !it.isRead }
+    }
+
+    fun getNotifiedNotificationIds(): Set<String> {
+        return prefs.getStringSet("notified_notif_ids", emptySet()) ?: emptySet()
+    }
+
+    fun markNotificationAsNotified(id: String) {
+        val current = getNotifiedNotificationIds().toMutableSet()
+        current.add(id)
+        prefs.edit().putStringSet("notified_notif_ids", current).apply()
+    }
+
+    fun serializeNotificationToJsonObj(notif: AppNotification): JSONObject {
+        val obj = JSONObject()
+        obj.put("id", notif.id)
+        obj.put("title", notif.title)
+        obj.put("message", notif.message)
+        obj.put("timestamp", notif.timestamp)
+        obj.put("type", notif.type.name)
+        if (!notif.targetId.isNullOrBlank()) obj.put("targetId", notif.targetId)
+        if (!notif.targetType.isNullOrBlank()) obj.put("targetType", notif.targetType)
+        if (!notif.imageUrl.isNullOrBlank()) obj.put("imageUrl", notif.imageUrl)
+        obj.put("isRead", notif.isRead)
+        if (!notif.actionUrl.isNullOrBlank()) obj.put("actionUrl", notif.actionUrl)
+        obj.put("sender", notif.sender)
+        return obj
+    }
+
+    fun parseNotificationFromJsonObj(obj: JSONObject, explicitId: String? = null): AppNotification {
+        val id = explicitId ?: obj.optString("id", "notif_${System.currentTimeMillis()}")
+        val title = obj.optString("title", "Nafi TV আপডেট")
+        val message = obj.optString("message", obj.optString("body", ""))
+        val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+        val typeStr = obj.optString("type", "BROADCAST").uppercase()
+        val type = try { NotificationType.valueOf(typeStr) } catch (_: Exception) { NotificationType.BROADCAST }
+        val targetId = obj.optString("targetId", "").takeIf { it.isNotBlank() }
+        val targetType = obj.optString("targetType", "").takeIf { it.isNotBlank() }
+        val imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() }
+        val isRead = obj.optBoolean("isRead", false)
+        val actionUrl = obj.optString("actionUrl", "").takeIf { it.isNotBlank() }
+        val sender = obj.optString("sender", "Admin")
+
+        return AppNotification(
+            id = id,
+            title = title,
+            message = message,
+            timestamp = timestamp,
+            type = type,
+            targetId = targetId,
+            targetType = targetType,
+            imageUrl = imageUrl,
+            isRead = isRead,
+            actionUrl = actionUrl,
+            sender = sender
+        )
+    }
+
+    private fun parseNotificationFromFirestoreFields(docId: String, fields: JSONObject): AppNotification {
+        fun s(key: String): String {
+            val v = fields.optJSONObject(key) ?: return ""
+            return v.optString("stringValue", "")
+        }
+        fun b(key: String, def: Boolean = false): Boolean {
+            val v = fields.optJSONObject(key) ?: return def
+            return if (v.has("booleanValue")) v.optBoolean("booleanValue", def) else def
+        }
+        fun l(key: String): Long {
+            val v = fields.optJSONObject(key) ?: return System.currentTimeMillis()
+            return if (v.has("integerValue")) v.optLong("integerValue") else System.currentTimeMillis()
+        }
+
+        val typeStr = s("type").uppercase()
+        val type = try { NotificationType.valueOf(typeStr) } catch (_: Exception) { NotificationType.BROADCAST }
+
+        return AppNotification(
+            id = s("id").ifBlank { docId },
+            title = s("title").ifBlank { "Nafi TV নোটিফিকেশন" },
+            message = s("message").ifBlank { s("body") },
+            timestamp = l("timestamp"),
+            type = type,
+            targetId = s("targetId").takeIf { it.isNotBlank() },
+            targetType = s("targetType").takeIf { it.isNotBlank() },
+            imageUrl = s("imageUrl").takeIf { it.isNotBlank() },
+            isRead = b("isRead", false),
+            actionUrl = s("actionUrl").takeIf { it.isNotBlank() },
+            sender = s("sender").ifBlank { "Admin" }
+        )
+    }
+
+    suspend fun broadcastNotification(
+        notification: AppNotification,
+        pushToCloud: Boolean = true
+    ): Pair<Boolean, String> = sendBroadcastNotification(notification, pushToCloud)
+
+    suspend fun sendBroadcastNotification(
+        notification: AppNotification,
+        pushToCloud: Boolean = true
+    ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        // 1. Save locally and show system notification immediately
+        saveNotification(notification, showSystemPopup = true)
+        markNotificationAsNotified(notification.id)
+
+        if (!pushToCloud) return@withContext Pair(true, "নোটিফিকেশন তৈরি ও প্রেরণ সফল হয়েছে")
+
+        var anySuccess = false
+        val jsonObj = serializeNotificationToJsonObj(notification)
+
+        // 2. Push to Firestore
+        try {
+            val firestoreObj = JSONObject()
+            val fields = JSONObject()
+            fun fs(key: String, value: String?) {
+                if (!value.isNullOrBlank()) {
+                    fields.put(key, JSONObject().put("stringValue", value))
+                }
+            }
+            fun fb(key: String, value: Boolean) {
+                fields.put(key, JSONObject().put("booleanValue", value))
+            }
+            fun fi(key: String, value: Long) {
+                fields.put(key, JSONObject().put("integerValue", value.toString()))
+            }
+
+            fs("id", notification.id)
+            fs("title", notification.title)
+            fs("message", notification.message)
+            fi("timestamp", notification.timestamp)
+            fs("type", notification.type.name)
+            fs("targetId", notification.targetId)
+            fs("targetType", notification.targetType)
+            fs("imageUrl", notification.imageUrl)
+            fs("actionUrl", notification.actionUrl)
+            fs("sender", notification.sender)
+
+            firestoreObj.put("fields", fields)
+            val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            for (dbId in databases) {
+                try {
+                    val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/notifications/${notification.id}?key=$FIREBASE_API_KEY"
+                    val fsReq = Request.Builder().url(fsUrl).patch(fsBody).build()
+                    val fsResp = client.newCall(fsReq).execute()
+                    if (fsResp.isSuccessful) anySuccess = true
+                } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 3. Push to Firebase Realtime Database
+        try {
+            val rtdbUrl = getSavedFirebaseUrl()
+            if (rtdbUrl.isNotBlank()) {
+                val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+                val body = jsonObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val targetUrl = "$cleanUrl/notifications/${notification.id}.json"
+                val req = Request.Builder().url(targetUrl).put(body).build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) anySuccess = true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return@withContext if (anySuccess) {
+            Pair(true, "নোটিফিকেশন সফলভাবে ক্লাউডে এবং ব্যবহারকারীদের কাছে পাঠানো হয়েছে")
+        } else {
+            Pair(true, "নোটিফিকেশন সফলভাবে তৈরি ও পাঠানো হয়েছে")
+        }
+    }
+
+    suspend fun fetchRemoteNotifications(): List<AppNotification> = withContext(Dispatchers.IO) {
+        val remoteList = mutableListOf<AppNotification>()
+        val notifiedIds = getNotifiedNotificationIds()
+
+        // 1. Fetch from Firestore
+        try {
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            for (dbId in databases) {
+                try {
+                    val url = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/notifications?key=$FIREBASE_API_KEY"
+                    val req = Request.Builder().url(url).build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        val json = JSONObject(body)
+                        val docs = json.optJSONArray("documents") ?: continue
+                        for (i in 0 until docs.length()) {
+                            val doc = docs.optJSONObject(i) ?: continue
+                            val docId = doc.optString("name", "").substringAfterLast("/")
+                            val fields = doc.optJSONObject("fields") ?: continue
+                            val notif = parseNotificationFromFirestoreFields(docId, fields)
+                            remoteList.add(notif)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+
+        // 2. Fetch from RTDB
+        try {
+            val rtdbUrl = getSavedFirebaseUrl()
+            if (rtdbUrl.isNotBlank()) {
+                val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+                val targetUrl = "$cleanUrl/notifications.json"
+                val req = Request.Builder().url(targetUrl).build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.startsWith("{")) {
+                        val obj = JSONObject(body)
+                        val keys = obj.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            val nObj = obj.optJSONObject(k)
+                            if (nObj != null) {
+                                remoteList.add(parseNotificationFromJsonObj(nObj, explicitId = k))
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        val distinctList = remoteList.distinctBy { it.id }.sortedByDescending { it.timestamp }
+
+        // Process newly received notifications for system push popup
+        for (notif in distinctList) {
+            if (!notifiedIds.contains(notif.id)) {
+                saveNotification(notif, showSystemPopup = true)
+                markNotificationAsNotified(notif.id)
+            }
+        }
+
+        distinctList
     }
 }

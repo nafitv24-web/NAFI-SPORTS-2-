@@ -63,16 +63,20 @@ import coil.compose.AsyncImage
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.MediaRepository
+import com.example.model.AppNotification
 import com.example.model.AppUpdateInfo
 import com.example.model.CloudStreamRepo
 import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
+import com.example.model.NotificationType
 import com.example.model.PlaylistInfo
 import com.example.model.StreamServer
 import com.example.player.VideoPlayerScreen
 import com.example.ui.AppUpdateDialog
 import com.example.ui.MovieBrowserScreen
+import com.example.ui.NotificationCenterDialog
+import com.example.util.NotificationHelper
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
@@ -89,6 +93,7 @@ enum class AdminTab(val label: String) {
     MOVIES("Movies"),
     PLAYLISTS("Playlists"),
     SPORTS("Sports Matches"),
+    BROADCAST("নোটিফিকেশন পাঠান"),
     REPOSITORIES("CloudStream Repos"),
     APP_UPDATE("App Updates"),
     FIREBASE("Firebase Cloud")
@@ -146,6 +151,29 @@ fun NafiTvMainApp(
     // App Update State
     var availableUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+
+    // Notification Center State
+    var notificationsList by remember { mutableStateOf(repository.getStoredNotifications()) }
+    var showNotificationCenterDialog by remember { mutableStateOf(false) }
+
+    // Notification Permission Launcher (Android 13+)
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { _ -> }
+    )
+
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        NotificationHelper.initNotificationChannel(context)
+    }
 
     // State lists - initialize with saved custom streams (no hardcoded channels)
     var sportsList by remember {
@@ -250,6 +278,13 @@ fun NafiTvMainApp(
 
                 val fbItemsDeferred = async { repository.fetchFromFirebase().filterNot { deleted.contains(it.id) } }
                 val fbPlaylistsDeferred = async { repository.fetchPlaylistsFromFirebase() }
+                val remoteNotifsDeferred = async {
+                    try {
+                        repository.fetchRemoteNotifications()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
 
                 // Await all parallel fetches
                 val tapmadSports = tapmadSportsDeferred.await()
@@ -258,6 +293,10 @@ fun NafiTvMainApp(
                 val parsedMoviesM3u = moviesM3uDeferred.await().filterNot { deleted.contains(it.id) }
                 val fbItems = fbItemsDeferred.await()
                 val fbPlaylists = fbPlaylistsDeferred.await()
+                remoteNotifsDeferred.await()
+
+                // Update notifications list
+                notificationsList = repository.getStoredNotifications()
 
                 val fbSports = fbItems.filter { it.type == MediaType.LIVE_EVENT }
                 val fbTv = fbItems.filter { it.type == MediaType.LIVE_TV }
@@ -673,6 +712,48 @@ fun NafiTvMainApp(
                                     }
                                 }
 
+                                // Notification Bell Button (TV)
+                                val tvUnreadNotifCount = remember(notificationsList) { notificationsList.count { !it.isRead } }
+                                var isTvNotifFocused by remember { mutableStateOf(false) }
+                                val tvNotifScale by animateFloatAsState(
+                                    targetValue = if (isTvNotifFocused) 1.08f else 1.0f,
+                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                    label = "tvNotifScale"
+                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isTvNotifFocused) Color(0xFF1E3A8A).copy(alpha = 0.6f) else if (tvUnreadNotifCount > 0) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF1E293B),
+                                    border = when {
+                                        isTvNotifFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                                        tvUnreadNotifCount > 0 -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8))
+                                        else -> null
+                                    },
+                                    shadowElevation = if (isTvNotifFocused) 4.dp else 0.dp,
+                                    modifier = Modifier
+                                        .scale(tvNotifScale)
+                                        .onFocusChanged { isTvNotifFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable { showNotificationCenterDialog = true }
+                                ) {
+                                    Box(modifier = Modifier.padding(7.dp)) {
+                                        Icon(
+                                            imageVector = if (tvUnreadNotifCount > 0) Icons.Rounded.NotificationsActive else Icons.Rounded.Notifications,
+                                            contentDescription = "Notifications",
+                                            tint = if (isTvNotifFocused || tvUnreadNotifCount > 0) Color(0xFF38BDF8) else Color.White,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        if (tvUnreadNotifCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFEF4444))
+                                                    .align(Alignment.TopEnd)
+                                            )
+                                        }
+                                    }
+                                }
+
                                 // Refresh Button
                                 var isRefreshFocused by remember { mutableStateOf(false) }
                                 val refreshScale by animateFloatAsState(
@@ -947,6 +1028,36 @@ fun NafiTvMainApp(
                                     }
                                 }
 
+                                // Notification Bell Button (Mobile)
+                                val mobUnreadNotifCount = remember(notificationsList) { notificationsList.count { !it.isRead } }
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (mobUnreadNotifCount > 0) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF1E293B),
+                                    border = if (mobUnreadNotifCount > 0) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8)) else null,
+                                    modifier = Modifier.clickable { showNotificationCenterDialog = true }
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (mobUnreadNotifCount > 0) Icons.Rounded.NotificationsActive else Icons.Rounded.Notifications,
+                                            contentDescription = "নোটিফিকেশন",
+                                            tint = if (mobUnreadNotifCount > 0) Color(0xFF38BDF8) else Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        if (mobUnreadNotifCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(7.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFEF4444))
+                                                    .align(Alignment.TopEnd)
+                                            )
+                                        }
+                                    }
+                                }
+
                                 // Refresh Button
                                 Surface(
                                     shape = CircleShape,
@@ -1126,6 +1237,72 @@ fun NafiTvMainApp(
             onDismiss = {
                 repository.dismissUpdate(info.versionCode, info.versionName)
                 showUpdateDialog = false
+            }
+        )
+    }
+
+    // Notification Center Dialog (In-App notification board for matches, channels, movies and announcements)
+    if (showNotificationCenterDialog) {
+        NotificationCenterDialog(
+            notifications = notificationsList,
+            isTvMode = isTvMode,
+            onDismiss = { showNotificationCenterDialog = false },
+            onSelectNotification = { notif ->
+                repository.markNotificationAsRead(notif.id)
+                notificationsList = repository.getStoredNotifications()
+                showNotificationCenterDialog = false
+                when (notif.type) {
+                    NotificationType.LIVE_EVENT -> {
+                        currentTab = AppTab.EVENTS
+                        if (!notif.targetId.isNullOrBlank()) {
+                            val matched = sportsList.find { it.id == notif.targetId }
+                            if (matched != null) {
+                                selectedMediaItem = matched
+                                activePlaybackPlaylist = sportsList
+                            }
+                        }
+                    }
+                    NotificationType.LIVE_TV -> {
+                        currentTab = AppTab.LIVE_TV
+                        if (!notif.targetId.isNullOrBlank()) {
+                            val allTv = (liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV }).distinctBy { it.id }
+                            val matched = allTv.find { it.id == notif.targetId }
+                            if (matched != null) {
+                                selectedMediaItem = matched
+                                activePlaybackPlaylist = allTv
+                            }
+                        }
+                    }
+                    NotificationType.MOVIE -> {
+                        currentTab = AppTab.MOVIES
+                        if (!notif.targetId.isNullOrBlank()) {
+                            val matched = moviesList.find { it.id == notif.targetId }
+                            if (matched != null) {
+                                selectedMediaItem = matched
+                                activePlaybackPlaylist = moviesList
+                            }
+                        }
+                    }
+                    NotificationType.PLAYLIST -> {
+                        currentTab = AppTab.PLAYLIST
+                    }
+                    NotificationType.APP_UPDATE -> {
+                        checkForUpdates(isManualCheck = true)
+                    }
+                    else -> {}
+                }
+            },
+            onMarkAllRead = {
+                repository.markAllNotificationsAsRead()
+                notificationsList = repository.getStoredNotifications()
+            },
+            onClearAll = {
+                repository.clearAllNotifications()
+                notificationsList = emptyList()
+            },
+            onDeleteNotification = { id ->
+                repository.deleteNotification(id)
+                notificationsList = repository.getStoredNotifications()
             }
         )
     }
@@ -1388,6 +1565,16 @@ fun AdminControlAppScreen(
     val statusOptions = listOf("● Live Now", "Upcoming", "Finished")
     var sportDropdownExpanded by remember { mutableStateOf(false) }
     var statusDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Broadcast Notifications Form State
+    var broadcastTitle by remember { mutableStateOf("") }
+    var broadcastMessage by remember { mutableStateOf("") }
+    var broadcastType by remember { mutableStateOf(NotificationType.BROADCAST) }
+    var broadcastTargetId by remember { mutableStateOf("") }
+    var broadcastImageUrl by remember { mutableStateOf("") }
+    var isSendingBroadcast by remember { mutableStateOf(false) }
+    var broadcastTypeDropdownExpanded by remember { mutableStateOf(false) }
+    var adminNotificationHistory by remember { mutableStateOf(repository.getStoredNotifications()) }
 
     Column(
         modifier = Modifier
@@ -1694,6 +1881,22 @@ fun AdminControlAppScreen(
                             Icon(Icons.Rounded.RocketLaunch, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("🚀 App Updates", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    item {
+                        Button(
+                            onClick = { selectedAdminTab = AdminTab.BROADCAST },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedAdminTab == AdminTab.BROADCAST) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                contentColor = if (selectedAdminTab == AdminTab.BROADCAST) Color.Black else Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Rounded.NotificationsActive, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("📢 নোটিফিকেশন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -2224,6 +2427,16 @@ fun AdminControlAppScreen(
                                         repository.saveCustomStream(matchItem)
                                         coroutineScope.launch {
                                             repository.pushToFirebase(matchItem)
+                                            val notif = AppNotification(
+                                                title = "⚽ নতুন ম্যাচ: ${matchItem.title}",
+                                                message = if (!matchItem.tournament.isNullOrBlank()) "${matchItem.tournament} - এখনই লাইভ উপভোগ করুন!" else "নতুন লাইভ ম্যাচ যোগ করা হয়েছে!",
+                                                type = NotificationType.LIVE_EVENT,
+                                                targetId = matchItem.id,
+                                                imageUrl = matchItem.team1Logo ?: matchItem.team2Logo
+                                            )
+                                            repository.broadcastNotification(notif)
+                                            NotificationHelper.showSystemNotification(context, notif)
+                                            adminNotificationHistory = repository.getStoredNotifications()
                                         }
                                         onDataChanged()
 
@@ -2553,6 +2766,16 @@ fun AdminControlAppScreen(
                                         repository.saveCustomStream(item)
                                         coroutineScope.launch {
                                             repository.pushToFirebase(item)
+                                            val notif = AppNotification(
+                                                title = "📺 নতুন চ্যানেল: ${item.title}",
+                                                message = "${item.category} ক্যাটাগরিতে নতুন চ্যানেল যুক্ত হয়েছে। উপভোগ করুন!",
+                                                type = NotificationType.LIVE_TV,
+                                                targetId = item.id,
+                                                imageUrl = item.logoUrl
+                                            )
+                                            repository.broadcastNotification(notif)
+                                            NotificationHelper.showSystemNotification(context, notif)
+                                            adminNotificationHistory = repository.getStoredNotifications()
                                         }
                                         onDataChanged()
                                         channelName = ""
@@ -2767,7 +2990,19 @@ fun AdminControlAppScreen(
                                             isLive = false
                                         )
                                         repository.saveCustomStream(item)
-                                        coroutineScope.launch { repository.pushToFirebase(item) }
+                                        coroutineScope.launch {
+                                            repository.pushToFirebase(item)
+                                            val notif = AppNotification(
+                                                title = "🎬 নতুন মুভি: ${item.title}",
+                                                message = "${item.category} ক্যাটাগরিতে নতুন মুভি যোগ করা হয়েছে। এখনই দেখুন!",
+                                                type = NotificationType.MOVIE,
+                                                targetId = item.id,
+                                                imageUrl = item.logoUrl
+                                            )
+                                            repository.broadcastNotification(notif)
+                                            NotificationHelper.showSystemNotification(context, notif)
+                                            adminNotificationHistory = repository.getStoredNotifications()
+                                        }
                                         onDataChanged()
                                         movieTitle = ""
                                         server1Url = ""
@@ -4056,6 +4291,311 @@ fun AdminControlAppScreen(
                                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                             modifier = Modifier.padding(8.dp)
                                         )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // TAB 7 CONTENT: BROADCAST NOTIFICATIONS TO USERS
+            // -------------------------------------------------------------
+            if (selectedAdminTab == AdminTab.BROADCAST) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Header Banner
+                            Surface(
+                                color = Color(0xFF0F172A),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00E5FF).copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "📢 লাইভ ব্রডকাস্ট নোটিফিকেশন",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                        Text(
+                                            text = "সব ব্যবহারকারীদের কাছে লাইভ ম্যাচ, টিভি চ্যানেল বা বিশেষ নোটিস পাঠান",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Notification Input Form
+                            OutlinedTextField(
+                                value = broadcastTitle,
+                                onValueChange = { broadcastTitle = it },
+                                label = { Text("নোটিফিকেশন টাইটেল * (যেমন: ⚽ লাইভ ম্যাচ শুরু!)", color = Color(0xFF94A3B8), fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF00E5FF),
+                                    unfocusedBorderColor = Color(0xFF334155),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedContainerColor = Color(0xFF0F172A),
+                                    unfocusedContainerColor = Color(0xFF0F172A)
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = broadcastMessage,
+                                onValueChange = { broadcastMessage = it },
+                                label = { Text("বিস্তারিত বার্তা * (যেমন: রিয়াল মাদ্রিদ বনাম বার্সেলোনা লাইভ শুরু হয়েছে)", color = Color(0xFF94A3B8), fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2,
+                                maxLines = 4,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF00E5FF),
+                                    unfocusedBorderColor = Color(0xFF334155),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedContainerColor = Color(0xFF0F172A),
+                                    unfocusedContainerColor = Color(0xFF0F172A)
+                                )
+                            )
+
+                            // Type Dropdown & Optional Image URL
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedButton(
+                                        onClick = { broadcastTypeDropdownExpanded = true },
+                                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                                    ) {
+                                        val typeName = when (broadcastType) {
+                                            NotificationType.LIVE_EVENT -> "⚽ ম্যাচ নোটিস"
+                                            NotificationType.LIVE_TV -> "📺 টিভি নোটিস"
+                                            NotificationType.MOVIE -> "🎬 মুভি নোটিস"
+                                            NotificationType.PLAYLIST -> "📂 প্লেলিস্ট"
+                                            NotificationType.APP_UPDATE -> "🚀 অ্যাপ আপডেট"
+                                            else -> "📢 সাধারণ নোটিস"
+                                        }
+                                        Text(text = "ক্যাটাগরি: $typeName", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = broadcastTypeDropdownExpanded,
+                                        onDismissRequest = { broadcastTypeDropdownExpanded = false },
+                                        modifier = Modifier.background(Color(0xFF1E293B))
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("📢 সাধারণ নোটিস", color = Color.White, fontSize = 12.sp) },
+                                            onClick = {
+                                                broadcastType = NotificationType.BROADCAST
+                                                broadcastTypeDropdownExpanded = false
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("⚽ লাইভ ম্যাচ", color = Color(0xFF10B981), fontSize = 12.sp) },
+                                            onClick = {
+                                                broadcastType = NotificationType.LIVE_EVENT
+                                                broadcastTypeDropdownExpanded = false
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("📺 টিভি চ্যানেল", color = Color(0xFF00E5FF), fontSize = 12.sp) },
+                                            onClick = {
+                                                broadcastType = NotificationType.LIVE_TV
+                                                broadcastTypeDropdownExpanded = false
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("🎬 নতুন মুভি", color = Color(0xFF8B5CF6), fontSize = 12.sp) },
+                                            onClick = {
+                                                broadcastType = NotificationType.MOVIE
+                                                broadcastTypeDropdownExpanded = false
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("📂 প্লেলিস্ট", color = Color(0xFFEC4899), fontSize = 12.sp) },
+                                            onClick = {
+                                                broadcastType = NotificationType.PLAYLIST
+                                                broadcastTypeDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = broadcastImageUrl,
+                                    onValueChange = { broadcastImageUrl = it },
+                                    label = { Text("ইমেজ URL (ঐচ্ছিক)", color = Color(0xFF94A3B8), fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF00E5FF),
+                                        unfocusedBorderColor = Color(0xFF334155),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedContainerColor = Color(0xFF0F172A),
+                                        unfocusedContainerColor = Color(0xFF0F172A)
+                                    )
+                                )
+                            }
+
+                            // Send Button
+                            Button(
+                                onClick = {
+                                    if (broadcastTitle.isBlank()) {
+                                        Toast.makeText(context, "অনুগ্রহ করে টাইটেল দিন", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    coroutineScope.launch {
+                                        isSendingBroadcast = true
+                                        val newNotif = AppNotification(
+                                            title = broadcastTitle.trim(),
+                                            message = broadcastMessage.trim(),
+                                            type = broadcastType,
+                                            imageUrl = broadcastImageUrl.trim().ifEmpty { null },
+                                            targetId = broadcastTargetId.trim().ifEmpty { null },
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                        repository.broadcastNotification(newNotif)
+                                        NotificationHelper.showSystemNotification(context, newNotif)
+                                        adminNotificationHistory = repository.getStoredNotifications()
+                                        isSendingBroadcast = false
+                                        broadcastTitle = ""
+                                        broadcastMessage = ""
+                                        broadcastImageUrl = ""
+                                        broadcastTargetId = ""
+                                        Toast.makeText(context, "✅ নোটিফিকেশন সফলভাবে পাঠানো হয়েছে!", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00E5FF),
+                                    contentColor = Color.Black
+                                ),
+                                enabled = !isSendingBroadcast
+                            ) {
+                                if (isSendingBroadcast) {
+                                    CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("নোটিফিকেশন পাঠানো হচ্ছে...", fontWeight = FontWeight.Bold)
+                                } else {
+                                    Icon(Icons.Rounded.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("নোটিফিকেশন পাঠান ও ব্রডকাস্ট করুন", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+
+                            HorizontalDivider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 6.dp))
+
+                            // Recent Sent Notifications
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "📜 প্রেরিত নোটিফিকেশন হিস্ট্রি (${adminNotificationHistory.size} টি)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                if (adminNotificationHistory.isNotEmpty()) {
+                                    TextButton(
+                                        onClick = {
+                                            repository.clearAllNotifications()
+                                            adminNotificationHistory = emptyList()
+                                            Toast.makeText(context, "সকল নোটিফিকেশন মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteSweep, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("সব মুছুন", color = Color(0xFFEF4444), fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            if (adminNotificationHistory.isEmpty()) {
+                                Surface(
+                                    color = Color(0xFF0F172A),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
+                                        Text("এখনও কোনো নোটিফিকেশন পাঠানো হয়নি", color = Color(0xFF64748B), fontSize = 12.sp)
+                                    }
+                                }
+                            } else {
+                                adminNotificationHistory.take(15).forEach { notif ->
+                                    Surface(
+                                        color = Color(0xFF0F172A),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = notif.title,
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (notif.message.isNotBlank()) {
+                                                    Text(
+                                                        text = notif.message,
+                                                        color = Color(0xFF94A3B8),
+                                                        fontSize = 11.sp,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    repository.deleteNotification(notif.id)
+                                                    adminNotificationHistory = repository.getStoredNotifications()
+                                                }
+                                            ) {
+                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
+                                            }
+                                        }
                                     }
                                 }
                             }
