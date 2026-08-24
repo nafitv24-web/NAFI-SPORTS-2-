@@ -3,7 +3,6 @@ package com.example.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -12,8 +11,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -22,18 +23,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -42,10 +36,8 @@ import com.example.R
 import com.example.data.MediaRepository
 
 /**
- * High-fidelity Mode Selection Launcher Screen matching the user provided visual reference.
- * Allows users to choose between Mobile Mode (Portrait/Touch) and Remote Mode (Landscape/TV D-Pad).
- * Displays live scrolling breaking news ticker that can be updated remotely via Admin Panel / Firebase RTDB.
- * The News Ticker bar is placed directly ABOVE the GET STARTED button as requested by user.
+ * Adaptive Mode Selection Launcher Screen that perfectly fits both Landscape (TV / Widescreen)
+ * and Portrait (Mobile) orientations without any clipping or overflow.
  */
 @Composable
 fun ModeSelectionScreen(
@@ -91,7 +83,7 @@ fun ModeSelectionScreen(
         label = "glowPulse"
     )
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -104,13 +96,16 @@ fun ModeSelectionScreen(
                 )
             )
     ) {
+        val isLandscape = maxWidth > maxHeight || maxHeight < 560.dp
+        val scrollState = rememberScrollState()
+
         // Decorative cosmic ambient glow orbs in background
         Box(
             modifier = Modifier
-                .size(360.dp)
+                .size(if (isLandscape) 220.dp else 340.dp)
                 .align(Alignment.TopCenter)
-                .offset(y = (-80).dp)
-                .blur(80.dp)
+                .offset(y = if (isLandscape) (-40).dp else (-70).dp)
+                .blur(60.dp)
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
@@ -125,14 +120,14 @@ fun ModeSelectionScreen(
 
         Box(
             modifier = Modifier
-                .size(280.dp)
+                .size(if (isLandscape) 180.dp else 260.dp)
                 .align(Alignment.BottomStart)
-                .offset(x = (-60).dp, y = 60.dp)
-                .blur(70.dp)
+                .offset(x = (-40).dp, y = 40.dp)
+                .blur(50.dp)
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF00E5FF).copy(alpha = 0.25f),
+                            Color(0xFF00E5FF).copy(alpha = 0.22f),
                             Color.Transparent
                         )
                     ),
@@ -142,14 +137,14 @@ fun ModeSelectionScreen(
 
         Box(
             modifier = Modifier
-                .size(280.dp)
+                .size(if (isLandscape) 180.dp else 260.dp)
                 .align(Alignment.BottomEnd)
-                .offset(x = 60.dp, y = 60.dp)
-                .blur(70.dp)
+                .offset(x = 40.dp, y = 40.dp)
+                .blur(50.dp)
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFFD946EF).copy(alpha = 0.25f),
+                            Color(0xFFD946EF).copy(alpha = 0.22f),
                             Color.Transparent
                         )
                     ),
@@ -157,100 +152,142 @@ fun ModeSelectionScreen(
                 )
         )
 
-        // Main Content Layout (Responsive Column)
+        // Main Content Layout
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .verticalScroll(scrollState)
+                .padding(
+                    horizontal = if (isLandscape) 24.dp else 18.dp,
+                    vertical = if (isLandscape) 8.dp else 16.dp
+                ),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = if (isLandscape) Arrangement.spacedBy(8.dp, Alignment.CenterVertically) else Arrangement.SpaceBetween
         ) {
             // Header Section: Official App Logo + Title + Subtitle
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-            ) {
-                // Official NAFI TV24 App Logo with ambient glow & squircle styling
-                Box(
-                    modifier = Modifier.size(105.dp),
-                    contentAlignment = Alignment.Center
+            if (isLandscape) {
+                // Compact Header in Landscape / TV Screen
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
                 ) {
-                    // Ambient radial glow behind the logo
-                    Box(
-                        modifier = Modifier
-                            .size(90.dp)
-                            .blur(18.dp)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        Color(0xFF00E5FF).copy(alpha = 0.6f),
-                                        Color(0xFF8B5CF6).copy(alpha = 0.4f),
-                                        Color.Transparent
-                                    )
-                                ),
-                                shape = RoundedCornerShape(22.dp)
-                            )
-                    )
-
                     Surface(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF0F172A),
                         border = androidx.compose.foundation.BorderStroke(
-                            width = 1.5.dp,
+                            width = 1.2.dp,
                             brush = Brush.linearGradient(
-                                listOf(
-                                    Color(0xFF00E5FF),
-                                    Color(0xFF8B5CF6),
-                                    Color(0xFFEC4899)
-                                )
+                                listOf(Color(0xFF00E5FF), Color(0xFF8B5CF6), Color(0xFFEC4899))
                             )
                         ),
-                        shadowElevation = 12.dp,
-                        modifier = Modifier.size(96.dp)
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.size(42.dp)
                     ) {
                         Image(
                             painter = painterResource(id = R.drawable.app_logo),
-                            contentDescription = "NAFI TV24 Official App Logo",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(22.dp)),
+                            contentDescription = "NAFI TV24 Logo",
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
                             contentScale = ContentScale.Fit
                         )
                     }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column {
+                        Text(
+                            text = "NAFI TV24",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Choose Your Experience",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCBD5E1)
+                        )
+                    }
                 }
+            } else {
+                // Spacious Header in Portrait Mode
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.size(80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(70.dp)
+                                .blur(16.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFF00E5FF).copy(alpha = 0.55f),
+                                            Color(0xFF8B5CF6).copy(alpha = 0.4f),
+                                            Color.Transparent
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                        )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF0F172A),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.5.dp,
+                                brush = Brush.linearGradient(
+                                    listOf(Color(0xFF00E5FF), Color(0xFF8B5CF6), Color(0xFFEC4899))
+                                )
+                            ),
+                            shadowElevation = 10.dp,
+                            modifier = Modifier.size(76.dp)
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo),
+                                contentDescription = "NAFI TV24 Official App Logo",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(20.dp)),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    }
 
-                Text(
-                    text = "NAFI TV24",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.2.sp,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "NAFI TV24",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.2.sp,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
 
-                Text(
-                    text = "Choose Your Experience",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFFCBD5E1),
-                    textAlign = TextAlign.Center
-                )
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = "Choose Your Experience",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFFCBD5E1),
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
 
             // Center Cards: MOBILE MODE vs REMOTE MODE
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                    .padding(horizontal = if (isLandscape) 12.dp else 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 14.dp else 12.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 1. MOBILE MODE CARD (Neon Cyan)
@@ -262,6 +299,7 @@ fun ModeSelectionScreen(
                     gradientColors = listOf(Color(0xFF03223D), Color(0xFF0B192C)),
                     isSelected = selectedMode == AppUserMode.MOBILE,
                     isFocused = focusedMode == AppUserMode.MOBILE,
+                    isLandscape = isLandscape,
                     onFocusChanged = { if (it) focusedMode = AppUserMode.MOBILE },
                     onSelect = {
                         selectedMode = AppUserMode.MOBILE
@@ -269,9 +307,12 @@ fun ModeSelectionScreen(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 200.dp, max = 245.dp)
+                        .heightIn(
+                            min = if (isLandscape) 120.dp else 185.dp,
+                            max = if (isLandscape) 140.dp else 225.dp
+                        )
                 ) {
-                    MobileDeviceArtwork()
+                    MobileDeviceArtwork(isLandscape = isLandscape)
                 }
 
                 // 2. REMOTE MODE CARD (Neon Purple / Violet)
@@ -283,6 +324,7 @@ fun ModeSelectionScreen(
                     gradientColors = listOf(Color(0xFF2A0D45), Color(0xFF160826)),
                     isSelected = selectedMode == AppUserMode.REMOTE,
                     isFocused = focusedMode == AppUserMode.REMOTE,
+                    isLandscape = isLandscape,
                     onFocusChanged = { if (it) focusedMode = AppUserMode.REMOTE },
                     onSelect = {
                         selectedMode = AppUserMode.REMOTE
@@ -290,20 +332,21 @@ fun ModeSelectionScreen(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 200.dp, max = 245.dp)
+                        .heightIn(
+                            min = if (isLandscape) 120.dp else 185.dp,
+                            max = if (isLandscape) 140.dp else 225.dp
+                        )
                 ) {
-                    RemoteDeviceArtwork()
+                    RemoteDeviceArtwork(isLandscape = isLandscape)
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
             // NEWS MARQUEE BAR: Placed directly ABOVE the GET STARTED button as requested
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF0F172A).copy(alpha = 0.75f),
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.8f),
                 border = androidx.compose.foundation.BorderStroke(
-                    width = 1.2.dp,
+                    width = 1.dp,
                     brush = Brush.horizontalGradient(
                         colors = listOf(
                             Color(0xFF00E5FF).copy(alpha = 0.8f),
@@ -314,24 +357,24 @@ fun ModeSelectionScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(if (isLandscape) 34.dp else 42.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .background(Color(0xFF00E5FF), shape = CircleShape)
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = tickerText,
                         color = Color(0xFFE2E8F0),
-                        fontSize = 13.sp,
+                        fontSize = if (isLandscape) 11.5.sp else 13.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         modifier = Modifier
@@ -341,31 +384,29 @@ fun ModeSelectionScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
             // Bottom Action: "GET STARTED" Button (Below the Marquee Bar)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = if (isLandscape) 4.dp else 10.dp)
             ) {
                 var isStartBtnFocused by remember { mutableStateOf(false) }
                 val startBtnScale by animateFloatAsState(
-                    targetValue = if (isStartBtnFocused) 1.08f else 1.0f,
+                    targetValue = if (isStartBtnFocused) 1.06f else 1.0f,
                     animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
                     label = "startBtnScale"
                 )
 
                 Surface(
-                    shape = RoundedCornerShape(30.dp),
+                    shape = RoundedCornerShape(26.dp),
                     color = Color.Transparent,
-                    shadowElevation = if (isStartBtnFocused) 16.dp else 6.dp,
+                    shadowElevation = if (isStartBtnFocused) 14.dp else 4.dp,
                     modifier = Modifier
                         .scale(startBtnScale)
                         .onFocusChanged { isStartBtnFocused = it.isFocused }
                         .focusable()
-                        .clip(RoundedCornerShape(30.dp))
+                        .clip(RoundedCornerShape(26.dp))
                         .clickable {
                             if (focusedMode == AppUserMode.REMOTE || selectedMode == AppUserMode.REMOTE) {
                                 onSelectRemoteMode()
@@ -386,17 +427,20 @@ fun ModeSelectionScreen(
                                 )
                             )
                             .border(
-                                width = if (isStartBtnFocused) 2.5.dp else 1.2.dp,
+                                width = if (isStartBtnFocused) 2.2.dp else 1.dp,
                                 color = if (isStartBtnFocused) Color(0xFF00E5FF) else Color(0xFF93C5FD).copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(30.dp)
+                                shape = RoundedCornerShape(26.dp)
                             )
-                            .padding(horizontal = 42.dp, vertical = 13.dp),
+                            .padding(
+                                horizontal = if (isLandscape) 34.dp else 40.dp,
+                                vertical = if (isLandscape) 8.dp else 12.dp
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "GET STARTED",
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = if (isLandscape) 13.sp else 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 1.sp
                         )
@@ -421,13 +465,14 @@ private fun ModeOptionCard(
     gradientColors: List<Color>,
     isSelected: Boolean,
     isFocused: Boolean,
+    isLandscape: Boolean,
     onFocusChanged: (Boolean) -> Unit,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
     artwork: @Composable () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isFocused || isSelected) 1.05f else 1.0f,
+        targetValue = if (isFocused || isSelected) 1.04f else 1.0f,
         animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
         label = "cardScale"
     )
@@ -438,14 +483,14 @@ private fun ModeOptionCard(
     )
 
     Surface(
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(if (isLandscape) 16.dp else 20.dp),
         color = Color.Transparent,
-        shadowElevation = if (isFocused || isSelected) 18.dp else 4.dp,
+        shadowElevation = if (isFocused || isSelected) 14.dp else 4.dp,
         modifier = modifier
             .scale(scale)
             .onFocusChanged { onFocusChanged(it.isFocused) }
             .focusable()
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(if (isLandscape) 16.dp else 20.dp))
             .clickable { onSelect() }
     ) {
         Box(
@@ -461,11 +506,11 @@ private fun ModeOptionCard(
                     )
                 )
                 .border(
-                    width = if (isFocused || isSelected) 2.8.dp else 1.2.dp,
+                    width = if (isFocused || isSelected) 2.5.dp else 1.dp,
                     color = accentColor.copy(alpha = glowAlpha),
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(if (isLandscape) 16.dp else 20.dp)
                 )
-                .padding(14.dp),
+                .padding(if (isLandscape) 8.dp else 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -483,7 +528,7 @@ private fun ModeOptionCard(
                     artwork()
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(if (isLandscape) 2.dp else 6.dp))
 
                 // Bottom Labels
                 Column(
@@ -492,19 +537,21 @@ private fun ModeOptionCard(
                     Text(
                         text = title,
                         color = Color.White,
-                        fontSize = 15.sp,
+                        fontSize = if (isLandscape) 13.sp else 14.5.sp,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 0.5.sp,
+                        letterSpacing = 0.4.sp,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = subtitle,
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Normal,
-                        textAlign = TextAlign.Center
-                    )
+                    if (!isLandscape) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = subtitle,
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }
@@ -515,17 +562,20 @@ private fun ModeOptionCard(
  * Stylized 3D Smartphone Artwork with glowing play screen and ambient cyan particles
  */
 @Composable
-private fun MobileDeviceArtwork() {
+private fun MobileDeviceArtwork(isLandscape: Boolean = false) {
+    val scaleFactor = if (isLandscape) 0.65f else 1.0f
+
     Box(
         modifier = Modifier
-            .size(width = 85.dp, height = 115.dp),
+            .scale(scaleFactor)
+            .size(width = 85.dp, height = 110.dp),
         contentAlignment = Alignment.Center
     ) {
         // Cyan ambient glow behind phone
         Box(
             modifier = Modifier
-                .size(75.dp)
-                .blur(20.dp)
+                .size(70.dp)
+                .blur(18.dp)
                 .background(Color(0xFF00E5FF).copy(alpha = 0.5f), CircleShape)
         )
 
@@ -536,8 +586,8 @@ private fun MobileDeviceArtwork() {
             border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)),
             shadowElevation = 8.dp,
             modifier = Modifier
-                .width(62.dp)
-                .height(105.dp)
+                .width(60.dp)
+                .height(100.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -569,14 +619,14 @@ private fun MobileDeviceArtwork() {
                     shape = CircleShape,
                     color = Color(0xFF00E5FF).copy(alpha = 0.25f),
                     border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Rounded.PlayArrow,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -586,7 +636,7 @@ private fun MobileDeviceArtwork() {
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 3.dp)
-                        .width(22.dp)
+                        .width(20.dp)
                         .height(2.dp)
                         .background(Color(0xFF38BDF8).copy(alpha = 0.8f), RoundedCornerShape(2.dp))
                 )
@@ -599,17 +649,20 @@ private fun MobileDeviceArtwork() {
  * Stylized 3D Remote & Big Screen TV + Gamepad Artwork with glowing purple ambient lighting
  */
 @Composable
-private fun RemoteDeviceArtwork() {
+private fun RemoteDeviceArtwork(isLandscape: Boolean = false) {
+    val scaleFactor = if (isLandscape) 0.65f else 1.0f
+
     Box(
         modifier = Modifier
-            .size(width = 110.dp, height = 115.dp),
+            .scale(scaleFactor)
+            .size(width = 110.dp, height = 110.dp),
         contentAlignment = Alignment.Center
     ) {
         // Purple ambient glow behind TV and remote
         Box(
             modifier = Modifier
-                .size(80.dp)
-                .blur(22.dp)
+                .size(75.dp)
+                .blur(20.dp)
                 .background(Color(0xFFC084FC).copy(alpha = 0.5f), CircleShape)
         )
 
@@ -620,8 +673,8 @@ private fun RemoteDeviceArtwork() {
             border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFA855F7)),
             modifier = Modifier
                 .offset(x = (-8).dp, y = (-6).dp)
-                .width(72.dp)
-                .height(50.dp)
+                .width(68.dp)
+                .height(48.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -637,7 +690,7 @@ private fun RemoteDeviceArtwork() {
                     imageVector = Icons.Rounded.Tv,
                     contentDescription = null,
                     tint = Color(0xFFC084FC).copy(alpha = 0.5f),
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -650,8 +703,8 @@ private fun RemoteDeviceArtwork() {
             shadowElevation = 10.dp,
             modifier = Modifier
                 .offset(x = 6.dp, y = 2.dp)
-                .width(36.dp)
-                .height(86.dp)
+                .width(34.dp)
+                .height(82.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -677,12 +730,12 @@ private fun RemoteDeviceArtwork() {
                     shape = CircleShape,
                     color = Color(0xFF0F172A),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC084FC)),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Box(
                             modifier = Modifier
-                                .size(6.dp)
+                                .size(5.dp)
                                 .background(Color(0xFFC084FC), CircleShape)
                         )
                     }
@@ -694,12 +747,12 @@ private fun RemoteDeviceArtwork() {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Box(modifier = Modifier.size(4.dp).background(Color(0xFF94A3B8), CircleShape))
-                        Box(modifier = Modifier.size(4.dp).background(Color(0xFF94A3B8), CircleShape))
+                        Box(modifier = Modifier.size(3.5.dp).background(Color(0xFF94A3B8), CircleShape))
+                        Box(modifier = Modifier.size(3.5.dp).background(Color(0xFF94A3B8), CircleShape))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Box(modifier = Modifier.size(4.dp).background(Color(0xFF94A3B8), CircleShape))
-                        Box(modifier = Modifier.size(4.dp).background(Color(0xFF94A3B8), CircleShape))
+                        Box(modifier = Modifier.size(3.5.dp).background(Color(0xFF94A3B8), CircleShape))
+                        Box(modifier = Modifier.size(3.5.dp).background(Color(0xFF94A3B8), CircleShape))
                     }
                 }
             }
@@ -713,17 +766,16 @@ private fun RemoteDeviceArtwork() {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .offset(x = (-2).dp, y = (-2).dp)
-                .size(24.dp)
+                .size(22.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Rounded.Gamepad,
                     contentDescription = null,
                     tint = Color(0xFF38BDF8),
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
     }
 }
-
