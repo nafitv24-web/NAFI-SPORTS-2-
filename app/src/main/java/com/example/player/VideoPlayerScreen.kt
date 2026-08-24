@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -260,6 +261,7 @@ fun VideoPlayerScreen(
     }
 
     var showControls by remember { mutableStateOf(true) }
+    var controlsInteractionKey by remember { mutableLongStateOf(0L) }
     var isMuted by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
@@ -409,10 +411,10 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Auto hide controls after 4 seconds of inactivity
-    LaunchedEffect(showControls, isPlaying) {
+    // Auto hide controls after 6 seconds of inactivity, reset on user remote interaction
+    LaunchedEffect(showControls, isPlaying, controlsInteractionKey) {
         if (showControls && isPlaying) {
-            delay(4500)
+            delay(6000)
             showControls = false
         }
     }
@@ -801,6 +803,7 @@ fun VideoPlayerScreen(
     }
 
     val focusRequester = remember { FocusRequester() }
+    val initialControlFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
         try {
@@ -808,10 +811,39 @@ fun VideoPlayerScreen(
         } catch (_: Exception) {}
     }
 
-    LaunchedEffect(isFullscreen, showControls) {
+    LaunchedEffect(showControls) {
         try {
-            focusRequester.requestFocus()
+            if (showControls) {
+                delay(80)
+                initialControlFocusRequester.requestFocus()
+            } else {
+                delay(50)
+                focusRequester.requestFocus()
+            }
         } catch (_: Exception) {}
+    }
+
+    // Switch stream server by index
+    fun switchServer(targetIndex: Int) {
+        if (servers.isEmpty()) return
+        val newIndex = targetIndex.coerceIn(0, servers.size - 1)
+        selectedServerIndex = newIndex
+        val targetServer = servers[newIndex]
+        currentUrl = targetServer.url
+        isBuffering = true
+        errorMessage = null
+        channelOsdKey = System.currentTimeMillis()
+        android.widget.Toast.makeText(context, "${targetServer.name} চালু হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    // Cycle to next available stream server
+    fun cycleNextServer() {
+        if (servers.size > 1) {
+            val nextIdx = (selectedServerIndex + 1) % servers.size
+            switchServer(nextIdx)
+        } else {
+            android.widget.Toast.makeText(context, "এই চ্যানেলে ১টি মাত্র সার্ভার রয়েছে", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     // Handle Direct Channel Number input from Remote (0-9)
@@ -820,21 +852,56 @@ fun VideoPlayerScreen(
         remoteNumberKey = System.currentTimeMillis()
     }
 
-    // Switch to Next / Previous Channel (Smoothly switches in fullscreen without exiting)
+    // Switch to Next / Previous Channel with multi-server sequential traversal:
+    // If a channel has multiple servers, Remote Up/Down first iterates through all servers of the channel before moving to the next/prev channel
     fun switchChannel(delta: Int) {
-        val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
-        val currentIndex = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }
-        if (currentIndex != -1 && list.isNotEmpty()) {
-            val nextIndex = (currentIndex + delta).mod(list.size)
-            val nextItem = list[nextIndex]
-            isBuffering = true
-            currentMedia = nextItem
-            selectedServerIndex = 0
-            val newServers = nextItem.getAllServers()
-            currentUrl = newServers.firstOrNull()?.url ?: nextItem.streamUrl
-            errorMessage = null
-            onSelectMedia(nextItem)
-            channelOsdKey = System.currentTimeMillis()
+        val currentServers = currentMedia.getAllServers()
+        if (delta > 0) {
+            // Going Forward (Down button / Next Channel)
+            if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
+                // Play next server of the current channel first
+                val nextServerIdx = selectedServerIndex + 1
+                switchServer(nextServerIdx)
+                return
+            }
+            // If already at last server or single server, move to next channel (server index 0)
+            val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+            val currentIndex = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }
+            if (currentIndex != -1 && list.isNotEmpty()) {
+                val nextIndex = (currentIndex + 1).mod(list.size)
+                val nextItem = list[nextIndex]
+                isBuffering = true
+                currentMedia = nextItem
+                selectedServerIndex = 0
+                val newServers = nextItem.getAllServers()
+                currentUrl = newServers.firstOrNull()?.url ?: nextItem.streamUrl
+                errorMessage = null
+                onSelectMedia(nextItem)
+                channelOsdKey = System.currentTimeMillis()
+            }
+        } else if (delta < 0) {
+            // Going Backward (Up button / Previous Channel)
+            if (currentServers.size > 1 && selectedServerIndex > 0) {
+                // Play previous server of the current channel first
+                val prevServerIdx = selectedServerIndex - 1
+                switchServer(prevServerIdx)
+                return
+            }
+            // If already at first server or single server, move to previous channel (at its last server)
+            val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+            val currentIndex = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }
+            if (currentIndex != -1 && list.isNotEmpty()) {
+                val prevIndex = (currentIndex - 1).mod(list.size)
+                val prevItem = list[prevIndex]
+                val prevServers = prevItem.getAllServers()
+                isBuffering = true
+                currentMedia = prevItem
+                selectedServerIndex = if (prevServers.size > 1) prevServers.size - 1 else 0
+                currentUrl = prevServers.getOrNull(selectedServerIndex)?.url ?: prevItem.streamUrl
+                errorMessage = null
+                onSelectMedia(prevItem)
+                channelOsdKey = System.currentTimeMillis()
+            }
         }
     }
 
@@ -852,7 +919,44 @@ fun VideoPlayerScreen(
         if (keyEvent.type != KeyEventType.KeyDown) return false
         val nativeEvent = keyEvent.nativeKeyEvent
         val keyCode = nativeEvent.keyCode
+
+        // Reset control auto-hide timer on any remote interaction
+        if (showControls) {
+            controlsInteractionKey = System.currentTimeMillis()
+        }
+
+        // When controls are visible, let D-pad focus navigate naturally across UI elements!
+        if (showControls) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    // Return false so Compose FocusManager can navigate focus to top bar, server row, or bottom buttons!
+                    return false
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                    // Let the currently focused Compose component consume the click!
+                    return false
+                }
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                    if (showQuickChannelDrawer) {
+                        showQuickChannelDrawer = false
+                        return true
+                    }
+                    showControls = false
+                    return true
+                }
+            }
+        }
+
+        // Handle keys when controls are hidden or for global actions
         return when (keyCode) {
+            // Dedicated Server Switching shortcuts (Yellow/Blue/Green keys, Button X, 'S' key)
+            KeyEvent.KEYCODE_PROG_YELLOW, KeyEvent.KEYCODE_PROG_GREEN, KeyEvent.KEYCODE_PROG_BLUE,
+            KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_S -> {
+                cycleNextServer()
+                true
+            }
+
             // Play / Pause & Toggle Controls
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_SPACE -> {
                 if (showControls) {
@@ -863,7 +967,7 @@ fun VideoPlayerScreen(
                 true
             }
 
-            // UP / DOWN -> Change Channel (উপর-নিচে ক্লিক করলে চ্যানেল পরিবর্তন)
+            // UP / DOWN -> Change Channel (or Channel Up/Down buttons)
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
                 switchChannel(-1)
                 true
@@ -873,7 +977,7 @@ fun VideoPlayerScreen(
                 true
             }
 
-            // LEFT -> Rewind / Seekbar Control (বাম পাশে ক্লিক করলে ভিডিও কন্ট্রোল বার/সিকবার রিওয়াইন্ড)
+            // LEFT -> Rewind / Seekbar Control
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
                 val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
                 if (effDuration > 0) {
@@ -901,7 +1005,7 @@ fun VideoPlayerScreen(
                 true
             }
 
-            // RIGHT -> Forward / Seekbar Control (ডান পাশে ক্লিক করলে ভিডিও কন্ট্রোল বার/সিকবার ফরোয়ার্ড)
+            // RIGHT -> Forward / Seekbar Control
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
                 val effDuration = if (durationMs > 0) durationMs else exoPlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
                 if (effDuration > 0) {
@@ -967,7 +1071,7 @@ fun VideoPlayerScreen(
 
             // TV Menu / Info / Guide -> Toggle Channel Drawer
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_BUTTON_Y,
-            KeyEvent.KEYCODE_PROG_RED, KeyEvent.KEYCODE_PROG_GREEN, KeyEvent.KEYCODE_PROG_YELLOW, KeyEvent.KEYCODE_PROG_BLUE -> {
+            KeyEvent.KEYCODE_PROG_RED -> {
                 showQuickChannelDrawer = !showQuickChannelDrawer
                 true
             }
@@ -976,6 +1080,9 @@ fun VideoPlayerScreen(
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                 if (showQuickChannelDrawer) {
                     showQuickChannelDrawer = false
+                    true
+                } else if (showControls) {
+                    showControls = false
                     true
                 } else if (isFullscreen) {
                     toggleFullscreen()
@@ -1293,6 +1400,8 @@ fun VideoPlayerScreen(
                     media = currentMedia,
                     currentIndex = curIdx,
                     totalCount = list.size,
+                    selectedServerIndex = selectedServerIndex,
+                    totalServersCount = servers.size,
                     selectedServerName = servers.getOrNull(selectedServerIndex)?.name,
                     modifier = Modifier.align(Alignment.TopStart)
                 )
@@ -1326,11 +1435,9 @@ fun VideoPlayerScreen(
                     currentVideoResolution = currentVideoResolution,
                     servers = servers,
                     selectedServerIndex = selectedServerIndex,
-                    onSelectServer = { index ->
-                        selectedServerIndex = index
-                        currentUrl = servers[index].url
-                        errorMessage = null
-                    },
+                    onSelectServer = { index -> switchServer(index) },
+                    onCycleNextServer = { cycleNextServer() },
+                    playPauseFocusRequester = initialControlFocusRequester,
                     isPlaying = isPlaying,
                     isMuted = isMuted,
                     playbackSpeed = playbackSpeed,
@@ -2204,12 +2311,7 @@ fun VideoPlayerScreen(
                                 color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
                                 border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
                                 modifier = Modifier.clickable {
-                                    if (selectedServerIndex != index) {
-                                        selectedServerIndex = index
-                                        currentUrl = server.url
-                                        isBuffering = true
-                                        errorMessage = null
-                                    }
+                                    switchServer(index)
                                 }
                             ) {
                                 Row(
@@ -2995,12 +3097,184 @@ private fun FullscreenErrorOverlay(
 }
 
 @Composable
+fun TvPlayerIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    tint: Color = Color.White,
+    activeBackground: Color? = null,
+    size: androidx.compose.ui.unit.Dp = 42.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 24.dp
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    var mod = modifier
+        .size(size)
+        .clip(CircleShape)
+        .onFocusChanged { isFocused = it.isFocused }
+        .focusable()
+
+    if (focusRequester != null) {
+        mod = mod.focusRequester(focusRequester)
+    }
+
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.18f else 1.0f,
+        label = "btnScale"
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = when {
+            isFocused -> Color(0xFF00E5FF)
+            activeBackground != null -> activeBackground
+            else -> Color.Black.copy(alpha = 0.5f)
+        },
+        border = if (isFocused) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null,
+        modifier = mod.scale(animatedScale)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (isFocused) Color.Black else tint,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+    }
+}
+
+@Composable
+fun TvPlayerServerChip(
+    server: StreamServer,
+    index: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    var mod = modifier
+        .onFocusChanged { isFocused = it.isFocused }
+        .focusable()
+
+    if (focusRequester != null) {
+        mod = mod.focusRequester(focusRequester)
+    }
+
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.10f else 1.0f,
+        label = "serverChipScale"
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = when {
+            isFocused -> Color(0xFF00E5FF)
+            isSelected -> Color(0xFF00E5FF).copy(alpha = 0.9f)
+            else -> Color(0xFF1E293B).copy(alpha = 0.95f)
+        },
+        border = when {
+            isFocused -> androidx.compose.foundation.BorderStroke(2.5.dp, Color.White)
+            isSelected -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF))
+            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))
+        },
+        modifier = mod.scale(animatedScale)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Icon(
+                imageVector = if (isSelected) Icons.Rounded.CheckCircle else Icons.Rounded.Dns,
+                contentDescription = null,
+                tint = if (isFocused || isSelected) Color.Black else Color(0xFF00E5FF),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = server.name,
+                color = if (isFocused || isSelected) Color.Black else Color.White,
+                fontSize = 13.sp,
+                fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium
+            )
+            if (isSelected) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.25f)
+                ) {
+                    Text(
+                        text = "সক্রিয়",
+                        color = Color.Black,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TvPlayerActionChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accentColor: Color = Color(0xFF00E5FF),
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.10f else 1.0f,
+        label = "actionChipScale"
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (isFocused) accentColor else Color(0xFF0F172A).copy(alpha = 0.85f),
+        border = if (isFocused) androidx.compose.foundation.BorderStroke(2.dp, Color.White)
+                 else androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .scale(animatedScale)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isFocused) Color.Black else accentColor,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = label,
+                color = if (isFocused) Color.Black else Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
 private fun FullscreenControlsOverlay(
     media: AppMediaItem,
     currentVideoResolution: String? = null,
     servers: List<StreamServer>,
     selectedServerIndex: Int,
     onSelectServer: (Int) -> Unit,
+    onCycleNextServer: () -> Unit = {},
+    playPauseFocusRequester: FocusRequester? = null,
     isPlaying: Boolean,
     isMuted: Boolean,
     playbackSpeed: Float,
@@ -3039,7 +3313,7 @@ private fun FullscreenControlsOverlay(
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                        listOf(Color.Black.copy(alpha = 0.90f), Color.Transparent)
                     )
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -3047,15 +3321,13 @@ private fun FullscreenControlsOverlay(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
-                IconButton(
+                TvPlayerIconButton(
                     onClick = onClose,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f))
-                ) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close Fullscreen", tint = Color.White)
-                }
+                    icon = Icons.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    size = 38.dp,
+                    iconSize = 22.dp
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
@@ -3076,92 +3348,64 @@ private fun FullscreenControlsOverlay(
             // Top action buttons: Quality, Audio Track, Subtitles, Aspect Ratio, Channel List, Exit
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Quality Selector Button
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
-                    modifier = Modifier.clickable { onOpenQualityDialog() }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                    ) {
-                        Icon(Icons.Rounded.HighQuality, contentDescription = "Quality", tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = selectedVideoQuality?.label ?: if (availableVideoQualities.isNotEmpty()) "Quality" else "Auto",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                TvPlayerActionChip(
+                    icon = Icons.Rounded.HighQuality,
+                    label = selectedVideoQuality?.label ?: if (availableVideoQualities.isNotEmpty()) "Quality" else "Auto",
+                    accentColor = Color(0xFF00E5FF),
+                    onClick = onOpenQualityDialog
+                )
 
                 // Audio Language Button
                 if (availableAudioTracks.size > 1 || (availableAudioTracks.isNotEmpty() && availableAudioTracks.first().language.isNotEmpty())) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
-                        modifier = Modifier.clickable { onOpenAudioDialog() }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                        ) {
-                            Icon(Icons.Rounded.Audiotrack, contentDescription = "Audio", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = selectedAudioTrack?.displayName?.take(10) ?: "Audio",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    TvPlayerActionChip(
+                        icon = Icons.Rounded.Audiotrack,
+                        label = selectedAudioTrack?.displayName?.take(10) ?: "Audio",
+                        accentColor = Color(0xFF38BDF8),
+                        onClick = onOpenAudioDialog
+                    )
                 }
 
                 // Subtitle / Closed Caption Button
                 if (availableSubtitles.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.4f)),
-                        modifier = Modifier.clickable { onOpenSubtitleDialog() }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                        ) {
-                            Icon(Icons.Rounded.Subtitles, contentDescription = "Subtitles", tint = Color(0xFFA855F7), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (selectedSubtitle?.isOff == false) selectedSubtitle.displayName.take(8) else "CC",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    TvPlayerActionChip(
+                        icon = Icons.Rounded.Subtitles,
+                        label = if (selectedSubtitle?.isOff == false) selectedSubtitle.displayName.take(8) else "CC",
+                        accentColor = Color(0xFFA855F7),
+                        onClick = onOpenSubtitleDialog
+                    )
                 }
 
                 // Quick Channel Drawer Toggle
-                IconButton(onClick = onToggleChannelDrawer) {
-                    Icon(Icons.Rounded.FormatListBulleted, contentDescription = "Channel List", tint = Color(0xFF00E5FF))
-                }
+                TvPlayerIconButton(
+                    onClick = onToggleChannelDrawer,
+                    icon = Icons.Rounded.FormatListBulleted,
+                    contentDescription = "Channel List",
+                    tint = Color(0xFF00E5FF),
+                    size = 38.dp,
+                    iconSize = 22.dp
+                )
 
                 // Aspect Ratio
-                IconButton(onClick = onToggleAspect) {
-                    Icon(Icons.Rounded.AspectRatio, contentDescription = "Aspect Ratio", tint = Color.White)
-                }
+                TvPlayerIconButton(
+                    onClick = onToggleAspect,
+                    icon = Icons.Rounded.AspectRatio,
+                    contentDescription = "Aspect Ratio",
+                    size = 38.dp,
+                    iconSize = 22.dp
+                )
 
                 // Exit Fullscreen
-                IconButton(onClick = onToggleFullscreen) {
-                    Icon(Icons.Rounded.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color(0xFF00E5FF))
-                }
+                TvPlayerIconButton(
+                    onClick = onToggleFullscreen,
+                    icon = Icons.Rounded.FullscreenExit,
+                    contentDescription = "Exit Fullscreen",
+                    tint = Color(0xFF00E5FF),
+                    size = 38.dp,
+                    iconSize = 22.dp
+                )
             }
         }
 
@@ -3174,25 +3418,21 @@ private fun FullscreenControlsOverlay(
                 horizontalArrangement = Arrangement.spacedBy(80.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
+                TvPlayerIconButton(
                     onClick = onSeekRewind10,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                ) {
-                    Icon(Icons.Rounded.Replay10, contentDescription = "Rewind 10s", tint = Color.White, modifier = Modifier.size(28.dp))
-                }
+                    icon = Icons.Rounded.Replay10,
+                    contentDescription = "Rewind 10s",
+                    size = 52.dp,
+                    iconSize = 30.dp
+                )
 
-                IconButton(
+                TvPlayerIconButton(
                     onClick = onSeekForward10,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                ) {
-                    Icon(Icons.Rounded.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(28.dp))
-                }
+                    icon = Icons.Rounded.Forward10,
+                    contentDescription = "Forward 10s",
+                    size = 52.dp,
+                    iconSize = 30.dp
+                )
             }
         }
 
@@ -3203,31 +3443,59 @@ private fun FullscreenControlsOverlay(
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))
                     )
                 )
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Servers Row in Fullscreen
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Dedicated High-Visibility TV Multi-Server Switcher Bar
                 if (servers.size > 1) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A).copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        itemsIndexed(servers) { index, server ->
-                            val isSelected = selectedServerIndex == index
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
-                                modifier = Modifier.clickable { onSelectServer(index) }
-                            ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Dns,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = server.name,
-                                    color = if (isSelected) Color.Black else Color.White,
+                                    text = "সার্ভার নির্বাচন (${servers.size} টি সার্ভার উপলব্ধ):",
+                                    color = Color(0xFF00E5FF),
                                     fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Text(
+                                text = "রিমোটের হলুদ/সবুজ বাটন দিয়ে পরিবর্তন করুন",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            itemsIndexed(servers) { index, server ->
+                                val isSelected = selectedServerIndex == index
+                                TvPlayerServerChip(
+                                    server = server,
+                                    index = index,
+                                    isSelected = isSelected,
+                                    onClick = { onSelectServer(index) }
                                 )
                             }
                         }
@@ -3279,81 +3547,105 @@ private fun FullscreenControlsOverlay(
                     )
                 }
 
-                // Controls row
+                // Main Controls row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Mute Toggle
-                    IconButton(onClick = onToggleMute) {
-                        Icon(
-                            imageVector = if (isMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
-                            contentDescription = "Mute",
-                            tint = Color.White
-                        )
-                    }
+                    TvPlayerIconButton(
+                        onClick = onToggleMute,
+                        icon = if (isMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                        contentDescription = "Mute",
+                        size = 38.dp,
+                        iconSize = 22.dp
+                    )
 
-                    // Speed
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF1E293B),
-                        modifier = Modifier.clickable { onToggleSpeed() }
-                    ) {
-                        Text(
-                            text = "${playbackSpeed}x",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                    // Speed Toggle
+                    TvPlayerActionChip(
+                        icon = Icons.Rounded.Speed,
+                        label = "${playbackSpeed}x",
+                        accentColor = Color.White,
+                        onClick = onToggleSpeed
+                    )
 
                     // Prev Channel
-                    IconButton(onClick = onPrevChannel) {
-                        Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous Channel", tint = Color.White, modifier = Modifier.size(28.dp))
-                    }
+                    TvPlayerIconButton(
+                        onClick = onPrevChannel,
+                        icon = Icons.Rounded.SkipPrevious,
+                        contentDescription = "Previous Channel",
+                        size = 40.dp,
+                        iconSize = 26.dp
+                    )
 
                     // 10s Rewind
-                    IconButton(onClick = onSeekRewind10) {
-                        Icon(Icons.Rounded.Replay10, contentDescription = "Rewind 10s", tint = Color.White, modifier = Modifier.size(26.dp))
-                    }
+                    TvPlayerIconButton(
+                        onClick = onSeekRewind10,
+                        icon = Icons.Rounded.Replay10,
+                        contentDescription = "Rewind 10s",
+                        size = 40.dp,
+                        iconSize = 24.dp
+                    )
 
-                    // Center Play/Pause
-                    IconButton(
+                    // Center Play/Pause (Auto-focused on remote open)
+                    TvPlayerIconButton(
                         onClick = onPlayPause,
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF00E5FF))
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = Color.Black,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                        icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = "Play/Pause",
+                        focusRequester = playPauseFocusRequester,
+                        activeBackground = Color(0xFF00E5FF),
+                        tint = Color.Black,
+                        size = 50.dp,
+                        iconSize = 30.dp
+                    )
 
                     // 10s Forward
-                    IconButton(onClick = onSeekForward10) {
-                        Icon(Icons.Rounded.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(26.dp))
-                    }
+                    TvPlayerIconButton(
+                        onClick = onSeekForward10,
+                        icon = Icons.Rounded.Forward10,
+                        contentDescription = "Forward 10s",
+                        size = 40.dp,
+                        iconSize = 24.dp
+                    )
 
                     // Next Channel
-                    IconButton(onClick = onNextChannel) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "Next Channel", tint = Color.White, modifier = Modifier.size(28.dp))
+                    TvPlayerIconButton(
+                        onClick = onNextChannel,
+                        icon = Icons.Rounded.SkipNext,
+                        contentDescription = "Next Channel",
+                        size = 40.dp,
+                        iconSize = 26.dp
+                    )
+
+                    // Server switch shortcut button on control bar
+                    if (servers.size > 1) {
+                        TvPlayerActionChip(
+                            icon = Icons.Rounded.Dns,
+                            label = "সার্ভার ${selectedServerIndex + 1}/${servers.size}",
+                            accentColor = Color(0xFF00E5FF),
+                            onClick = onCycleNextServer
+                        )
                     }
 
                     // Aspect Ratio
-                    IconButton(onClick = onToggleAspect) {
-                        Icon(Icons.Rounded.AspectRatio, contentDescription = "Aspect Ratio", tint = Color.White)
-                    }
+                    TvPlayerIconButton(
+                        onClick = onToggleAspect,
+                        icon = Icons.Rounded.AspectRatio,
+                        contentDescription = "Aspect Ratio",
+                        size = 38.dp,
+                        iconSize = 22.dp
+                    )
 
                     // Fullscreen exit
-                    IconButton(onClick = onToggleFullscreen) {
-                        Icon(Icons.Rounded.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color(0xFF00E5FF))
-                    }
+                    TvPlayerIconButton(
+                        onClick = onToggleFullscreen,
+                        icon = Icons.Rounded.FullscreenExit,
+                        contentDescription = "Exit Fullscreen",
+                        tint = Color(0xFF00E5FF),
+                        size = 38.dp,
+                        iconSize = 22.dp
+                    )
                 }
             }
         }
@@ -3747,6 +4039,8 @@ fun TvChannelOsdBanner(
     media: com.example.model.MediaItem,
     currentIndex: Int,
     totalCount: Int,
+    selectedServerIndex: Int = 0,
+    totalServersCount: Int = 1,
     selectedServerName: String?,
     modifier: Modifier = Modifier
 ) {
@@ -3808,10 +4102,16 @@ fun TvChannelOsdBanner(
                         maxLines = 1
                     )
                     if (selectedServerName != null) {
+                        val serverBadgeText = if (totalServersCount > 1) {
+                            "সার্ভার: $selectedServerName (${selectedServerIndex + 1}/$totalServersCount)"
+                        } else {
+                            "সার্ভার: $selectedServerName"
+                        }
                         Text(
-                            text = "সার্ভার: $selectedServerName",
+                            text = serverBadgeText,
                             color = Color(0xFF38BDF8),
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -3826,7 +4126,8 @@ fun TvChannelOsdBanner(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "▲ ▼ চ্যানেল পরিবর্তন  •  ◀ ▶ সিকবার  •  OK প্লে/পজ  •  MENU চ্যানেল তালিকা",
+                    text = if (totalServersCount > 1) "▲ ▼ চ্যানেল ও সার্ভার পরিবর্তন (${selectedServerIndex + 1}/$totalServersCount)  •  ◀ ▶ সিকবার  •  OK প্লে/পজ"
+                           else "▲ ▼ চ্যানেল পরিবর্তন  •  ◀ ▶ সিকবার  •  OK প্লে/পজ  •  MENU চ্যানেল তালিকা",
                     color = Color(0xFFCBD5E1),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold
