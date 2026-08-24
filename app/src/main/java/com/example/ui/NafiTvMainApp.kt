@@ -7861,58 +7861,70 @@ fun JsonPosterEventCard(
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left: Poster Thumbnail with Badges
-                Box(
-                    modifier = Modifier
-                        .width(140.dp)
-                        .height(105.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF090E1A)),
-                    contentAlignment = Alignment.Center
+                // Left: Poster Thumbnail Column (Image + Tournament text below)
+                Column(
+                    modifier = Modifier.width(140.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
-                    AsyncImage(
-                        model = bannerModel,
-                        contentDescription = sport.title,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Top-Right Status Badge (LIVE / UPCOMING)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isLiveNow) Color(0xFFDC2626) else Color(0xFFF59E0B),
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(5.dp)
+                            .fillMaxWidth()
+                            .height(86.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF090E1A)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (isLiveNow) "• LIVE" else "• UPCOMING",
-                            color = if (isLiveNow) Color.White else Color.Black,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
+                        AsyncImage(
+                            model = bannerModel,
+                            contentDescription = sport.title,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
                         )
-                    }
 
-                    // Bottom-Left Tournament Tag
-                    if (tournamentTag.isNotBlank()) {
+                        // Top-Right Status Badge (LIVE / UPCOMING)
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xDD000000),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isLiveNow) Color(0xFFDC2626) else Color(0xFFF59E0B),
                             modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(5.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
                         ) {
                             Text(
-                                text = "🏆 $tournamentTag",
-                                color = Color.White,
+                                text = if (isLiveNow) "• LIVE" else "• UPCOMING",
+                                color = if (isLiveNow) Color.White else Color.Black,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
+                        }
+                    }
+
+                    // Tournament Tag BELOW the photo in TV Mode
+                    if (tournamentTag.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF334155)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(text = "🏆", fontSize = 9.sp)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = tournamentTag,
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -8063,7 +8075,7 @@ fun JsonPosterEventCard(
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // 1. Top Poster Image / Banner with Badges (Full uncropped view)
+                // 1. Top Poster Image / Banner (Full uncropped view without text overlay on flags/teams)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -8125,32 +8137,6 @@ fun JsonPosterEventCard(
                             )
                         }
                     }
-
-                    // Bottom-Left Tournament Badge (🏆 Cricket 2026)
-                    if (tournamentTag.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xDD000000),
-                            border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0x66FFFFFF)),
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(text = "🏆", fontSize = 12.sp)
-                                Text(
-                                    text = tournamentTag,
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
                 }
 
                 // 2. Body Details
@@ -8160,6 +8146,32 @@ fun JsonPosterEventCard(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // Tournament Badge / Event Tag BELOW the photo
+                    if (tournamentTag.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(text = "🏆", fontSize = 13.sp)
+                                Text(
+                                    text = tournamentTag,
+                                    color = Color(0xFFF1F5F9),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
                     // Stage Header & Optional Playlist Source
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -9098,7 +9110,7 @@ fun MoviesTabScreen(
                             // Horizontal list of Movie Cards
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 14.dp else 10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 10.dp)
                             ) {
                                 items(catMovies, key = { it.id }) { movie ->
                                     val isFav = favoriteIds.contains(movie.id)
@@ -9111,12 +9123,12 @@ fun MoviesTabScreen(
 
                                     Card(
                                         modifier = Modifier
-                                            .width(if (isTvMode) 175.dp else 130.dp)
+                                            .width(if (isTvMode) 140.dp else 125.dp)
                                             .scale(movieItemScale)
                                             .onFocusChanged { isItemFocused = it.isFocused }
                                             .focusable()
                                             .clickable { onSelectMedia(movie) },
-                                        shape = RoundedCornerShape(14.dp),
+                                        shape = RoundedCornerShape(12.dp),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (isItemFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
                                         ),
@@ -9149,9 +9161,9 @@ fun MoviesTabScreen(
                                                     Text(
                                                         text = movie.quality.ifBlank { "HD" },
                                                         color = Color.White,
-                                                        fontSize = if (isTvMode) 10.sp else 8.5.sp,
+                                                        fontSize = if (isTvMode) 9.sp else 8.5.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                                     )
                                                 }
 
@@ -9163,19 +9175,19 @@ fun MoviesTabScreen(
                                                 ) {
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                                     ) {
                                                         Icon(
                                                             Icons.Rounded.Star,
                                                             contentDescription = null,
                                                             tint = Color(0xFFF59E0B),
-                                                            modifier = Modifier.size(11.dp)
+                                                            modifier = Modifier.size(10.dp)
                                                         )
                                                         Spacer(modifier = Modifier.width(2.dp))
                                                         Text(
                                                             text = movie.rating ?: "8.0",
                                                             color = Color.White,
-                                                            fontSize = if (isTvMode) 10.sp else 9.sp,
+                                                            fontSize = if (isTvMode) 9.sp else 8.5.sp,
                                                             fontWeight = FontWeight.Bold
                                                         )
                                                     }
@@ -9191,7 +9203,7 @@ fun MoviesTabScreen(
                                                         Text(
                                                             text = "⚡ ${movie.servers.size} Srv",
                                                             color = Color.White,
-                                                            fontSize = 8.5.sp,
+                                                            fontSize = 8.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                                         )
@@ -9203,14 +9215,14 @@ fun MoviesTabScreen(
                                                     onClick = { onToggleFavorite(movie.id) },
                                                     modifier = Modifier
                                                         .align(Alignment.BottomEnd)
-                                                        .size(28.dp)
+                                                        .size(26.dp)
                                                         .padding(2.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                                                         contentDescription = "Favorite",
                                                         tint = if (isFav) Color(0xFFEF4444) else Color.White,
-                                                        modifier = Modifier.size(16.dp)
+                                                        modifier = Modifier.size(15.dp)
                                                     )
                                                 }
                                             }
@@ -9218,22 +9230,22 @@ fun MoviesTabScreen(
                                             Column(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                                    .padding(horizontal = 6.dp, vertical = 5.dp)
                                             ) {
                                                 Text(
                                                     text = movie.title,
                                                     color = if (isItemFocused) Color(0xFF00E5FF) else Color.White,
-                                                    fontSize = if (isTvMode) 12.5.sp else 11.5.sp,
+                                                    fontSize = if (isTvMode) 11.5.sp else 11.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    maxLines = 2,
-                                                    lineHeight = if (isTvMode) 15.sp else 13.sp,
+                                                    maxLines = 1,
+                                                    lineHeight = if (isTvMode) 14.sp else 13.sp,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
-                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Spacer(modifier = Modifier.height(1.dp))
                                                 Text(
                                                     text = "${movie.category} • ${movie.year ?: "2026"}",
                                                     color = Color(0xFF94A3B8),
-                                                    fontSize = if (isTvMode) 10.5.sp else 9.5.sp,
+                                                    fontSize = if (isTvMode) 9.5.sp else 9.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -9277,10 +9289,10 @@ fun MoviesTabScreen(
                 }
 
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 4 else 2),
-                    contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 14.dp else 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 14.dp else 10.dp),
+                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 5 else 2),
+                    contentPadding = PaddingValues(horizontal = if (isTvMode) 12.dp else 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(filteredMovies, key = { it.id }) { movie ->
@@ -9422,22 +9434,22 @@ fun MoviesTabScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .padding(horizontal = if (isTvMode) 6.dp else 10.dp, vertical = if (isTvMode) 5.dp else 8.dp)
                             ) {
                                 Text(
                                     text = movie.title,
                                     color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
-                                    fontSize = if (isTvMode) 13.sp else 12.5.sp,
+                                    fontSize = if (isTvMode) 11.5.sp else 12.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    maxLines = 2,
-                                    lineHeight = if (isTvMode) 16.sp else 14.sp,
+                                    maxLines = 1,
+                                    lineHeight = if (isTvMode) 14.sp else 14.sp,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(3.dp))
+                                Spacer(modifier = Modifier.height(1.dp))
                                 Text(
                                     text = "${movie.category} • ${movie.year ?: "2026"}",
                                     color = Color(0xFF94A3B8),
-                                    fontSize = if (isTvMode) 11.sp else 10.sp,
+                                    fontSize = if (isTvMode) 9.5.sp else 10.sp,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -9882,7 +9894,7 @@ fun PlaylistTabScreen(
                     }
                 }
 
-                // Channels Grid (Spacious 4-column layout on TV mode with full details)
+                // Channels Grid (Spacious 4-column layout on TV mode with full details & serial numbers)
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                     columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 4 else 3),
                     contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 8.dp),
@@ -9890,7 +9902,8 @@ fun PlaylistTabScreen(
                     verticalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredChannels) { channel ->
+                    items(filteredChannels.size) { chanIndex ->
+                        val channel = filteredChannels[chanIndex]
                         var isChanFocused by remember { mutableStateOf(false) }
                         val plChanScale by animateFloatAsState(
                             targetValue = if (isChanFocused) (if (isTvMode) 1.10f else 1.06f) else 1.0f,
@@ -9916,6 +9929,22 @@ fun PlaylistTabScreen(
                             elevation = CardDefaults.cardElevation(defaultElevation = if (isChanFocused) 16.dp else 2.dp)
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
+                                // Channel Serial Number Badge on Top-Right
+                                Surface(
+                                    shape = RoundedCornerShape(bottomStart = 8.dp),
+                                    color = Color(0xFF0B1120).copy(alpha = 0.85f),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155)),
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                ) {
+                                    Text(
+                                        text = "#${chanIndex + 1}",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = if (isTvMode) 9.5.sp else 8.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+
                                 // Focus badge on top left
                                 if (isChanFocused) {
                                     Surface(
@@ -9954,7 +9983,7 @@ fun PlaylistTabScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
-                                    // Channel Logo in White Circle
+                                    // Channel Logo in White/Clean Circle
                                     Box(
                                         modifier = Modifier
                                             .size(if (isTvMode) 52.dp else 46.dp)
@@ -10051,7 +10080,7 @@ fun PlaylistTabScreen(
             }
         }
     } else {
-        // Main Playlist Directory View (Modern Grid with Add Button & Actions)
+        // Main Playlist Directory View (Optimized for TV & Mobile with Prominent Serials & Icons)
         var playlistSearchQuery by remember { mutableStateOf("") }
         val filteredPlaylists = remember(playlists, playlistSearchQuery) {
             if (playlistSearchQuery.isBlank()) playlists
@@ -10062,13 +10091,13 @@ fun PlaylistTabScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF0B1120))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = if (isTvMode) 12.dp else 14.dp, vertical = if (isTvMode) 4.dp else 8.dp)
         ) {
             // Top Header with Add Playlist Button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = if (isTvMode) 4.dp else 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -10077,14 +10106,14 @@ fun PlaylistTabScreen(
                         shape = CircleShape,
                         color = Color(0xFF2563EB).copy(alpha = 0.25f),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(if (isTvMode) 32.dp else 36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Rounded.FolderSpecial,
                                 contentDescription = null,
                                 tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(if (isTvMode) 18.dp else 20.dp)
                             )
                         }
                     }
@@ -10094,115 +10123,122 @@ fun PlaylistTabScreen(
                             text = "IPTV Playlists",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp
+                            fontSize = if (isTvMode) 15.sp else 17.sp
                         )
                         Text(
                             text = "${playlists.size} টি প্লেলিস্ট সংরক্ষিত",
                             color = Color(0xFF94A3B8),
-                            fontSize = 11.sp
+                            fontSize = if (isTvMode) 10.sp else 11.sp
                         )
                     }
                 }
 
-                // Add Playlist Button
-                Button(
-                    onClick = { showAddPlaylistDialog = true },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2563EB),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.8f)),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = "Add",
-                        modifier = Modifier.size(16.dp),
-                        tint = Color(0xFF00E5FF)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "প্লেলিস্ট যোগ করুন",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-
-            // Quick Banner for Xtream / M3U Info
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .clickable { showAddPlaylistDialog = true },
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-            ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF2563EB), Color(0xFF00E5FF))
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
+                    // Add Playlist Button
+                    Button(
+                        onClick = { showAddPlaylistDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2563EB),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.8f)),
+                        contentPadding = PaddingValues(horizontal = if (isTvMode) 10.dp else 12.dp, vertical = if (isTvMode) 6.dp else 8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Bolt,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(22.dp)
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = "Add",
+                            modifier = Modifier.size(16.dp),
+                            tint = Color(0xFF00E5FF)
                         )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Xtream Codes API & M3U সাপোর্ট",
-                            color = Color.White,
+                            text = "প্লেলিস্ট যোগ করুন",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "সার্ভার URL, ইউজার ও পাসওয়ার্ড দিয়ে নিমেষেই কানেক্ট করুন",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 11.sp
+                            fontSize = if (isTvMode) 11.sp else 12.sp
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Rounded.ArrowForwardIos,
-                        contentDescription = null,
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(14.dp)
-                    )
                 }
             }
 
-            // Search Bar
+            // Quick Banner for Xtream / M3U Info (Compact on TV mode)
+            if (!isTvMode) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { showAddPlaylistDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF2563EB), Color(0xFF00E5FF))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Bolt,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Xtream Codes API & M3U সাপোর্ট",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp
+                            )
+                            Text(
+                                text = "সার্ভার URL, ইউজার ও পাসওয়ার্ড দিয়ে নিমেষেই কানেক্ট করুন",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.5.sp
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Rounded.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+            }
+
+            // Search Bar (Compact)
             if (playlists.size > 2) {
                 OutlinedTextField(
                     value = playlistSearchQuery,
                     onValueChange = { playlistSearchQuery = it },
-                    placeholder = { Text("প্লেলিস্ট খুঁজুন...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp)) },
+                    placeholder = { Text("প্লেলিস্ট খুঁজুন...", color = Color(0xFF64748B), fontSize = if (isTvMode) 11.5.sp else 13.sp) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp)) },
                     trailingIcon = {
                         if (playlistSearchQuery.isNotEmpty()) {
                             IconButton(onClick = { playlistSearchQuery = "" }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                             }
                         }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp),
-                    shape = RoundedCornerShape(12.dp),
+                        .padding(bottom = if (isTvMode) 4.dp else 8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = customFieldColors(),
                     singleLine = true
                 )
@@ -10249,21 +10285,25 @@ fun PlaylistTabScreen(
                     }
                 }
             } else {
+                // TV Mode has 4 columns and Mobile has 2 columns for a balanced and beautiful view
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTvMode) 3 else 2),
+                    columns = GridCells.Fixed(if (isTvMode) 4 else 2),
                     contentPadding = PaddingValues(vertical = 4.dp, horizontal = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredPlaylists) { playlist ->
+                    items(filteredPlaylists.size) { index ->
+                        val playlist = filteredPlaylists[index]
                         var showCardMenu by remember { mutableStateOf(false) }
                         var isCardFocused by remember { mutableStateOf(false) }
                         val plCardScale by animateFloatAsState(
-                            targetValue = if (isCardFocused) 1.10f else 1.0f,
+                            targetValue = if (isCardFocused) 1.08f else 1.0f,
                             animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
                             label = "plCardScale"
                         )
+
+                        val serialNumberText = String.format("%02d", index + 1)
 
                         Card(
                             modifier = Modifier
@@ -10272,33 +10312,26 @@ fun PlaylistTabScreen(
                                 .onFocusChanged { isCardFocused = it.isFocused }
                                 .focusable()
                                 .clickable { loadPlaylist(playlist) },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
+                                containerColor = if (isCardFocused) Color(0xFF0369A1).copy(alpha = 0.5f) else Color(0xFF1E293B)
                             ),
                             border = when {
-                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
+                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
                                 else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
                             },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 14.dp else 2.dp)
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                // Playlist Logo Header Box
+                                // Playlist Image Box - Fills the entire top container cleanly
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(115.dp)
-                                        .background(
-                                            Brush.verticalGradient(
-                                                listOf(
-                                                    Color(0xFF0F172A),
-                                                    Color(0xFF1E293B)
-                                                )
-                                            )
-                                        ),
+                                        .height(if (isTvMode) 100.dp else 120.dp)
+                                        .background(Color(0xFF0F172A)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (!playlist.logoUrl.isNullOrBlank()) {
@@ -10308,19 +10341,18 @@ fun PlaylistTabScreen(
                                             contentScale = ContentScale.Fit,
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .padding(14.dp)
+                                                .padding(6.dp)
                                         )
                                     } else {
                                         Box(
                                             modifier = Modifier
-                                                .size(54.dp)
-                                                .clip(CircleShape)
+                                                .fillMaxSize()
                                                 .background(
                                                     Brush.linearGradient(
                                                         if (playlist.type == "XTREAM")
-                                                            listOf(Color(0xFF10B981).copy(alpha = 0.3f), Color(0xFF059669).copy(alpha = 0.4f))
+                                                            listOf(Color(0xFF065F46), Color(0xFF047857))
                                                         else
-                                                            listOf(Color(0xFF00E5FF).copy(alpha = 0.25f), Color(0xFF2563EB).copy(alpha = 0.35f))
+                                                            listOf(Color(0xFF1E3A8A), Color(0xFF0284C7))
                                                     )
                                                 ),
                                             contentAlignment = Alignment.Center
@@ -10328,46 +10360,48 @@ fun PlaylistTabScreen(
                                             Icon(
                                                 imageVector = if (playlist.type == "XTREAM") Icons.Rounded.Bolt else Icons.Rounded.LiveTv,
                                                 contentDescription = null,
-                                                tint = if (playlist.type == "XTREAM") Color(0xFF10B981) else Color(0xFF00E5FF),
-                                                modifier = Modifier.size(28.dp)
+                                                tint = Color.White,
+                                                modifier = Modifier.size(if (isTvMode) 38.dp else 44.dp)
                                             )
                                         }
                                     }
 
-                                    // Type Badge (XTREAM or M3U) & Admin Lock Badge Top-Left
+                                    // Type Badge (XTREAM or M3U) Top-Left
                                     Row(
-                                        modifier = Modifier.align(Alignment.TopStart),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .padding(top = 4.dp, start = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Surface(
                                             color = if (playlist.type == "XTREAM") Color(0xFF10B981) else Color(0xFF2563EB),
-                                            shape = RoundedCornerShape(bottomEnd = 8.dp)
+                                            shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
                                                 text = if (playlist.type == "XTREAM") "⚡ Xtream" else "🔗 M3U",
                                                 color = Color.White,
-                                                fontSize = 9.sp,
+                                                fontSize = if (isTvMode) 8.sp else 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                             )
                                         }
                                         if (playlist.isProtected) {
                                             Surface(
                                                 color = Color(0xFF00E5FF).copy(alpha = 0.22f),
-                                                shape = RoundedCornerShape(bottomEnd = 8.dp, bottomStart = 8.dp),
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f))
+                                                shape = RoundedCornerShape(6.dp),
+                                                border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.6f))
                                             ) {
                                                 Row(
-                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(10.dp))
-                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(9.dp))
+                                                    Spacer(modifier = Modifier.width(2.dp))
                                                     Text(
                                                         text = "এডমিন",
                                                         color = Color(0xFF00E5FF),
-                                                        fontSize = 8.sp,
+                                                        fontSize = 7.5.sp,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                 }
@@ -10375,93 +10409,99 @@ fun PlaylistTabScreen(
                                         }
                                     }
 
-                                    // 3-dots Menu Button Top-Right (Only for user-created playlists; Admin playlists are protected and direct-tap only)
-                                    if (!playlist.isProtected) {
-                                        Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                                            IconButton(
-                                                onClick = { showCardMenu = true },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Rounded.MoreVert,
-                                                    contentDescription = "Options",
-                                                    tint = Color.White.copy(alpha = 0.8f),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-
-                                            DropdownMenu(
-                                                expanded = showCardMenu,
-                                                onDismissRequest = { showCardMenu = false },
-                                                modifier = Modifier.background(Color(0xFF1E293B))
-                                            ) {
-                                                DropdownMenuItem(
-                                                    text = { Text("প্লেলিস্ট চালু করুন", color = Color.White, fontSize = 12.sp) },
-                                                    leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                                                    onClick = {
-                                                        showCardMenu = false
-                                                        loadPlaylist(playlist)
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("এডিট করুন", color = Color.White, fontSize = 12.sp) },
-                                                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, tint = Color(0xFF60A5FA)) },
-                                                    onClick = {
-                                                        showCardMenu = false
-                                                        playlistToEdit = playlist
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("মুছে ফেলুন", color = Color(0xFFEF4444), fontSize = 12.sp) },
-                                                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFEF4444)) },
-                                                    onClick = {
-                                                        showCardMenu = false
-                                                        playlistToDelete = playlist
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        // Lock Indicator Top-Right for Admin Playlist
-                                        Box(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                                            Icon(
-                                                Icons.Rounded.Lock,
-                                                contentDescription = "Protected",
-                                                tint = Color(0xFF00E5FF).copy(alpha = 0.7f),
-                                                modifier = Modifier.size(16.dp)
+                                    // Top-Right: Prominent Serial Number Badge (#01, #02...) & Options
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(top = 4.dp, end = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        // Serial Number Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF0B1120).copy(alpha = 0.9f),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isCardFocused) Color(0xFF00E5FF) else Color(0xFF475569))
+                                        ) {
+                                            Text(
+                                                text = "#$serialNumberText",
+                                                color = if (isCardFocused) Color(0xFF00E5FF) else Color(0xFFE2E8F0),
+                                                fontSize = if (isTvMode) 9.5.sp else 10.sp,
+                                                fontWeight = FontWeight.Black,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                             )
+                                        }
+
+                                        // 3-dots Menu Button Top-Right (for user-created playlists)
+                                        if (!playlist.isProtected) {
+                                            Box {
+                                                IconButton(
+                                                    onClick = { showCardMenu = true },
+                                                    modifier = Modifier.size(26.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Rounded.MoreVert,
+                                                        contentDescription = "Options",
+                                                        tint = Color.White.copy(alpha = 0.8f),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = showCardMenu,
+                                                    onDismissRequest = { showCardMenu = false },
+                                                    modifier = Modifier.background(Color(0xFF1E293B))
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("প্লেলিস্ট চালু করুন", color = Color.White, fontSize = 12.sp) },
+                                                        leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF)) },
+                                                        onClick = {
+                                                            showCardMenu = false
+                                                            loadPlaylist(playlist)
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("এডিট করুন", color = Color.White, fontSize = 12.sp) },
+                                                        leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, tint = Color(0xFF60A5FA)) },
+                                                        onClick = {
+                                                            showCardMenu = false
+                                                            playlistToEdit = playlist
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("মুছে ফেলুন", color = Color(0xFFEF4444), fontSize = 12.sp) },
+                                                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFEF4444)) },
+                                                        onClick = {
+                                                            showCardMenu = false
+                                                            playlistToDelete = playlist
+                                                        }
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
 
-                                // Playlist Name & Info Footer
+                                // Playlist Name Only Footer (No extra text below)
                                 Surface(
-                                    color = Color(0xFF0F172A).copy(alpha = 0.75f),
+                                    color = Color(0xFF0F172A).copy(alpha = 0.95f),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                            .padding(horizontal = 8.dp, vertical = if (isTvMode) 7.dp else 8.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = playlist.title,
+                                            text = "${index + 1}. ${playlist.title}",
                                             color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = if (isTvMode) 13.5.sp else 12.sp,
-                                            maxLines = 2,
-                                            lineHeight = if (isTvMode) 16.sp else 14.sp,
+                                            fontSize = if (isTvMode) 12.sp else 12.5.sp,
+                                            maxLines = 1,
+                                            lineHeight = if (isTvMode) 15.sp else 16.sp,
                                             overflow = TextOverflow.Ellipsis,
                                             textAlign = TextAlign.Center
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = if (playlist.isProtected) "🔒 অফিশিয়াল সুরক্ষিত প্লেলিস্ট" else if (!playlist.serverUrl.isNullOrBlank()) playlist.serverUrl.replace("http://", "").replace("https://", "").take(30) else "কাস্টম প্লেলিস্ট",
-                                            color = if (playlist.isProtected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                            fontSize = if (isTvMode) 10.5.sp else 9.5.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
