@@ -897,6 +897,9 @@ fun NafiTvMainApp(
                             )
                         }
                     }
+
+                    // TV Non-Intrusive Banner Ad (Zero disturbance, collapsible, hidden during video play)
+                    NonIntrusiveAdMobBanner(isTvMode = true)
                 }
             }
         } else {
@@ -1086,40 +1089,49 @@ fun NafiTvMainApp(
                     }
                 },
                 bottomBar = {
-                    NavigationBar(
-                        containerColor = Color(0xFF0F172A),
-                        contentColor = Color.White
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A))
                     ) {
-                        AppTab.values().forEach { tab ->
-                            val selected = currentTab == tab
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { currentTab = tab },
-                                icon = {
-                                    Icon(
-                                        imageVector = when (tab) {
-                                            AppTab.EVENTS -> Icons.Rounded.EmojiEvents
-                                            AppTab.LIVE_TV -> Icons.Rounded.Tv
-                                            AppTab.MOVIES -> Icons.Rounded.Movie
-                                            AppTab.PLAYLIST -> Icons.Rounded.Folder
-                                            AppTab.MENU -> Icons.Rounded.Menu
-                                        },
-                                        contentDescription = tab.englishLabel,
-                                        tint = if (selected) Color(0xFF00E5FF) else Color(0xFF94A3B8)
+                        // Mobile Non-Intrusive Banner Ad (Collapses automatically if failed or dismissed)
+                        NonIntrusiveAdMobBanner(isTvMode = false)
+
+                        NavigationBar(
+                            containerColor = Color(0xFF0F172A),
+                            contentColor = Color.White
+                        ) {
+                            AppTab.values().forEach { tab ->
+                                val selected = currentTab == tab
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { currentTab = tab },
+                                    icon = {
+                                        Icon(
+                                            imageVector = when (tab) {
+                                                AppTab.EVENTS -> Icons.Rounded.EmojiEvents
+                                                AppTab.LIVE_TV -> Icons.Rounded.Tv
+                                                AppTab.MOVIES -> Icons.Rounded.Movie
+                                                AppTab.PLAYLIST -> Icons.Rounded.Folder
+                                                AppTab.MENU -> Icons.Rounded.Menu
+                                            },
+                                            contentDescription = tab.englishLabel,
+                                            tint = if (selected) Color(0xFF00E5FF) else Color(0xFF94A3B8)
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.englishLabel,
+                                            color = if (selected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                            fontSize = 11.sp,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        indicatorColor = Color(0xFF1E293B)
                                     )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.englishLabel,
-                                        color = if (selected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                        fontSize = 11.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    indicatorColor = Color(0xFF1E293B)
                                 )
-                            )
+                            }
                         }
                     }
                 },
