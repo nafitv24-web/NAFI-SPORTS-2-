@@ -44,10 +44,9 @@ class MediaRepository(private val context: Context) {
     val nativeScraperEngine: com.example.cloudstream.NativeScraperEngine =
         com.example.cloudstream.NativeScraperEngine(client)
 
+    // Marquee Scrolling Breaking News Ticker Management
     companion object {
-        const val FIREBASE_PROJECT_ID = "nafitv24-live"
-        const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
-        const val FIRESTORE_DATABASE_ID = "(default)"
+        const val DEFAULT_MARQUEE_TEXT = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
@@ -57,6 +56,107 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_MOVIES_M3U_URL = DEFAULT_MOVIES_JSON_URL
         const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
         const val DEFAULT_ADMIN_PIN = "40541273"
+        const val FIREBASE_PROJECT_ID = "nafitv24-live"
+        const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
+        const val FIRESTORE_DATABASE_ID = "(default)"
+    }
+
+    fun getMarqueeTickerText(): String {
+        val stored = prefs.getString("marquee_ticker_text", null)
+        return if (!stored.isNullOrBlank()) stored else DEFAULT_MARQUEE_TEXT
+    }
+
+    fun saveMarqueeTickerText(text: String) {
+        prefs.edit().putString("marquee_ticker_text", text).apply()
+    }
+
+    suspend fun pushMarqueeTickerToFirebase(text: String, url: String = getSavedFirebaseUrl()): Boolean = withContext(Dispatchers.IO) {
+        var success = false
+        saveMarqueeTickerText(text)
+        // 1. RTDB
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val obj = JSONObject()
+                obj.put("marquee_ticker", text)
+                val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val targetUrl = "$cleanUrl/marquee_news.json"
+                val req = Request.Builder().url(targetUrl).put(body).build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) success = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        // 2. Firestore
+        try {
+            val firestoreObj = JSONObject()
+            val fields = JSONObject()
+            fields.put("marquee_ticker", JSONObject().put("stringValue", text))
+            firestoreObj.put("fields", fields)
+            val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            for (dbId in databases) {
+                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/marquee_news?key=$FIREBASE_API_KEY"
+                val fsReq = Request.Builder().url(fsUrl).patch(fsBody).build()
+                val fsResp = client.newCall(fsReq).execute()
+                if (fsResp.isSuccessful) success = true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        success
+    }
+
+    suspend fun fetchMarqueeTickerFromFirebase(url: String = getSavedFirebaseUrl()): String? = withContext(Dispatchers.IO) {
+        var remoteText: String? = null
+        // 1. Firestore
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+        for (dbId in databases) {
+            try {
+                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/marquee_news?key=$FIREBASE_API_KEY"
+                val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.isNotBlank() && body.startsWith("{")) {
+                        val json = JSONObject(body)
+                        val fields = json.optJSONObject("fields")
+                        if (fields != null) {
+                            remoteText = fields.optJSONObject("marquee_ticker")?.optString("stringValue")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        // 2. RTDB
+        if (url.isNotBlank()) {
+            try {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val targetUrl = "$cleanUrl/marquee_news.json"
+                val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.isNotBlank() && body != "null" && body.startsWith("{")) {
+                        val obj = JSONObject(body)
+                        if (obj.has("marquee_ticker")) {
+                            remoteText = obj.optString("marquee_ticker")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        if (!remoteText.isNullOrBlank()) {
+            saveMarqueeTickerText(remoteText!!)
+            remoteText
+        } else {
+            null
+        }
     }
 
     // Admin Privacy / PIN Management

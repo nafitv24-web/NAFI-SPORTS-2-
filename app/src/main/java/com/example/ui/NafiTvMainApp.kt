@@ -89,6 +89,7 @@ enum class AppTab(val title: String, val englishLabel: String) {
 }
 
 enum class AdminTab(val label: String) {
+    TICKER("ব্রেকিং নিউজ বার"),
     CHANNELS("Live TV Channels"),
     MOVIES("Movies"),
     PLAYLISTS("Playlists"),
@@ -113,6 +114,7 @@ fun NafiTvMainApp(
     var selectedMediaItem by remember { mutableStateOf<MediaItem?>(null) }
     var activePlaybackPlaylist by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var isTvMode by remember { mutableStateOf(false) }
+    var activeUserMode by remember { mutableStateOf<AppUserMode?>(null) }
     var isAdminViewActive by remember { mutableStateOf(false) }
     var activeMovieBrowserProvider by remember { mutableStateOf<MovieProvider?>(null) }
     var isExtensionsManagementActive by remember { mutableStateOf(false) }
@@ -139,12 +141,21 @@ fun NafiTvMainApp(
     // App Exit Confirmation State
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
 
-    // Synchronize screen orientation based on Mobile/TV mode toggle
-    LaunchedEffect(isTvMode) {
-        if (isTvMode) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    // Synchronize screen orientation based on selected mode
+    LaunchedEffect(activeUserMode, isTvMode) {
+        when (activeUserMode) {
+            AppUserMode.REMOTE -> {
+                isTvMode = true
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            AppUserMode.MOBILE -> {
+                isTvMode = false
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+            null -> {
+                // On Welcome / Mode Selection Screen
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
         }
     }
 
@@ -374,7 +385,22 @@ fun NafiTvMainApp(
         refreshAllData()
     }
 
-    if (selectedMediaItem != null) {
+    if (activeUserMode == null) {
+        ModeSelectionScreen(
+            repository = repository,
+            onSelectMobileMode = {
+                isTvMode = false
+                activeUserMode = AppUserMode.MOBILE
+            },
+            onSelectRemoteMode = {
+                isTvMode = true
+                activeUserMode = AppUserMode.REMOTE
+            },
+            onExitApp = {
+                showExitConfirmationDialog = true
+            }
+        )
+    } else if (selectedMediaItem != null) {
         val currentPlayList = if (activePlaybackPlaylist.isNotEmpty()) {
             activePlaybackPlaylist
         } else {
@@ -441,12 +467,12 @@ fun NafiTvMainApp(
             }
         )
     } else {
-        // Intercept mobile back press when at root screens to prevent abrupt closing
+        // Intercept back press when at root screens to return to Mode Selection Screen
         BackHandler {
             if (currentTab != AppTab.EVENTS) {
                 currentTab = AppTab.EVENTS
             } else {
-                showExitConfirmationDialog = true
+                activeUserMode = null
             }
         }
 
@@ -618,100 +644,6 @@ fun NafiTvMainApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Layout Toggle: Mobile Pill
-                                var isMobileBtnFocused by remember { mutableStateOf(false) }
-                                val mobileBtnScale by animateFloatAsState(
-                                    targetValue = if (isMobileBtnFocused) 1.05f else 1.0f,
-                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
-                                    label = "mobileBtnScale"
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = if (!isTvMode) Color(0xFF0284C7).copy(alpha = 0.25f) else if (isMobileBtnFocused) Color(0xFF1E3A8A).copy(alpha = 0.6f) else Color(0xFF1E293B),
-                                    border = when {
-                                        isMobileBtnFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
-                                        !isTvMode -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8))
-                                        else -> null
-                                    },
-                                    shadowElevation = if (isMobileBtnFocused) 4.dp else 0.dp,
-                                    modifier = Modifier
-                                        .scale(mobileBtnScale)
-                                        .onFocusChanged { isMobileBtnFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable {
-                                            if (isTvMode) {
-                                                isTvMode = false
-                                                Toast.makeText(context, "📱 মোবাইল মোড সক্রিয় হয়েছে (Portrait)", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Smartphone,
-                                            contentDescription = "Mobile Mode",
-                                            tint = if (!isTvMode || isMobileBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Mobile",
-                                            color = if (!isTvMode || isMobileBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                // Layout Toggle: TV Pill
-                                var isTvBtnFocused by remember { mutableStateOf(false) }
-                                val tvBtnScale by animateFloatAsState(
-                                    targetValue = if (isTvBtnFocused) 1.05f else 1.0f,
-                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
-                                    label = "tvBtnScale"
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = if (isTvMode) Color(0xFF0284C7).copy(alpha = 0.25f) else if (isTvBtnFocused) Color(0xFF1E3A8A).copy(alpha = 0.6f) else Color(0xFF1E293B),
-                                    border = when {
-                                        isTvBtnFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
-                                        isTvMode -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8))
-                                        else -> null
-                                    },
-                                    shadowElevation = if (isTvBtnFocused) 4.dp else 0.dp,
-                                    modifier = Modifier
-                                        .scale(tvBtnScale)
-                                        .onFocusChanged { isTvBtnFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable {
-                                            if (!isTvMode) {
-                                                isTvMode = true
-                                                Toast.makeText(context, "📺 টিভি মোড সক্রিয় হয়েছে (Landscape & TV Layout)", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Tv,
-                                            contentDescription = "TV Mode",
-                                            tint = if (isTvMode || isTvBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "TV",
-                                            color = if (isTvMode || isTvBtnFocused) Color(0xFF38BDF8) else Color(0xFF94A3B8),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
                                 // Notification Bell Button (TV)
                                 val tvUnreadNotifCount = remember(notificationsList) { notificationsList.count { !it.isRead } }
                                 var isTvNotifFocused by remember { mutableStateOf(false) }
@@ -967,70 +899,6 @@ fun NafiTvMainApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Layout Toggle: Mobile Pill
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = if (!isTvMode) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E293B),
-                                    border = if (!isTvMode) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
-                                    modifier = Modifier.clickable {
-                                        if (isTvMode) {
-                                            isTvMode = false
-                                            Toast.makeText(context, "📱 মোবাইল মোড সক্রিয় হয়েছে (Portrait)", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Smartphone,
-                                            contentDescription = "Mobile Mode",
-                                            tint = if (!isTvMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Mobile",
-                                            color = if (!isTvMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                // Layout Toggle: TV Pill
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = if (isTvMode) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E293B),
-                                    border = if (isTvMode) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
-                                    modifier = Modifier.clickable {
-                                        if (!isTvMode) {
-                                            isTvMode = true
-                                            Toast.makeText(context, "📺 টিভি মোড সক্রিয় হয়েছে (Landscape & TV Layout)", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Tv,
-                                            contentDescription = "TV Mode",
-                                            tint = if (isTvMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "TV",
-                                            color = if (isTvMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
                                 // Notification Bell Button (Mobile)
                                 val mobUnreadNotifCount = remember(notificationsList) { notificationsList.count { !it.isRead } }
                                 Surface(
@@ -1578,6 +1446,10 @@ fun AdminControlAppScreen(
     var sportDropdownExpanded by remember { mutableStateOf(false) }
     var statusDropdownExpanded by remember { mutableStateOf(false) }
 
+    // Marquee News Ticker Form State
+    var marqueeTickerInput by remember { mutableStateOf(repository.getMarqueeTickerText()) }
+    var isSavingMarqueeTicker by remember { mutableStateOf(false) }
+
     // Broadcast Notifications Form State
     var broadcastTitle by remember { mutableStateOf("") }
     var broadcastMessage by remember { mutableStateOf("") }
@@ -1810,6 +1682,22 @@ fun AdminControlAppScreen(
                 ) {
                     item {
                         Button(
+                            onClick = { selectedAdminTab = AdminTab.TICKER },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedAdminTab == AdminTab.TICKER) Color(0xFFEC4899) else Color(0xFF1E293B),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Rounded.Campaign, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("⚡ ব্রেকিং নিউজ বার", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    item {
+                        Button(
                             onClick = { selectedAdminTab = AdminTab.CHANNELS },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (selectedAdminTab == AdminTab.CHANNELS) Color(0xFF2563EB) else Color(0xFF1E293B),
@@ -1925,6 +1813,217 @@ fun AdminControlAppScreen(
                             Icon(Icons.Rounded.CloudSync, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("🔥 Firebase Cloud", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // TAB: SCROLLING BREAKING NEWS TICKER MANAGEMENT
+            // -------------------------------------------------------------
+            if (selectedAdminTab == AdminTab.TICKER) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEC4899).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            // Header Banner
+                            Surface(
+                                color = Color(0xFF0F172A),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEC4899).copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEC4899).copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Rounded.Campaign, contentDescription = null, tint = Color(0xFFEC4899), modifier = Modifier.size(26.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "⚡ স্ক্রোলিং ব্রেকিং নিউজ বার পরিবর্তন",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp
+                                        )
+                                        Text(
+                                            text = "মোড সিলেকশন স্ক্রিনের 'GET STARTED' এর উপরে চলমান ব্রেকিং নিউজ টেক্সট পরিবর্তন ও ক্লাউড সিঙ্ক করুন",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Live Marquee Preview Box
+                            Text(
+                                text = "লাইভ প্রিভিউ (ইউজাররা যেভাবে দেখবেন):",
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFF0F172A),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.2.dp,
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFF00E5FF).copy(alpha = 0.8f),
+                                            Color(0xFF8B5CF6).copy(alpha = 0.9f),
+                                            Color(0xFFEC4899).copy(alpha = 0.8f)
+                                        )
+                                    )
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(Color(0xFF00E5FF), shape = CircleShape)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = marqueeTickerInput.ifBlank { "এখানে আপনার ব্রেকিং নিউজ লিখুন..." },
+                                        color = Color(0xFFE2E8F0),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .basicMarquee(iterations = Int.MAX_VALUE, velocity = 40.dp)
+                                    )
+                                }
+                            }
+
+                            // Text Input Field
+                            OutlinedTextField(
+                                value = marqueeTickerInput,
+                                onValueChange = { marqueeTickerInput = it },
+                                label = { Text("স্ক্রোলিং নিউজ টেক্সট লিখুন *", color = Color(0xFF94A3B8), fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 6,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFFEC4899),
+                                    unfocusedBorderColor = Color(0xFF334155),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedContainerColor = Color(0xFF0F172A),
+                                    unfocusedContainerColor = Color(0xFF0F172A)
+                                )
+                            )
+
+                            // Quick Preset News Templates
+                            Text(
+                                text = "প্রিসেট টেমপ্লেট নির্বাচন করুন:",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        marqueeTickerInput = "🏆 লাইভ ক্রিকেট ও ফুটবল ম্যাচ শুরু হয়েছে! যেকোনো চ্যানেল সিলেক্ট করে সরাসরি সম্পূর্ণ HD কোয়ালিটিতে উপভোগ করুন। NAFI TV24"
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                ) {
+                                    Text("⚽ খেলাধুলার নোটিস", fontSize = 10.sp, color = Color(0xFF38BDF8), maxLines = 1)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        marqueeTickerInput = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                ) {
+                                    Text("📰 জাতীয় সংবাদ", fontSize = 10.sp, color = Color(0xFFF472B6), maxLines = 1)
+                                }
+                            }
+
+                            // Save & Cloud Sync Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (marqueeTickerInput.isBlank()) {
+                                            Toast.makeText(context, "অনুগ্রহ করে নিউজ টেক্সট লিখুন!", Toast.LENGTH_SHORT).show()
+                                            return@Button
+                                        }
+                                        isSavingMarqueeTicker = true
+                                        coroutineScope.launch {
+                                            repository.saveMarqueeTickerText(marqueeTickerInput.trim())
+                                            repository.pushMarqueeTickerToFirebase(marqueeTickerInput.trim())
+                                            isSavingMarqueeTicker = false
+                                            Toast.makeText(context, "✅ নিউজ বার সফলভাবে আপডেট ও ক্লাউডে সিঙ্ক হয়েছে!", Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFEC4899),
+                                        contentColor = Color.White
+                                    ),
+                                    enabled = !isSavingMarqueeTicker
+                                ) {
+                                    if (isSavingMarqueeTicker) {
+                                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("সংরক্ষণ হচ্ছে...", fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("আপডেট ও ক্লাউডে সিঙ্ক করুন", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        marqueeTickerInput = MediaRepository.DEFAULT_MARQUEE_TEXT
+                                        coroutineScope.launch {
+                                            repository.saveMarqueeTickerText(MediaRepository.DEFAULT_MARQUEE_TEXT)
+                                            repository.pushMarqueeTickerToFirebase(MediaRepository.DEFAULT_MARQUEE_TEXT)
+                                            Toast.makeText(context, "ডিফল্ট টেক্সট রিস্টোর করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
+                                ) {
+                                    Icon(Icons.Rounded.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -8665,7 +8764,7 @@ fun LiveTvTabScreen(
                                         color = Color.White,
                                         fontSize = 8.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                     )
                                 }
                             }
@@ -8841,8 +8940,9 @@ fun MoviesTabScreen(
         }
     }
 
-    val featuredMovie = remember(movies) {
-        movies.firstOrNull { it.logoUrl != null } ?: movies.firstOrNull()
+    val featuredMovies = remember(movies) {
+        val withPoster = movies.filter { !it.logoUrl.isNullOrBlank() }
+        if (withPoster.isNotEmpty()) withPoster.take(15) else movies.take(15)
     }
 
     val categoriesWithMovies = remember(movies) {
@@ -8953,105 +9053,223 @@ fun MoviesTabScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Hero Spotlight Banner
-                if (featuredMovie != null) {
+                // Multi-Featured Spotlight Carousel (Horizontal swipe/scroll + auto rotation)
+                if (featuredMovies.isNotEmpty()) {
                     item {
+                        var activeHeroIndex by remember { mutableStateOf(0) }
+                        
+                        // Auto rotate every 6 seconds
+                        LaunchedEffect(featuredMovies.size) {
+                            if (featuredMovies.size > 1) {
+                                while (true) {
+                                    kotlinx.coroutines.delay(6000L)
+                                    activeHeroIndex = (activeHeroIndex + 1).mod(featuredMovies.size)
+                                }
+                            }
+                        }
+
+                        val safeIndex = activeHeroIndex.coerceIn(0, featuredMovies.size - 1)
+                        val curFeaturedMovie = featuredMovies[safeIndex]
                         var isHeroFocused by remember { mutableStateOf(false) }
                         val heroScale by animateFloatAsState(
-                            targetValue = if (isHeroFocused) 1.04f else 1.0f,
+                            targetValue = if (isHeroFocused) 1.03f else 1.0f,
                             animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
                             label = "heroScale"
                         )
-                        Card(
+
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp)
-                                .height(210.dp)
-                                .scale(heroScale)
-                                .onFocusChanged { isHeroFocused = it.isFocused }
-                                .focusable()
-                                .clickable { onSelectMedia(featuredMovie) },
-                            shape = RoundedCornerShape(16.dp),
-                            border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF)) else null,
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isHeroFocused) 16.dp else 4.dp)
                         ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                AsyncImage(
-                                    model = featuredMovie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
-                                    contentDescription = featuredMovie.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                listOf(
-                                                    Color.Transparent,
-                                                    Color(0xFF0F172A).copy(alpha = 0.7f),
-                                                    Color(0xFF020617).copy(alpha = 0.98f)
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(215.dp)
+                                    .scale(heroScale)
+                                    .onFocusChanged { isHeroFocused = it.isFocused }
+                                    .focusable()
+                                    .clickable { onSelectMedia(curFeaturedMovie) },
+                                shape = RoundedCornerShape(16.dp),
+                                border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF)) else null,
+                                elevation = CardDefaults.cardElevation(defaultElevation = if (isHeroFocused) 16.dp else 4.dp)
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    AsyncImage(
+                                        model = curFeaturedMovie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
+                                        contentDescription = curFeaturedMovie.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color.Transparent,
+                                                        Color(0xFF0F172A).copy(alpha = 0.7f),
+                                                        Color(0xFF020617).copy(alpha = 0.98f)
+                                                    )
                                                 )
                                             )
-                                        )
-                                )
+                                    )
 
-                                Column(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .padding(16.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFFE11D48)
+                                    // Top right Spotlight Counter / Badge
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = "⭐ FEATURED SPOTLIGHT",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Black,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = featuredMovie.title,
-                                        color = Color.White,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Black,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${featuredMovie.category} • ${featuredMovie.year ?: "2026"} • ${featuredMovie.quality}",
-                                        color = Color(0xFFCBD5E1),
-                                        fontSize = 11.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button(
-                                            onClick = { onSelectMedia(featuredMovie) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                        Surface(
                                             shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(34.dp)
+                                            color = Color.Black.copy(alpha = 0.65f),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
                                         ) {
-                                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Play", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text(
+                                                text = "${safeIndex + 1} / ${featuredMovies.size}",
+                                                color = Color(0xFF00E5FF),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
                                         }
-                                        OutlinedButton(
-                                            onClick = { selectedMovieForDetails = featuredMovie },
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(34.dp)
+                                    }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(16.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(Icons.Rounded.Info, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Info", fontSize = 11.sp)
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFFE11D48)
+                                            ) {
+                                                Text(
+                                                    text = "⭐ FEATURED SPOTLIGHT",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFF2563EB)
+                                            ) {
+                                                Text(
+                                                    text = "NEW RELEASE",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = curFeaturedMovie.title,
+                                            color = Color.White,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Black,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${curFeaturedMovie.category} • ${curFeaturedMovie.year ?: "2026"} • ${curFeaturedMovie.quality}",
+                                            color = Color(0xFFCBD5E1),
+                                            fontSize = 11.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Button(
+                                                onClick = { onSelectMedia(curFeaturedMovie) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(34.dp)
+                                            ) {
+                                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Play", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            }
+                                            OutlinedButton(
+                                                onClick = { selectedMovieForDetails = curFeaturedMovie },
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(34.dp)
+                                            ) {
+                                                Icon(Icons.Rounded.Info, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Info", fontSize = 11.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Carousel Thumbnail Strip (Horizontal list to swipe and see all new featured movies)
+                            if (featuredMovies.size > 1) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    itemsIndexed(featuredMovies) { idx, itemMovie ->
+                                        val isCurrent = idx == safeIndex
+                                        var isThumbFocused by remember { mutableStateOf(false) }
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isCurrent) Color(0xFF1E293B) else Color(0xFF0F172A),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                width = if (isCurrent) 2.dp else if (isThumbFocused) 1.5.dp else 1.dp,
+                                                color = if (isCurrent) Color(0xFF00E5FF) else if (isThumbFocused) Color(0xFFFFD600) else Color(0xFF334155)
+                                            ),
+                                            modifier = Modifier
+                                                .width(if (isTvMode) 100.dp else 85.dp)
+                                                .height(48.dp)
+                                                .onFocusChanged { 
+                                                    isThumbFocused = it.isFocused 
+                                                    if (it.isFocused) activeHeroIndex = idx
+                                                }
+                                                .focusable()
+                                                .clickable { activeHeroIndex = idx }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(3.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                AsyncImage(
+                                                    model = itemMovie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=200",
+                                                    contentDescription = itemMovie.title,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                )
+                                                Text(
+                                                    text = itemMovie.title,
+                                                    color = if (isCurrent) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
                                         }
                                     }
                                 }
