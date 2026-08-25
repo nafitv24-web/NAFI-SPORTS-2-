@@ -434,6 +434,7 @@ class MediaRepository(private val context: Context) {
 
                 // 3. Check for standard collection keys
                 val collectionKeys = listOf(
+                    "matches", "events", "match_list", "live_matches", "live_events",
                     "movies", "movie_list", "series", "tv_series", "channels", "streams",
                     "items", "data", "results", "list", "content", "videos", "playlist", "feed"
                 )
@@ -442,6 +443,8 @@ class MediaRepository(private val context: Context) {
                     if (arr != null) {
                         val inferredCat = if (rootCatName.isNotBlank()) {
                             rootCatName
+                        } else if (key.contains("match", ignoreCase = true) || key.contains("event", ignoreCase = true)) {
+                            "Sports Live"
                         } else if (key.contains("series", ignoreCase = true)) {
                             "Web Series"
                         } else {
