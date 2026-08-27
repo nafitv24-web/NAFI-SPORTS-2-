@@ -5,6 +5,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Android APK
@@ -14,12 +17,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
-          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true
@@ -44,12 +51,12 @@ jobs:
       - name: Build APK with Gradle
         env:
           JAVA_OPTS: "-Djava.awt.headless=true -Dfile.encoding=UTF-8"
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx4g -Djava.awt.headless=true -Dfile.encoding=UTF-8\" -Djava.awt.headless=true"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx4096m -XX:MaxMetaspaceSize=1024m -Djava.awt.headless=true -Dfile.encoding=UTF-8\" -Djava.awt.headless=true"
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug -Djava.awt.headless=true -Dkotlin.compiler.execution.strategy=daemon --stacktrace
+            ./gradlew assembleDebug --no-daemon --stacktrace
           else
-            gradle assembleDebug -Djava.awt.headless=true -Dkotlin.compiler.execution.strategy=daemon --stacktrace
+            gradle assembleDebug --no-daemon --stacktrace
           fi
 
       - name: Upload APK as Artifact
