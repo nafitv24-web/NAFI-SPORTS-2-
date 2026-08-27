@@ -22,13 +22,6 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'gradle'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-          cache-disabled: false
 
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true
@@ -52,13 +45,13 @@ jobs:
 
       - name: Build APK with Gradle
         env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC\" -Dorg.gradle.workers.max=2 -Dkotlin.compiler.execution.strategy=in-process"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC\" -Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.configuration-cache=false"
         run: |
           ./gradlew assembleDebug \
             --no-daemon \
-            --stacktrace \
-            -Dorg.gradle.workers.max=2 \
-            -Dkotlin.compiler.execution.strategy=in-process
+            --no-configuration-cache \
+            --no-parallel \
+            --stacktrace
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
