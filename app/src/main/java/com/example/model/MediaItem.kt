@@ -143,3 +143,22 @@ data class AppUpdateInfo(
     val releaseDate: String = ""
 )
 
+data class ActiveUserInfo(
+    val id: String,
+    val deviceModel: String = "Android Device",
+    val brand: String = "Android",
+    val appVersion: String = "v2.5.6",
+    val versionCode: Int = 28,
+    val lastSeen: Long = System.currentTimeMillis(),
+    val registeredAt: Long = System.currentTimeMillis(),
+    val isOnline: Boolean = true
+)
+
+data class AppUserAnalytics(
+    val totalUsers: Int = 1,
+    val activeUsers: Int = 1,
+    val activeUsersList: List<ActiveUserInfo> = emptyList(),
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+

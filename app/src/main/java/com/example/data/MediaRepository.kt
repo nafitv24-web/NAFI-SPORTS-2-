@@ -3,8 +3,10 @@ package com.example.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import com.example.model.ActiveUserInfo
 import com.example.model.AppNotification
 import com.example.model.AppUpdateInfo
+import com.example.model.AppUserAnalytics
 import com.example.model.CloudStreamRepo
 import com.example.model.MediaItem
 import com.example.model.MediaType
@@ -13,9 +15,12 @@ import com.example.model.NotificationType
 import com.example.model.PlaylistInfo
 import com.example.model.StreamServer
 import com.example.util.NotificationHelper
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -25,6 +30,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class MediaRepository(private val context: Context) {
@@ -4531,4 +4537,197 @@ class MediaRepository(private val context: Context) {
 
         distinctList
     }
+
+    init {
+        recordUserPresence()
+    }
+
+
+    // -------------------------------------------------------------
+    // USER ANALYTICS & ACTIVE USERS TRACKING (Firebase RTDB)
+    // -------------------------------------------------------------
+    fun getOrCreateDeviceId(): String {
+        var id = prefs.getString("device_unique_user_id", null)
+        if (id.isNullOrBlank()) {
+            id = "user_" + UUID.randomUUID().toString().replace("-", "").take(12)
+            prefs.edit().putString("device_unique_user_id", id).apply()
+        }
+        return id
+    }
+
+    fun recordUserPresence() {
+        try {
+            val deviceId = getOrCreateDeviceId()
+            val now = System.currentTimeMillis()
+            val isFirstInstall = !prefs.contains("app_installed_at_timestamp")
+            if (isFirstInstall) {
+                prefs.edit().putLong("app_installed_at_timestamp", now).apply()
+                val curTotal = prefs.getInt("cached_lifetime_users_count", 1)
+                prefs.edit().putInt("cached_lifetime_users_count", curTotal + 1).apply()
+            }
+            val installedAt = prefs.getLong("app_installed_at_timestamp", now)
+
+            val manufacturer = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+            val model = android.os.Build.MODEL.orEmpty()
+            val deviceName = if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
+            val cleanDeviceName = deviceName.ifBlank { "Android Device" }
+            val appVersion = "v${com.example.BuildConfig.VERSION_NAME}"
+            val versionCode = com.example.BuildConfig.VERSION_CODE
+
+            // Fire and forget background sync to Firebase Realtime Database
+            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    val rtdbUrl = getSavedFirebaseUrl()
+                    if (rtdbUrl.isNotBlank()) {
+                        val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+
+                        // 1. Update active user presence object (for live active count in last 5-10 min)
+                        val activeObj = JSONObject().apply {
+                            put("id", deviceId)
+                            put("device_model", cleanDeviceName)
+                            put("brand", manufacturer.ifBlank { "Android" })
+                            put("app_version", appVersion)
+                            put("version_code", versionCode)
+                            put("last_seen", now)
+                            put("registered_at", installedAt)
+                            put("is_online", true)
+                        }
+                        val activeBody = activeObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val activeReq = Request.Builder()
+                            .url("$cleanUrl/active_users/$deviceId.json")
+                            .put(activeBody)
+                            .build()
+                        client.newCall(activeReq).execute()
+
+                        // 2. Register / Update in permanent lifetime users index (all_users)
+                        val userObj = JSONObject().apply {
+                            put("id", deviceId)
+                            put("device_model", cleanDeviceName)
+                            put("app_version", appVersion)
+                            put("last_seen", now)
+                            put("registered_at", installedAt)
+                        }
+                        val userBody = userObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val userReq = Request.Builder()
+                            .url("$cleanUrl/all_users/$deviceId.json")
+                            .put(userBody)
+                            .build()
+                        client.newCall(userReq).execute()
+                    }
+                } catch (e: Exception) {
+                    // Ignore transient network errors
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    suspend fun fetchUserAnalytics(): AppUserAnalytics = withContext(Dispatchers.IO) {
+        val rtdbUrl = getSavedFirebaseUrl()
+        val now = System.currentTimeMillis()
+        val activeThresholdMillis = 10 * 60 * 1000L // Active in the last 10 minutes
+
+        val activeList = mutableListOf<ActiveUserInfo>()
+        var totalLifetimeCount = 0
+
+        if (rtdbUrl.isNotBlank()) {
+            val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+
+            // 1. Fetch active_users from Firebase RTDB
+            try {
+                val reqActive = Request.Builder()
+                    .url("$cleanUrl/active_users.json")
+                    .header("User-Agent", "NAFITV24/2.5.6 (Android)")
+                    .build()
+                val respActive = client.newCall(reqActive).execute()
+                if (respActive.isSuccessful) {
+                    val body = respActive.body?.string()?.trim() ?: ""
+                    if (body.startsWith("{")) {
+                        val root = JSONObject(body)
+                        val keys = root.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            val uObj = root.optJSONObject(k) ?: continue
+                            val lastSeen = uObj.optLong("last_seen", 0L)
+                            val deviceModel = uObj.optString("device_model", "Android Device")
+                            val brand = uObj.optString("brand", "Android")
+                            val appVersion = uObj.optString("app_version", "v${com.example.BuildConfig.VERSION_NAME}")
+                            val vCode = uObj.optInt("version_code", com.example.BuildConfig.VERSION_CODE)
+                            val registeredAt = uObj.optLong("registered_at", lastSeen)
+
+                            val isCurrentlyOnline = (now - lastSeen) <= activeThresholdMillis
+                            activeList.add(
+                                ActiveUserInfo(
+                                    id = k,
+                                    deviceModel = deviceModel,
+                                    brand = brand,
+                                    appVersion = appVersion,
+                                    versionCode = vCode,
+                                    lastSeen = lastSeen,
+                                    registeredAt = registeredAt,
+                                    isOnline = isCurrentlyOnline
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // 2. Fetch all_users count (shallow or direct)
+            try {
+                val reqAll = Request.Builder()
+                    .url("$cleanUrl/all_users.json?shallow=true")
+                    .build()
+                val respAll = client.newCall(reqAll).execute()
+                if (respAll.isSuccessful) {
+                    val allBody = respAll.body?.string()?.trim() ?: ""
+                    if (allBody.startsWith("{")) {
+                        val allRoot = JSONObject(allBody)
+                        totalLifetimeCount = allRoot.length()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Add current device to list if empty or not included
+        val currentDevId = getOrCreateDeviceId()
+        if (activeList.none { it.id == currentDevId }) {
+            val manufacturer = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+            val model = android.os.Build.MODEL.orEmpty()
+            val deviceName = if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
+            activeList.add(
+                0,
+                ActiveUserInfo(
+                    id = currentDevId,
+                    deviceModel = deviceName.ifBlank { "This Device (Admin/User)" },
+                    brand = manufacturer.ifBlank { "Android" },
+                    appVersion = "v${com.example.BuildConfig.VERSION_NAME}",
+                    versionCode = com.example.BuildConfig.VERSION_CODE,
+                    lastSeen = now,
+                    registeredAt = prefs.getLong("app_installed_at_timestamp", now),
+                    isOnline = true
+                )
+            )
+        }
+
+        // Sort: currently online first, then latest lastSeen
+        activeList.sortWith(compareByDescending<ActiveUserInfo> { it.isOnline }.thenByDescending { it.lastSeen })
+
+        val onlineCount = activeList.count { it.isOnline || (now - it.lastSeen) <= activeThresholdMillis }.coerceAtLeast(1)
+        val finalTotal = maxOf(totalLifetimeCount, activeList.size, prefs.getInt("cached_lifetime_users_count", 1))
+        prefs.edit().putInt("cached_lifetime_users_count", finalTotal).apply()
+
+        AppUserAnalytics(
+            totalUsers = finalTotal,
+            activeUsers = onlineCount,
+            activeUsersList = activeList,
+            lastUpdated = now
+        )
+    }
 }
+
+

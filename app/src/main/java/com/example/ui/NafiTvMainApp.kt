@@ -63,7 +63,9 @@ import coil.compose.AsyncImage
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.MediaRepository
+import com.example.model.ActiveUserInfo
 import com.example.model.AppNotification
+import com.example.model.AppUserAnalytics
 import com.example.model.AppUpdateInfo
 import com.example.model.CloudStreamRepo
 import com.example.model.MediaItem
@@ -89,6 +91,7 @@ enum class AppTab(val title: String, val englishLabel: String) {
 }
 
 enum class AdminTab(val label: String) {
+    ANALYTICS("üë• ‡¶á‡¶â‡¶ú‡¶æ‡¶∞ ‡¶ì ‡¶ü‡ßç‡¶∞‡¶æ‡¶´‡¶ø‡¶ï"),
     TICKER("‡¶¨‡ßç‡¶∞‡ßá‡¶ï‡¶ø‡¶Ç ‡¶®‡¶ø‡¶â‡¶ú ‡¶¨‡¶æ‡¶∞"),
     CHANNELS("Live TV Channels"),
     MOVIES("Movies"),
@@ -1282,6 +1285,23 @@ fun AdminControlAppScreen(
 
     var selectedAdminTab by remember { mutableStateOf(AdminTab.CHANNELS) }
 
+    var userAnalytics by remember { mutableStateOf<AppUserAnalytics?>(null) }
+    var isRefreshingAnalytics by remember { mutableStateOf(false) }
+
+    fun loadAnalyticsData() {
+        isRefreshingAnalytics = true
+        coroutineScope.launch {
+            try {
+                userAnalytics = repository.fetchUserAnalytics()
+            } catch (_: Exception) {}
+            isRefreshingAnalytics = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadAnalyticsData()
+    }
+
     // CloudStream & Movie Website Form State
     var repoUrlInput by remember { mutableStateOf("") }
     var isFetchingRepo by remember { mutableStateOf(false) }
@@ -1674,12 +1694,203 @@ fun AdminControlAppScreen(
                 }
             }
 
+            // ITEM: Live User Statistics & Active Traffic Card (‡¶á‡¶â‡¶ú‡¶æ‡¶∞ ‡¶ì ‡¶≤‡¶æ‡¶á‡¶≠ ‡¶ü‡ßç‡¶∞‡¶æ‡¶´‡¶ø‡¶ï)
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E5FF).copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Analytics,
+                                        contentDescription = "Analytics",
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "‡¶≤‡¶æ‡¶á‡¶≠ ‡¶Ö‡ßç‡¶Ø‡¶æ‡¶™ ‡¶á‡¶â‡¶ú‡¶æ‡¶∞ ‡¶ì ‡¶ü‡ßç‡¶∞‡¶æ‡¶´‡¶ø‡¶ï ‡¶Æ‡ßá‡¶ü‡ßç‡¶∞‡¶ø‡¶ï‡ßç‡¶∏",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "‡¶∞‡¶ø‡ßü‡ßá‡¶≤-‡¶ü‡¶æ‡¶á‡¶Æ ‡¶¨‡ßç‡¶Ø‡¶¨‡¶π‡¶æ‡¶∞‡¶ï‡¶æ‡¶∞‡ßÄ ‡¶Æ‡¶®‡¶ø‡¶ü‡¶∞‡¶ø‡¶Ç",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            // Refresh button
+                            IconButton(
+                                onClick = { loadAnalyticsData() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                if (isRefreshingAnalytics) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color(0xFF00E5FF),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = "Refresh Analytics",
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Two main stat cards: 1. Currently Active Users, 2. Total Lifetime Users
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Card 1: Currently Active Users
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedAdminTab = AdminTab.ANALYTICS },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "‡¶¨‡¶∞‡ßç‡¶§‡¶Æ‡¶æ‡¶®‡ßá ‡¶è‡¶ï‡ßç‡¶ü‡¶ø‡¶≠",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        // Live green dot
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981))
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "${userAnalytics?.activeUsers ?: 1} ‡¶ú‡¶®",
+                                        color = Color(0xFF34D399),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+
+                                    Text(
+                                        text = "‚óè ‡¶Ö‡¶®‡¶≤‡¶æ‡¶á‡¶®‡ßá ‡¶≤‡¶æ‡¶á‡¶≠ ‡¶∏‡¶ï‡ßç‡¶∞‡¶ø‡ßü",
+                                        color = Color(0xFF10B981),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            // Card 2: Total Registered Users
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedAdminTab = AdminTab.ANALYTICS },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.4f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "‡¶∏‡¶∞‡ßç‡¶¨‡¶Æ‡ßã‡¶ü ‡¶á‡¶â‡¶ú‡¶æ‡¶∞",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Rounded.PeopleAlt,
+                                            contentDescription = null,
+                                            tint = Color(0xFF60A5FA),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "${userAnalytics?.totalUsers ?: 1} ‡¶ú‡¶®",
+                                        color = Color(0xFF60A5FA),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+
+                                    Text(
+                                        text = "‡¶Æ‡ßã‡¶ü ‡¶á‡¶®‡¶∏‡ßç‡¶ü‡¶≤ ‡¶ì ‡¶¨‡ßç‡¶Ø‡¶¨‡¶π‡¶æ‡¶∞‡¶ï‡¶æ‡¶∞‡ßÄ",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Admin Segmented Filter Tabs (Channels / Movies / Playlists / Sports / Updates)
             item {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item {
+                        Button(
+                            onClick = { selectedAdminTab = AdminTab.ANALYTICS },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedAdminTab == AdminTab.ANALYTICS) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                contentColor = if (selectedAdminTab == AdminTab.ANALYTICS) Color.Black else Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Rounded.Analytics, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("üë• ‡¶á‡¶â‡¶ú‡¶æ‡¶∞ ‡¶ì ‡¶ü‡ßç‡¶∞‡¶æ‡¶´‡¶ø‡¶ï (${userAnalytics?.activeUsers ?: 1})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
                     item {
                         Button(
                             onClick = { selectedAdminTab = AdminTab.TICKER },
@@ -1819,6 +2030,144 @@ fun AdminControlAppScreen(
             }
 
             // -------------------------------------------------------------
+            // -------------------------------------------------------------
+            // TAB: USER ANALYTICS & LIVE ACTIVE USERS
+            // -------------------------------------------------------------
+            if (selectedAdminTab == AdminTab.ANALYTICS) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Devices, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "‡¶ï‡¶æ‡¶®‡ßá‡¶ï‡ßç‡¶ü‡ßá‡¶° ‡¶á‡¶â‡¶ú‡¶æ‡¶∞ ‡¶°‡¶ø‡¶≠‡¶æ‡¶á‡¶∏ ‡¶∏‡¶Æ‡ßÇ‡¶π (${userAnalytics?.activeUsersList?.size ?: 0})",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Button(
+                                    onClick = { loadAnalyticsData() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("‡¶∞‡¶ø‡¶´‡ßç‡¶∞‡ßá‡¶∂", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            val userList = userAnalytics?.activeUsersList ?: emptyList()
+                            if (userList.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("‡¶ï‡ßã‡¶®‡ßã ‡¶∏‡¶ï‡ßç‡¶∞‡¶ø‡ßü ‡¶°‡¶ø‡¶≠‡¶æ‡¶á‡¶∏ ‡¶∞‡ßá‡¶ï‡¶∞‡ßç‡¶° ‡¶™‡¶æ‡¶ì‡ßü‡¶æ ‡¶Ø‡¶æ‡ßü‡¶®‡¶ø‡•§", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                }
+                            } else {
+                                userList.forEach { user ->
+                                    val timeDiff = System.currentTimeMillis() - user.lastSeen
+                                    val timeText = when {
+                                        timeDiff < 60_000L -> "üü¢ ‡¶è‡¶á‡¶Æ‡¶æ‡¶§‡ßç‡¶∞ ‡¶∏‡¶ï‡ßç‡¶∞‡¶ø‡ßü"
+                                        timeDiff < 3600_000L -> "${timeDiff / 60_000L} ‡¶Æ‡¶ø‡¶®‡¶ø‡¶ü ‡¶Ü‡¶ó‡ßá ‡¶∏‡¶ï‡ßç‡¶∞‡¶ø‡ßü"
+                                        timeDiff < 86400_000L -> "${timeDiff / 3600_000L} ‡¶ò‡¶£‡ßç‡¶ü‡¶æ ‡¶Ü‡¶ó‡ßá ‡¶∏‡¶ï‡ßç‡¶∞‡¶ø‡ßü"
+                                        else -> "${timeDiff / 86400_000L} ‡¶¶‡¶ø‡¶® ‡¶Ü‡¶ó‡ßá ‡¶∏‡¶ï‡ßç‡¶∞‡¶ø‡ßü"
+                                    }
+                                    Card(
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            0.5.dp,
+                                            if (user.isOnline) Color(0xFF10B981).copy(alpha = 0.6f) else Color(0xFF334155)
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(34.dp)
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            if (user.isOnline) Color(0xFF10B981).copy(alpha = 0.2f)
+                                                            else Color(0xFF64748B).copy(alpha = 0.2f)
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (user.isOnline) Icons.Rounded.Smartphone else Icons.Rounded.PhoneAndroid,
+                                                        contentDescription = null,
+                                                        tint = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(
+                                                        text = user.deviceModel,
+                                                        color = Color.White,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = "ID: ${user.id.take(12)} ‚Ä¢ App ${user.appVersion}",
+                                                        color = Color(0xFF64748B),
+                                                        fontSize = 10.sp
+                                                    )
+                                                }
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = if (user.isOnline) Color(0xFF065F46).copy(alpha = 0.4f) else Color(0xFF1E293B),
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    0.5.dp,
+                                                    if (user.isOnline) Color(0xFF10B981) else Color(0xFF475569)
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = timeText,
+                                                    color = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // TAB: SCROLLING BREAKING NEWS TICKER MANAGEMENT
             // -------------------------------------------------------------
             if (selectedAdminTab == AdminTab.TICKER) {
@@ -6653,90 +7002,6 @@ fun MenuScreen(
             }
         }
 
-        // CARD 5: ‡¶è‡¶°‡¶Æ‡¶ø‡¶® ‡¶Ö‡ßç‡¶Ø‡¶æ‡¶™ (Admin Control Panel) üîí (Privacy Protected)
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF2563EB).copy(alpha = 0.25f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Shield,
-                                contentDescription = "Admin Shield",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "‡¶è‡¶°‡¶Æ‡¶ø‡¶® ‡¶Ö‡ßç‡¶Ø‡¶æ‡¶™ (Admin Control Panel)",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = Icons.Rounded.Lock,
-                                    contentDescription = "Lock",
-                                    tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Text(
-                                text = "‡¶ö‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤, ‡¶≤‡¶æ‡¶á‡¶≠ ‡¶ñ‡ßá‡¶≤‡¶æ, ‡¶Æ‡ßÅ‡¶≠‡¶ø ‡¶ì ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶®‡¶ø‡¶Ø‡¶º‡¶®‡ßç‡¶§‡ßç‡¶∞‡¶£‡ßá‡¶∞ ‡¶ú‡¶®‡ßç‡¶Ø ‡¶è‡¶°‡¶Æ‡¶ø‡¶® ‡¶Ö‡ßç‡¶Ø‡¶æ‡¶™‡ßá ‡¶¢‡ßÅ‡¶ï‡ßÅ‡¶®",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 11.sp,
-                                maxLines = 2
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Button(
-                        onClick = { showAdminLoginDialog = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Lock,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Login",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
-        }
-
         // CARD 5: App Version & In-App Update Check
         item {
             Card(
@@ -6893,8 +7158,22 @@ fun MenuScreen(
                         Text(
                             text = "Version ${com.example.BuildConfig.VERSION_NAME} (Build ${com.example.BuildConfig.VERSION_CODE})",
                             color = Color(0xFF64748B),
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
+                            modifier = Modifier.clickable { showAdminLoginDialog = true }
                         )
+
+                        // Discreet admin secret trigger (small subtle icon)
+                        IconButton(
+                            onClick = { showAdminLoginDialog = true },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Lock,
+                                contentDescription = null,
+                                tint = Color(0xFF334155),
+                                modifier = Modifier.size(11.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -8814,2549 +9093,74 @@ fun LiveTvTabScreen(
                                         // Channel Initials
                                         val initials = channel.title.take(3).uppercase()
                                         Text(
-                                            text = initials,
-                                            color = Color(0xFF0F172A),
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = if (isTvMode) 14.sp else 12.sp
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Channel Title Container
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(if (isTvMode) 34.dp else 28.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = channel.title,
-                                        color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
-                                        fontSize = if (isTvMode) 12.5.sp else 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = if (isTvMode) 15.sp else 13.sp
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                // Category & Country Badges Row
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF0F172A),
-                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
-                                    ) {
-                                        Text(
-                                            text = channel.category.ifBlank { "Live TV" },
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = if (isTvMode) 9.5.sp else 9.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    if (!channel.country.isNullOrBlank()) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = Color(0xFF1E293B),
-                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF475569))
-                                        ) {
-                                            Text(
-                                                text = channel.country,
-                                                color = Color(0xFFCBD5E1),
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// TAB 3: MOVIES SCREEN (Direct JSON & M3U Movies & Web Series Catalog)
-// -------------------------------------------------------------
-@Composable
-fun MoviesTabScreen(
-    movies: List<MediaItem>,
-    favoriteIds: Set<String>,
-    isTvMode: Boolean = false,
-    onSelectMedia: (MediaItem) -> Unit,
-    onToggleFavorite: (String) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("All") }
-    var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
-
-    // Dynamically derive categories from loaded movies preserving natural order
-    val dynamicCategories = remember(movies) {
-        val extracted = mutableListOf<String>()
-        movies.forEach { m ->
-            val cat = m.category.trim()
-            if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true) && !cat.equals("General", ignoreCase = true)) {
-                if (!extracted.contains(cat)) {
-                    extracted.add(cat)
-                }
-            }
-        }
-        listOf("All") + extracted + listOf("‚ù§Ô∏è Favorites")
-    }
-
-    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
-        movies.filter { item ->
-            val matchesSearch = searchQuery.isBlank() ||
-                    item.title.contains(searchQuery, ignoreCase = true) ||
-                    item.category.contains(searchQuery, ignoreCase = true) ||
-                    (item.description != null && item.description.contains(searchQuery, ignoreCase = true)) ||
-                    (item.year != null && item.year.contains(searchQuery, ignoreCase = true))
-
-            val matchesCategory = when (selectedCategory) {
-                "All" -> true
-                "‚ù§Ô∏è Favorites" -> favoriteIds.contains(item.id)
-                else -> item.category.equals(selectedCategory, ignoreCase = true) ||
-                        item.category.contains(selectedCategory, ignoreCase = true) ||
-                        (item.description != null && item.description.contains(selectedCategory, ignoreCase = true))
-            }
-
-            matchesSearch && matchesCategory
-        }
-    }
-
-    val featuredMovies = remember(movies) {
-        val withPoster = movies.filter { !it.logoUrl.isNullOrBlank() }
-        if (withPoster.isNotEmpty()) withPoster.take(15) else movies.take(15)
-    }
-
-    val categoriesWithMovies = remember(movies) {
-        val catMap = linkedMapOf<String, MutableList<MediaItem>>()
-        movies.forEach { movie ->
-            val cat = movie.category.ifBlank { "Movies" }.trim()
-            catMap.getOrPut(cat) { mutableListOf() }.add(movie)
-        }
-        catMap
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF020617))
-    ) {
-        // Search Bar
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = {
-                Text(
-                    "‡¶Æ‡ßÅ‡¶≠‡¶ø ‡¶ì ‡¶ì‡ßü‡ßá‡¶¨ ‡¶∏‡¶ø‡¶∞‡¶ø‡¶ú ‡¶ñ‡ßÅ‡¶Å‡¶ú‡ßÅ‡¶® (‡¶Ø‡ßá‡¶Æ‡¶®: Jawan, Toofan, Leo, Panchayat)",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 12.5.sp
-                )
-            },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF)) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White)
-                    }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = customFieldColors(),
-            singleLine = true
-        )
-
-        // Filter Categories Horizontal Scroll (from JSON)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 6.dp)
-        ) {
-            items(dynamicCategories) { category ->
-                val isSelected = selectedCategory == category
-                var isCatFocused by remember { mutableStateOf(false) }
-                val catScale by animateFloatAsState(
-                    targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
-                    animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                    label = "movieCatScale"
-                )
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = when {
-                        isCatFocused -> Color(0xFF00E5FF)
-                        isSelected -> Color(0xFF2563EB)
-                        else -> Color(0xFF1E293B)
-                    },
-                    border = when {
-                        isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                        isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
-                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                    },
-                    shadowElevation = if (isCatFocused) 12.dp else 0.dp,
-                    modifier = Modifier
-                        .scale(catScale)
-                        .onFocusChanged { isCatFocused = it.isFocused }
-                        .focusable()
-                        .clickable { selectedCategory = category }
-                ) {
-                    Text(
-                        text = category,
-                        color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
-                        fontSize = 12.sp,
-                        fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                    )
-                }
-            }
-        }
-
-        if (filteredMovies.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Rounded.MovieFilter, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
-                    Text("‡¶ï‡ßã‡¶®‡ßã ‡¶Æ‡ßÅ‡¶≠‡¶ø ‡¶™‡¶æ‡¶ì‡ßü‡¶æ ‡¶Ø‡¶æ‡ßü‡¶®‡¶ø", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("‡¶Ö‡¶®‡ßç‡¶Ø ‡¶ï‡¶ø-‡¶ì‡ßü‡¶æ‡¶∞‡ßç‡¶° ‡¶¨‡¶æ ‡¶ï‡ßç‡¶Ø‡¶æ‡¶ü‡¶æ‡¶ó‡¶∞‡¶ø ‡¶¨‡ßá‡¶õ‡ßá ‡¶®‡¶ø‡¶®‡•§", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                }
-            }
-        } else if (selectedCategory == "All" && searchQuery.isBlank()) {
-            // OTT Netflix-style layout with categorized horizontal rows
-            LazyColumn(
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                // Multi-Featured Spotlight Carousel (Horizontal swipe/scroll + auto rotation)
-                if (featuredMovies.isNotEmpty()) {
-                    item {
-                        var activeHeroIndex by remember { mutableStateOf(0) }
-                        
-                        // Auto rotate every 6 seconds
-                        LaunchedEffect(featuredMovies.size) {
-                            if (featuredMovies.size > 1) {
-                                while (true) {
-                                    kotlinx.coroutines.delay(6000L)
-                                    activeHeroIndex = (activeHeroIndex + 1).mod(featuredMovies.size)
-                                }
-                            }
-                        }
-
-                        val safeIndex = activeHeroIndex.coerceIn(0, featuredMovies.size - 1)
-                        val curFeaturedMovie = featuredMovies[safeIndex]
-                        var isHeroFocused by remember { mutableStateOf(false) }
-                        val heroScale by animateFloatAsState(
-                            targetValue = if (isHeroFocused) 1.03f else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
-                            label = "heroScale"
-                        )
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp)
-                        ) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(215.dp)
-                                    .scale(heroScale)
-                                    .onFocusChanged { isHeroFocused = it.isFocused }
-                                    .focusable()
-                                    .clickable { onSelectMedia(curFeaturedMovie) },
-                                shape = RoundedCornerShape(16.dp),
-                                border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF)) else null,
-                                elevation = CardDefaults.cardElevation(defaultElevation = if (isHeroFocused) 16.dp else 4.dp)
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    AsyncImage(
-                                        model = curFeaturedMovie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
-                                        contentDescription = curFeaturedMovie.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.verticalGradient(
-                                                    listOf(
-                                                        Color.Transparent,
-                                                        Color(0xFF0F172A).copy(alpha = 0.7f),
-                                                        Color(0xFF020617).copy(alpha = 0.98f)
-                                                    )
-                                                )
-                                            )
-                                    )
-
-                                    // Top right Spotlight Counter / Badge
-                                    Row(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color.Black.copy(alpha = 0.65f),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
-                                        ) {
-                                            Text(
-                                                text = "${safeIndex + 1} / ${featuredMovies.size}",
-                                                color = Color(0xFF00E5FF),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Column(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .padding(16.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = Color(0xFFE11D48)
-                                            ) {
-                                                Text(
-                                                    text = "‚≠ê FEATURED SPOTLIGHT",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = Color(0xFF2563EB)
-                                            ) {
-                                                Text(
-                                                    text = "NEW RELEASE",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = curFeaturedMovie.title,
-                                            color = Color.White,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Black,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "${curFeaturedMovie.category} ‚Ä¢ ${curFeaturedMovie.year ?: "2026"} ‚Ä¢ ${curFeaturedMovie.quality}",
-                                            color = Color(0xFFCBD5E1),
-                                            fontSize = 11.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Button(
-                                                onClick = { onSelectMedia(curFeaturedMovie) },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                                                shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                                                modifier = Modifier.height(34.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Play", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            }
-                                            OutlinedButton(
-                                                onClick = { selectedMovieForDetails = curFeaturedMovie },
-                                                shape = RoundedCornerShape(8.dp),
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
-                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                                modifier = Modifier.height(34.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.Info, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Info", fontSize = 11.sp)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Carousel Thumbnail Strip (Horizontal list to swipe and see all new featured movies)
-                            if (featuredMovies.size > 1) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    itemsIndexed(featuredMovies) { idx, itemMovie ->
-                                        val isCurrent = idx == safeIndex
-                                        var isThumbFocused by remember { mutableStateOf(false) }
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (isCurrent) Color(0xFF1E293B) else Color(0xFF0F172A),
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                width = if (isCurrent) 2.dp else if (isThumbFocused) 1.5.dp else 1.dp,
-                                                color = if (isCurrent) Color(0xFF00E5FF) else if (isThumbFocused) Color(0xFFFFD600) else Color(0xFF334155)
-                                            ),
-                                            modifier = Modifier
-                                                .width(if (isTvMode) 100.dp else 85.dp)
-                                                .height(48.dp)
-                                                .onFocusChanged { 
-                                                    isThumbFocused = it.isFocused 
-                                                    if (it.isFocused) activeHeroIndex = idx
-                                                }
-                                                .focusable()
-                                                .clickable { activeHeroIndex = idx }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(3.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                AsyncImage(
-                                                    model = itemMovie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=200",
-                                                    contentDescription = itemMovie.title,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier
-                                                        .size(42.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                )
-                                                Text(
-                                                    text = itemMovie.title,
-                                                    color = if (isCurrent) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Render each Category Row
-                categoriesWithMovies.forEach { (categoryName, catMovies) ->
-                    item(key = categoryName) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            // Category Row Header
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selectedCategory = categoryName }
-                                    .padding(horizontal = 14.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFFE11D48)
-                                    ) {
-                                        Text(
-                                            text = "ORIGINAL",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Black,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                    Text(
-                                        text = categoryName,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = Color(0xFF1E293B)
-                                    ) {
-                                        Text(
-                                            text = "${catMovies.size} Movies",
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                Icon(
-                                    Icons.Rounded.ChevronRight,
-                                    contentDescription = "View All",
-                                    tint = Color(0xFF94A3B8),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // Horizontal list of Movie Cards
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 10.dp)
-                            ) {
-                                items(catMovies, key = { it.id }) { movie ->
-                                    val isFav = favoriteIds.contains(movie.id)
-                                    var isItemFocused by remember { mutableStateOf(false) }
-                                    val movieItemScale by animateFloatAsState(
-                                        targetValue = if (isItemFocused) (if (isTvMode) 1.08f else 1.05f) else 1.0f,
-                                        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                                        label = "movieRowCardScale"
-                                    )
-
-                                    Card(
-                                        modifier = Modifier
-                                            .width(if (isTvMode) 140.dp else 125.dp)
-                                            .scale(movieItemScale)
-                                            .onFocusChanged { isItemFocused = it.isFocused }
-                                            .focusable()
-                                            .clickable { onSelectMedia(movie) },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isItemFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
-                                        ),
-                                        border = when {
-                                            isItemFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                                        },
-                                        elevation = CardDefaults.cardElevation(defaultElevation = if (isItemFocused) 16.dp else 2.dp)
-                                    ) {
-                                        Column {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(2f / 3f)
-                                                    .background(Color.Black)
-                                            ) {
-                                                AsyncImage(
-                                                    model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400",
-                                                    contentDescription = movie.title,
-                                                    contentScale = ContentScale.Fit,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-
-                                                // Top-Left Quality badge
-                                                Surface(
-                                                    shape = RoundedCornerShape(bottomEnd = 6.dp),
-                                                    color = Color(0xFF2563EB).copy(alpha = 0.9f),
-                                                    modifier = Modifier.align(Alignment.TopStart)
-                                                ) {
-                                                    Text(
-                                                        text = movie.quality.ifBlank { "HD" },
-                                                        color = Color.White,
-                                                        fontSize = if (isTvMode) 9.sp else 8.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                                    )
-                                                }
-
-                                                // Rating badge
-                                                Surface(
-                                                    shape = RoundedCornerShape(bottomStart = 6.dp),
-                                                    color = Color.Black.copy(alpha = 0.8f),
-                                                    modifier = Modifier.align(Alignment.TopEnd)
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Rounded.Star,
-                                                            contentDescription = null,
-                                                            tint = Color(0xFFF59E0B),
-                                                            modifier = Modifier.size(10.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(2.dp))
-                                                        Text(
-                                                            text = movie.rating ?: "8.0",
-                                                            color = Color.White,
-                                                            fontSize = if (isTvMode) 9.sp else 8.5.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
-
-                                                // Multi-Server badge
-                                                if (movie.servers.size > 1) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(topEnd = 6.dp),
-                                                        color = Color(0xFF10B981).copy(alpha = 0.9f),
-                                                        modifier = Modifier.align(Alignment.BottomStart)
-                                                    ) {
-                                                        Text(
-                                                            text = "‚ö° ${movie.servers.size} Srv",
-                                                            color = Color.White,
-                                                            fontSize = 8.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-
-                                                // Favorite overlay
-                                                IconButton(
-                                                    onClick = { onToggleFavorite(movie.id) },
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomEnd)
-                                                        .size(26.dp)
-                                                        .padding(2.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                                        contentDescription = "Favorite",
-                                                        tint = if (isFav) Color(0xFFEF4444) else Color.White,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                }
-                                            }
-
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 6.dp, vertical = 5.dp)
-                                            ) {
-                                                Text(
-                                                    text = movie.title,
-                                                    color = if (isItemFocused) Color(0xFF00E5FF) else Color.White,
-                                                    fontSize = if (isTvMode) 11.5.sp else 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    lineHeight = if (isTvMode) 14.sp else 13.sp,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Spacer(modifier = Modifier.height(1.dp))
-                                                Text(
-                                                    text = "${movie.category} ‚Ä¢ ${movie.year ?: "2026"}",
-                                                    color = Color(0xFF94A3B8),
-                                                    fontSize = if (isTvMode) 9.5.sp else 9.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Filtered / Search Grid View
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "üé¨ $selectedCategory (${filteredMovies.size})",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF2563EB).copy(alpha = 0.2f)
-                    ) {
-                        Text(
-                            text = "Ultra HD",
-                            color = Color(0xFF00E5FF),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 5 else 2),
-                    contentPadding = PaddingValues(horizontal = if (isTvMode) 12.dp else 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredMovies, key = { it.id }) { movie ->
-                        val isFav = favoriteIds.contains(movie.id)
-                        var isCardFocused by remember { mutableStateOf(false) }
-                        val movieCardScale by animateFloatAsState(
-                            targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.04f) else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                            label = "movieGridCardScale"
-                        )
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .scale(movieCardScale)
-                                .onFocusChanged { isCardFocused = it.isFocused }
-                                .focusable()
-                                .clickable { onSelectMedia(movie) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isCardFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
-                            ),
-                            border = when {
-                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                            },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 16.dp else 2.dp)
-                        ) {
-                        Column {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(2f / 3f)
-                                    .background(Color.Black)
-                            ) {
-                                AsyncImage(
-                                    model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400",
-                                    contentDescription = movie.title,
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-
-                                if (isCardFocused) {
-                                    Surface(
-                                        shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
-                                        color = Color(0xFF00E5FF),
-                                        modifier = Modifier.align(Alignment.TopStart)
-                                    ) {
-                                        Text(
-                                            text = "‚ñ∂ OK",
-                                            color = Color.Black,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Black,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                // Top-Left Quality Badge (HD / 4K)
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF2563EB),
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(8.dp)
-                                ) {
-                                    Text(
-                                        text = movie.quality,
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                // Top-Right Rating Badge
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFF59E0B),
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(8.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Star,
-                                            contentDescription = null,
-                                            tint = Color.Black,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(2.dp))
-                                        Text(
-                                            text = movie.rating ?: "8.5",
-                                            color = Color.Black,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                // Multi-Server Badge
-                                if (movie.servers.size > 1) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF10B981),
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .padding(6.dp)
-                                    ) {
-                                        Text(
-                                            text = "‚ö° ${movie.servers.size} Servers",
-                                            color = Color.Black,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                // Favorite heart overlay
-                                IconButton(
-                                    onClick = { onToggleFavorite(movie.id) },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(4.dp)
-                                        .size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                        contentDescription = "Favorite",
-                                        tint = if (isFav) Color(0xFFEF4444) else Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = if (isTvMode) 6.dp else 10.dp, vertical = if (isTvMode) 5.dp else 8.dp)
-                            ) {
-                                Text(
-                                    text = movie.title,
-                                    color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
-                                    fontSize = if (isTvMode) 11.5.sp else 12.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    lineHeight = if (isTvMode) 14.sp else 14.sp,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(1.dp))
-                                Text(
-                                    text = "${movie.category} ‚Ä¢ ${movie.year ?: "2026"}",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = if (isTvMode) 9.5.sp else 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    }
-
-    // Movie Details Dialog
-    if (selectedMovieForDetails != null) {
-        val movie = selectedMovieForDetails!!
-        var selectedServerIndex by remember { mutableStateOf(0) }
-        val servers = if (movie.servers.isNotEmpty()) movie.servers else listOf(StreamServer("Main Server", movie.streamUrl))
-
-        AlertDialog(
-            onDismissRequest = { selectedMovieForDetails = null },
-            containerColor = Color(0xFF0F172A),
-            shape = RoundedCornerShape(20.dp),
-            title = null,
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color.Black)
-                    ) {
-                        AsyncImage(
-                            model = movie.logoUrl ?: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600",
-                            contentDescription = movie.title,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            Color(0xFF0F172A).copy(alpha = 0.9f)
-                                        )
-                                    )
-                                )
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF2563EB),
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                text = movie.quality,
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = movie.title,
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF1E293B),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                        ) {
-                            Text(
-                                text = movie.category,
-                                color = Color(0xFF00E5FF),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                        if (movie.year != null) {
-                            Text(
-                                text = "Year: ${movie.year}",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 12.sp
-                            )
-                        }
-                        if (movie.rating != null) {
-                            Text(
-                                text = "‚≠ê ${movie.rating}",
-                                color = Color(0xFFF59E0B),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    if (!movie.description.isNullOrBlank()) {
-                        Text(
-                            text = movie.description,
-                            color = Color(0xFFCBD5E1),
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-
-                    // Server Selection
-                    Text(
-                        text = "‚ö° ‡¶∏‡ßç‡¶ü‡ßç‡¶∞‡¶ø‡¶Æ ‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ ‡¶®‡¶ø‡¶∞‡ßç‡¶¨‡¶æ‡¶ö‡¶® ‡¶ï‡¶∞‡ßÅ‡¶® (${servers.size} ‡¶ü‡¶ø ‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞):",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(servers.size) { index ->
-                            val srv = servers[index]
-                            val isSelected = selectedServerIndex == index
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF334155)),
-                                modifier = Modifier.clickable { selectedServerIndex = index }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.Dns,
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.Black else Color(0xFF60A5FA),
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = srv.name,
-                                        color = if (isSelected) Color.Black else Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val chosenServer = servers.getOrNull(selectedServerIndex) ?: servers.first()
-                        val mediaToPlay = movie.copy(streamUrl = chosenServer.url)
-                        selectedMovieForDetails = null
-                        onSelectMedia(mediaToPlay)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().height(44.dp)
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Watch Movie Now (‡¶™‡ßç‡¶≤‡ßá ‡¶ï‡¶∞‡ßÅ‡¶®)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { selectedMovieForDetails = null }) {
-                    Text("Close", color = Color(0xFF94A3B8))
-                }
-            }
-        )
-    }
-}
-
-// -------------------------------------------------------------
-// -------------------------------------------------------------
-// TAB 4: PLAYLIST SCREEN (Multi-Playlist M3U & Xtream Codes Hub)
-// -------------------------------------------------------------
-@Composable
-fun PlaylistTabScreen(
-    playlists: List<PlaylistInfo>,
-    repository: MediaRepository,
-    isTvMode: Boolean,
-    onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
-    onPlaylistsChanged: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val clipboardManager = LocalClipboardManager.current
-
-    var activePlaylist by remember { mutableStateOf<PlaylistInfo?>(null) }
-    var playlistChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var isLoadingPlaylist by remember { mutableStateOf(false) }
-    var channelSearchQuery by remember { mutableStateOf("") }
-    var selectedChannelCategory by remember { mutableStateOf("All") }
-
-    // Dialog state for adding/editing playlists
-    var showAddPlaylistDialog by remember { mutableStateOf(false) }
-    var playlistToEdit by remember { mutableStateOf<PlaylistInfo?>(null) }
-    var playlistToDelete by remember { mutableStateOf<PlaylistInfo?>(null) }
-
-    // Intercept back button when viewing channels within a playlist
-    BackHandler(enabled = activePlaylist != null) {
-        activePlaylist = null
-        playlistChannels = emptyList()
-        channelSearchQuery = ""
-    }
-
-    fun loadPlaylist(pl: PlaylistInfo) {
-        activePlaylist = pl
-        coroutineScope.launch {
-            isLoadingPlaylist = true
-            try {
-                val items = repository.fetchPlaylistChannels(pl)
-                playlistChannels = items
-                if (items.isEmpty()) {
-                    Toast.makeText(context, "‡¶è‡¶á ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡ßá ‡¶ï‡ßã‡¶®‡ßã ‡¶ö‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤ ‡¶™‡¶æ‡¶ì‡ßü‡¶æ ‡¶Ø‡¶æ‡ßü‡¶®‡¶ø!", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(context, "‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶≤‡ßã‡¶° ‡¶ï‡¶∞‡¶§‡ßá ‡¶∏‡¶Æ‡¶∏‡ßç‡¶Ø‡¶æ ‡¶π‡ßü‡ßá‡¶õ‡ßá: ${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                isLoadingPlaylist = false
-            }
-        }
-    }
-
-    if (activePlaylist != null) {
-        // Detailed Playlist Channels Browser View
-        val currentPl = activePlaylist!!
-        val categories = remember(playlistChannels) {
-            listOf("All") + playlistChannels.map { it.category }.distinct().filter { it.isNotBlank() }
-        }
-
-        val filteredChannels = remember(playlistChannels, channelSearchQuery, selectedChannelCategory) {
-            playlistChannels.filter { item ->
-                val matchesCategory = (selectedChannelCategory == "All" || item.category == selectedChannelCategory)
-                val matchesQuery = channelSearchQuery.isBlank() ||
-                        item.title.contains(channelSearchQuery, ignoreCase = true) ||
-                        item.category.contains(channelSearchQuery, ignoreCase = true)
-                matchesCategory && matchesQuery
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0B1120))
-        ) {
-            // Header Bar
-            Surface(
-                color = Color(0xFF1E293B),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = {
-                            activePlaylist = null
-                            playlistChannels = emptyList()
-                            channelSearchQuery = ""
-                        }
-                    ) {
-                        Icon(
-                            Icons.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color.White
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = currentPl.title,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (currentPl.type == "XTREAM") {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    color = Color(0xFF10B981).copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(4.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = "XTREAM",
-                                        color = Color(0xFF10B981),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            text = if (isLoadingPlaylist) "‡¶≤‡ßã‡¶° ‡¶π‡¶ö‡ßç‡¶õ‡ßá..." else "${playlistChannels.size} ‡¶ü‡¶ø ‡¶ö‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤ ‡¶™‡¶æ‡¶ì‡ßü‡¶æ ‡¶ó‡ßá‡¶õ‡ßá",
-                            color = Color(0xFF00E5FF),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { loadPlaylist(currentPl) }
-                    ) {
-                        Icon(
-                            Icons.Rounded.Refresh,
-                            contentDescription = "Refresh",
-                            tint = Color(0xFF00E5FF)
-                        )
-                    }
-                }
-            }
-
-            if (isLoadingPlaylist) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(color = Color(0xFF00E5FF))
-                        Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡ßá‡¶∞ ‡¶ö‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤‡¶∏‡¶Æ‡ßÇ‡¶π ‡¶≤‡ßã‡¶° ‡¶π‡¶ö‡ßç‡¶õ‡ßá...", color = Color(0xFFCBD5E1), fontSize = 13.sp)
-                    }
-                }
-            } else if (playlistChannels.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Rounded.CloudOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(54.dp))
-                        Text("‡¶ï‡ßã‡¶®‡ßã ‡¶ö‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤ ‡¶≤‡ßã‡¶° ‡¶ï‡¶∞‡¶æ ‡¶Ø‡¶æ‡ßü‡¶®‡¶ø", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ ‡¶¨‡¶æ ‡¶≤‡¶ø‡¶Ç‡¶ï ‡¶ö‡ßá‡¶ï ‡¶ï‡¶∞‡ßÅ‡¶® ‡¶Ö‡¶•‡¶¨‡¶æ ‡¶∞‡¶ø‡¶´‡ßç‡¶∞‡ßá‡¶∂ ‡¶¨‡¶æ‡¶ü‡¶®‡ßá ‡¶ï‡ßç‡¶≤‡¶ø‡¶ï ‡¶ï‡¶∞‡ßÅ‡¶®‡•§", color = Color(0xFF94A3B8), fontSize = 12.sp, textAlign = TextAlign.Center)
-                        Button(
-                            onClick = { loadPlaylist(currentPl) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                        ) {
-                            Text("‡¶™‡ßÅ‡¶®‡¶∞‡¶æ‡ßü ‡¶ö‡ßá‡¶∑‡ßç‡¶ü‡¶æ ‡¶ï‡¶∞‡ßÅ‡¶®")
-                        }
-                    }
-                }
-            } else {
-                // Search Bar inside Playlist
-                OutlinedTextField(
-                    value = channelSearchQuery,
-                    onValueChange = { channelSearchQuery = it },
-                    placeholder = { Text("${currentPl.title}-‡¶è ‡¶ö‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤ ‡¶ñ‡ßÅ‡¶Å‡¶ú‡ßÅ‡¶®...", color = Color(0xFF64748B), fontSize = 12.sp) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                    trailingIcon = {
-                        if (channelSearchQuery.isNotEmpty()) {
-                            IconButton(onClick = { channelSearchQuery = "" }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8))
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = customFieldColors(),
-                    singleLine = true
-                )
-
-                // Category Chips
-                if (categories.size > 2) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    ) {
-                        items(categories) { cat ->
-                            val isSelected = (selectedChannelCategory == cat)
-                            var isCatFocused by remember { mutableStateOf(false) }
-                            val plCatScale by animateFloatAsState(
-                                targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
-                                animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                                label = "plCatScale"
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = when {
-                                    isCatFocused -> Color(0xFF00E5FF)
-                                    isSelected -> Color(0xFF2563EB)
-                                    else -> Color(0xFF1E293B)
-                                },
-                                border = when {
-                                    isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                                    isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
-                                    else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                                },
-                                shadowElevation = if (isCatFocused) 12.dp else 0.dp,
-                                modifier = Modifier
-                                    .scale(plCatScale)
-                                    .onFocusChanged { isCatFocused = it.isFocused }
-                                    .focusable()
-                                    .clickable { selectedChannelCategory = cat }
-                            ) {
-                                Text(
-                                    text = cat,
-                                    color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFCBD5E1),
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Normal,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Channels Grid (Spacious 4-column layout on TV mode with full details & serial numbers)
-                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 4 else 3),
-                    contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredChannels.size) { chanIndex ->
-                        val channel = filteredChannels[chanIndex]
-                        var isChanFocused by remember { mutableStateOf(false) }
-                        val plChanScale by animateFloatAsState(
-                            targetValue = if (isChanFocused) (if (isTvMode) 1.10f else 1.06f) else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                            label = "plChanScale"
-                        )
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(if (isTvMode) 168.dp else 142.dp)
-                                .scale(plChanScale)
-                                .onFocusChanged { isChanFocused = it.isFocused }
-                                .focusable()
-                                .clickable { onSelectMedia(channel, playlistChannels) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isChanFocused) Color(0xFF0284C7).copy(alpha = 0.45f) else Color(0xFF1E293B)
-                            ),
-                            border = when {
-                                isChanFocused -> androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF))
-                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
-                            },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isChanFocused) 16.dp else 2.dp)
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                // Channel Serial Number Badge on Top-Right
-                                Surface(
-                                    shape = RoundedCornerShape(bottomStart = 8.dp),
-                                    color = Color(0xFF0B1120).copy(alpha = 0.85f),
-                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155)),
-                                    modifier = Modifier.align(Alignment.TopEnd)
-                                ) {
-                                    Text(
-                                        text = "#${chanIndex + 1}",
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = if (isTvMode) 9.5.sp else 8.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                // Focus badge on top left
-                                if (isChanFocused) {
-                                    Surface(
-                                        shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
-                                        color = Color(0xFF00E5FF),
-                                        modifier = Modifier.align(Alignment.TopStart)
-                                    ) {
-                                        Text(
-                                            text = "‚ñ∂ PLAY",
-                                            color = Color.Black,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Black,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                } else if (channel.servers.size > 1) {
-                                    Surface(
-                                        shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
-                                        color = Color(0xFF10B981).copy(alpha = 0.85f),
-                                        modifier = Modifier.align(Alignment.TopStart)
-                                    ) {
-                                        Text(
-                                            text = "‚ö° ${channel.servers.size} ‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞",
-                                            color = Color.White,
-                                            fontSize = 8.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    // Channel Logo in White/Clean Circle
-                                    Box(
-                                        modifier = Modifier
-                                            .size(if (isTvMode) 52.dp else 46.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White)
-                                            .border(1.dp, Color(0xFF334155).copy(alpha = 0.5f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (!channel.logoUrl.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = channel.logoUrl,
-                                                contentDescription = channel.title,
-                                                contentScale = ContentScale.Fit,
-                                                modifier = Modifier
-                                                    .size(if (isTvMode) 44.dp else 38.dp)
-                                                    .clip(CircleShape)
-                                            )
-                                        } else {
-                                            val initials = channel.title.take(3).uppercase()
-                                            Text(
-                                                text = initials,
-                                                color = Color(0xFF0F172A),
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = if (isTvMode) 14.sp else 12.sp
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    // Channel Title Container
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(if (isTvMode) 34.dp else 28.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = channel.title,
-                                            color = if (isChanFocused) Color(0xFF00E5FF) else Color.White,
-                                            fontSize = if (isTvMode) 12.5.sp else 11.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center,
-                                            lineHeight = if (isTvMode) 15.sp else 13.sp
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    // Category & Country Badges Row
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = Color(0xFF0F172A),
-                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
-                                        ) {
-                                            Text(
-                                                text = channel.category.ifBlank { "Channel" },
-                                                color = Color(0xFF00E5FF),
-                                                fontSize = if (isTvMode) 9.5.sp else 9.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        if (!channel.country.isNullOrBlank()) {
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = Color(0xFF1E293B),
-                                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF475569))
-                                            ) {
-                                                Text(
-                                                    text = channel.country,
-                                                    color = Color(0xFFCBD5E1),
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                    maxLines = 1
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // Main Playlist Directory View (Optimized for TV & Mobile with Prominent Serials & Icons)
-        var playlistSearchQuery by remember { mutableStateOf("") }
-        val filteredPlaylists = remember(playlists, playlistSearchQuery) {
-            if (playlistSearchQuery.isBlank()) playlists
-            else playlists.filter { it.title.contains(playlistSearchQuery, ignoreCase = true) || it.url.contains(playlistSearchQuery, ignoreCase = true) }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0B1120))
-                .padding(horizontal = if (isTvMode) 12.dp else 14.dp, vertical = if (isTvMode) 4.dp else 8.dp)
-        ) {
-            // Top Header with Add Playlist Button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = if (isTvMode) 4.dp else 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFF2563EB).copy(alpha = 0.25f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
-                        modifier = Modifier.size(if (isTvMode) 32.dp else 36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.FolderSpecial,
-                                contentDescription = null,
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(if (isTvMode) 18.dp else 20.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "IPTV Playlists",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = if (isTvMode) 15.sp else 17.sp
-                        )
-                        Text(
-                            text = "${playlists.size} ‡¶ü‡¶ø ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶∏‡¶Ç‡¶∞‡¶ï‡ßç‡¶∑‡¶ø‡¶§",
-                            color = Color(0xFF94A3B8),
-                            fontSize = if (isTvMode) 10.sp else 11.sp
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Add Playlist Button
-                    Button(
-                        onClick = { showAddPlaylistDialog = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.8f)),
-                        contentPadding = PaddingValues(horizontal = if (isTvMode) 10.dp else 12.dp, vertical = if (isTvMode) 6.dp else 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = "Add",
-                            modifier = Modifier.size(16.dp),
-                            tint = Color(0xFF00E5FF)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶Ø‡ßã‡¶ó ‡¶ï‡¶∞‡ßÅ‡¶®",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = if (isTvMode) 11.sp else 12.sp
-                        )
-                    }
-                }
-            }
-
-            // Quick Banner for Xtream / M3U Info (Compact on TV mode)
-            if (!isTvMode) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clickable { showAddPlaylistDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF2563EB), Color(0xFF00E5FF))
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Bolt,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Xtream Codes API & M3U ‡¶∏‡¶æ‡¶™‡ßã‡¶∞‡ßç‡¶ü",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp
-                            )
-                            Text(
-                                text = "‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ URL, ‡¶á‡¶â‡¶ú‡¶æ‡¶∞ ‡¶ì ‡¶™‡¶æ‡¶∏‡¶ì‡ßü‡¶æ‡¶∞‡ßç‡¶° ‡¶¶‡¶ø‡ßü‡ßá ‡¶®‡¶ø‡¶Æ‡ßá‡¶∑‡ßá‡¶á ‡¶ï‡¶æ‡¶®‡ßá‡¶ï‡ßç‡¶ü ‡¶ï‡¶∞‡ßÅ‡¶®",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 10.5.sp
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Rounded.ArrowForwardIos,
-                            contentDescription = null,
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-                }
-            }
-
-            // Search Bar (Compact)
-            if (playlists.size > 2) {
-                OutlinedTextField(
-                    value = playlistSearchQuery,
-                    onValueChange = { playlistSearchQuery = it },
-                    placeholder = { Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶ñ‡ßÅ‡¶Å‡¶ú‡ßÅ‡¶®...", color = Color(0xFF64748B), fontSize = if (isTvMode) 11.5.sp else 13.sp) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp)) },
-                    trailingIcon = {
-                        if (playlistSearchQuery.isNotEmpty()) {
-                            IconButton(onClick = { playlistSearchQuery = "" }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = if (isTvMode) 4.dp else 8.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = customFieldColors(),
-                    singleLine = true
-                )
-            }
-
-            if (filteredPlaylists.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FolderOpen,
-                            contentDescription = null,
-                            tint = Color(0xFF64748B),
-                            modifier = Modifier.size(54.dp)
-                        )
-                        Text(
-                            text = "‡¶ï‡ßã‡¶®‡ßã ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶™‡¶æ‡¶ì‡ßü‡¶æ ‡¶Ø‡¶æ‡ßü‡¶®‡¶ø",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
-                        Text(
-                            text = "‡¶Ü‡¶™‡¶®‡¶æ‡¶∞ ‡¶ï‡¶æ‡¶õ‡ßá Xtream Codes ‡¶¨‡¶æ M3U ‡¶≤‡¶ø‡¶Ç‡¶ï ‡¶•‡¶æ‡¶ï‡¶≤‡ßá ‡¶∏‡¶π‡¶ú‡ßá‡¶á ‡¶Ø‡ßÅ‡¶ï‡ßç‡¶§ ‡¶ï‡¶∞‡ßÅ‡¶®‡•§",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Button(
-                            onClick = { showAddPlaylistDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("‚ûï ‡¶®‡¶§‡ßÅ‡¶® ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶Ø‡ßã‡¶ó ‡¶ï‡¶∞‡ßÅ‡¶®", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            } else {
-                // TV Mode has 4 columns and Mobile has 2 columns for a balanced and beautiful view
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTvMode) 4 else 2),
-                    contentPadding = PaddingValues(vertical = 4.dp, horizontal = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 10.dp else 12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredPlaylists.size) { index ->
-                        val playlist = filteredPlaylists[index]
-                        var showCardMenu by remember { mutableStateOf(false) }
-                        var isCardFocused by remember { mutableStateOf(false) }
-                        val plCardScale by animateFloatAsState(
-                            targetValue = if (isCardFocused) 1.08f else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                            label = "plCardScale"
-                        )
-
-                        val serialNumberText = String.format("%02d", index + 1)
-
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .scale(plCardScale)
-                                .onFocusChanged { isCardFocused = it.isFocused }
-                                .focusable()
-                                .clickable { loadPlaylist(playlist) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isCardFocused) Color(0xFF0369A1).copy(alpha = 0.5f) else Color(0xFF1E293B)
-                            ),
-                            border = when {
-                                isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFF00E5FF))
-                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
-                            },
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 14.dp else 2.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                // Playlist Image Box - Fills the entire top container cleanly
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(if (isTvMode) 100.dp else 120.dp)
-                                        .background(Color(0xFF0F172A)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!playlist.logoUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = playlist.logoUrl,
-                                            contentDescription = playlist.title,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(6.dp)
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    Brush.linearGradient(
-                                                        if (playlist.type == "XTREAM")
-                                                            listOf(Color(0xFF065F46), Color(0xFF047857))
-                                                        else
-                                                            listOf(Color(0xFF1E3A8A), Color(0xFF0284C7))
-                                                    )
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = if (playlist.type == "XTREAM") Icons.Rounded.Bolt else Icons.Rounded.LiveTv,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(if (isTvMode) 38.dp else 44.dp)
-                                            )
-                                        }
-                                    }
-
-                                    // Type Badge (XTREAM or M3U) Top-Left
-                                    Row(
-                                        modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(top = 4.dp, start = 4.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            color = if (playlist.type == "XTREAM") Color(0xFF10B981) else Color(0xFF2563EB),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text(
-                                                text = if (playlist.type == "XTREAM") "‚ö° Xtream" else "üîó M3U",
-                                                color = Color.White,
-                                                fontSize = if (isTvMode) 8.sp else 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                        if (playlist.isProtected) {
-                                            Surface(
-                                                color = Color(0xFF00E5FF).copy(alpha = 0.22f),
-                                                shape = RoundedCornerShape(6.dp),
-                                                border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.6f))
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(9.dp))
-                                                    Spacer(modifier = Modifier.width(2.dp))
-                                                    Text(
-                                                        text = "‡¶è‡¶°‡¶Æ‡¶ø‡¶®",
-                                                        color = Color(0xFF00E5FF),
-                                                        fontSize = 7.5.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Top-Right: Prominent Serial Number Badge (#01, #02...) & Options
-                                    Row(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(top = 4.dp, end = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        // Serial Number Badge
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = Color(0xFF0B1120).copy(alpha = 0.9f),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isCardFocused) Color(0xFF00E5FF) else Color(0xFF475569))
-                                        ) {
-                                            Text(
-                                                text = "#$serialNumberText",
-                                                color = if (isCardFocused) Color(0xFF00E5FF) else Color(0xFFE2E8F0),
-                                                fontSize = if (isTvMode) 9.5.sp else 10.sp,
-                                                fontWeight = FontWeight.Black,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                            )
-                                        }
-
-                                        // 3-dots Menu Button Top-Right (for user-created playlists)
-                                        if (!playlist.isProtected) {
-                                            Box {
-                                                IconButton(
-                                                    onClick = { showCardMenu = true },
-                                                    modifier = Modifier.size(26.dp)
-                                                ) {
-                                                    Icon(
-                                                        Icons.Rounded.MoreVert,
-                                                        contentDescription = "Options",
-                                                        tint = Color.White.copy(alpha = 0.8f),
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-
-                                                DropdownMenu(
-                                                    expanded = showCardMenu,
-                                                    onDismissRequest = { showCardMenu = false },
-                                                    modifier = Modifier.background(Color(0xFF1E293B))
-                                                ) {
-                                                    DropdownMenuItem(
-                                                        text = { Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶ö‡¶æ‡¶≤‡ßÅ ‡¶ï‡¶∞‡ßÅ‡¶®", color = Color.White, fontSize = 12.sp) },
-                                                        leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                                                        onClick = {
-                                                            showCardMenu = false
-                                                            loadPlaylist(playlist)
-                                                        }
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text("‡¶è‡¶°‡¶ø‡¶ü ‡¶ï‡¶∞‡ßÅ‡¶®", color = Color.White, fontSize = 12.sp) },
-                                                        leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, tint = Color(0xFF60A5FA)) },
-                                                        onClick = {
-                                                            showCardMenu = false
-                                                            playlistToEdit = playlist
-                                                        }
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text("‡¶Æ‡ßÅ‡¶õ‡ßá ‡¶´‡ßá‡¶≤‡ßÅ‡¶®", color = Color(0xFFEF4444), fontSize = 12.sp) },
-                                                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFEF4444)) },
-                                                        onClick = {
-                                                            showCardMenu = false
-                                                            playlistToDelete = playlist
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Playlist Name Only Footer (No extra text below)
-                                Surface(
-                                    color = Color(0xFF0F172A).copy(alpha = 0.95f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 8.dp, vertical = if (isTvMode) 7.dp else 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "${index + 1}. ${playlist.title}",
-                                            color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = if (isTvMode) 12.sp else 12.5.sp,
-                                            maxLines = 1,
-                                            lineHeight = if (isTvMode) 15.sp else 16.sp,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // =============================================================
-    // ADD PLAYLIST MODAL DIALOG (Supporting Xtream Codes & M3U)
-    // =============================================================
-    if (showAddPlaylistDialog) {
-        AddOrEditPlaylistDialog(
-            initialPlaylist = null,
-            repository = repository,
-            onDismiss = { showAddPlaylistDialog = false },
-            onSaveSuccess = {
-                showAddPlaylistDialog = false
-                onPlaylistsChanged()
-            }
-        )
-    }
-
-    // =============================================================
-    // EDIT PLAYLIST MODAL DIALOG (Protected check)
-    // =============================================================
-    if (playlistToEdit != null) {
-        val toEdit = playlistToEdit!!
-        if (toEdit.isProtected) {
-            LaunchedEffect(toEdit) {
-                Toast.makeText(context, "‚ö†Ô∏è ‡¶è‡¶ü‡¶ø ‡¶è‡¶°‡¶Æ‡¶ø‡¶® ‡¶™‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤‡ßá‡¶∞ ‡¶∏‡ßÅ‡¶∞‡¶ï‡ßç‡¶∑‡¶ø‡¶§ ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡•§ ‡¶∂‡ßÅ‡¶ß‡ßÅ‡¶Æ‡¶æ‡¶§‡ßç‡¶∞ ‡¶è‡¶°‡¶Æ‡¶ø‡¶® ‡¶™‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤ ‡¶•‡ßá‡¶ï‡ßá‡¶á ‡¶è‡¶ü‡¶ø ‡¶™‡¶∞‡¶ø‡¶¨‡¶∞‡ßç‡¶§‡¶® ‡¶ï‡¶∞‡¶æ ‡¶Ø‡¶æ‡¶¨‡ßá‡•§", Toast.LENGTH_LONG).show()
-                playlistToEdit = null
-            }
-        } else {
-            AddOrEditPlaylistDialog(
-                initialPlaylist = toEdit,
-                repository = repository,
-                onDismiss = { playlistToEdit = null },
-                onSaveSuccess = {
-                    playlistToEdit = null
-                    onPlaylistsChanged()
-                }
-            )
-        }
-    }
-
-    // =============================================================
-    // DELETE PLAYLIST CONFIRMATION DIALOG (Protected check)
-    // =============================================================
-    if (playlistToDelete != null) {
-        val target = playlistToDelete!!
-        if (target.isProtected) {
-            LaunchedEffect(target) {
-                Toast.makeText(context, "‚ö†Ô∏è ‡¶è‡¶ü‡¶ø ‡¶è‡¶°‡¶Æ‡¶ø‡¶® ‡¶™‡ßç‡¶Ø‡¶æ‡¶®‡ßá‡¶≤‡ßá‡¶∞ ‡¶∏‡ßÅ‡¶∞‡¶ï‡ßç‡¶∑‡¶ø‡¶§ ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡•§ ‡¶°‡¶ø‡¶≤‡¶ø‡¶ü ‡¶ï‡¶∞‡¶æ ‡¶Ø‡¶æ‡¶¨‡ßá ‡¶®‡¶æ‡•§", Toast.LENGTH_LONG).show()
-                playlistToDelete = null
-            }
-        } else {
-            AlertDialog(
-                onDismissRequest = { playlistToDelete = null },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶Æ‡ßÅ‡¶õ‡¶¨‡ßá‡¶®?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
-                },
-                text = {
-                    Text("‡¶Ü‡¶™‡¶®‡¶ø ‡¶ï‡¶ø ‡¶®‡¶ø‡¶∂‡ßç‡¶ö‡¶ø‡¶§ ‡¶Ø‡ßá \"${target.title}\" ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡¶ü‡¶ø ‡¶Æ‡ßÅ‡¶õ‡ßá ‡¶´‡ßá‡¶≤‡¶§‡ßá ‡¶ö‡¶æ‡¶®?")
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            repository.deleteUserPlaylist(target.id)
-                            playlistToDelete = null
-                            onPlaylistsChanged()
-                            Toast.makeText(context, "${target.title} ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶Æ‡ßÅ‡¶õ‡ßá ‡¶´‡ßá‡¶≤‡¶æ ‡¶π‡ßü‡ßá‡¶õ‡ßá", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
-                    ) {
-                        Text("‡¶π‡ßç‡¶Ø‡¶æ‡¶Å, ‡¶Æ‡ßÅ‡¶õ‡ßÅ‡¶®", fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    OutlinedButton(
-                        onClick = { playlistToDelete = null },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))
-                    ) {
-                        Text("‡¶¨‡¶æ‡¶§‡¶ø‡¶≤")
-                    }
-                },
-                containerColor = Color(0xFF1E293B),
-                titleContentColor = Color.White,
-                textContentColor = Color(0xFFCBD5E1)
-            )
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// REUSABLE ADD / EDIT PLAYLIST DIALOG (XTREAM & M3U SUPPORT)
-// -------------------------------------------------------------
-@Composable
-fun AddOrEditPlaylistDialog(
-    initialPlaylist: PlaylistInfo?,
-    repository: MediaRepository,
-    onDismiss: () -> Unit,
-    onSaveSuccess: () -> Unit
-) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val clipboardManager = LocalClipboardManager.current
-
-    val isEditing = initialPlaylist != null
-    var selectedTab by remember { mutableStateOf(if (initialPlaylist?.type == "XTREAM" || (!isEditing)) 0 else 1) }
-
-    // Xtream Codes Fields
-    var serverUrl by remember { mutableStateOf(initialPlaylist?.serverUrl ?: "") }
-    var username by remember { mutableStateOf(initialPlaylist?.username ?: "") }
-    var password by remember { mutableStateOf(initialPlaylist?.password ?: "") }
-    var passwordVisible by remember { mutableStateOf(false) }
-
-    // Common / M3U Fields
-    var playlistTitle by remember { mutableStateOf(initialPlaylist?.title ?: "") }
-    var playlistUrl by remember { mutableStateOf(initialPlaylist?.url ?: "") }
-    var logoUrl by remember { mutableStateOf(initialPlaylist?.logoUrl ?: "") }
-    var description by remember { mutableStateOf(initialPlaylist?.description ?: "") }
-
-    var isTestingConnection by remember { mutableStateOf(false) }
-    var isSaving by remember { mutableStateOf(false) }
-
-    fun autoFillFromText(text: String) {
-        val parsed = repository.parseXtreamCredentials(text)
-        if (parsed != null) {
-            serverUrl = parsed.first
-            username = parsed.second
-            password = parsed.third
-            if (playlistTitle.isBlank()) {
-                val host = parsed.first.replace("http://", "").replace("https://", "").split("/").firstOrNull() ?: ""
-                playlistTitle = if (host.isNotBlank()) "IPTV ($host)" else "Xtream IPTV"
-            }
-            selectedTab = 0
-            Toast.makeText(context, "‚úÖ ‡¶§‡¶•‡ßç‡¶Ø ‡¶∏‡¶´‡¶≤‡¶≠‡¶æ‡¶¨‡ßá ‡¶Ö‡¶ü‡ßã-‡¶´‡¶ø‡¶≤ ‡¶π‡ßü‡ßá‡¶õ‡ßá!", Toast.LENGTH_SHORT).show()
-        } else if (text.startsWith("http://") || text.startsWith("https://")) {
-            if (text.contains(".m3u", ignoreCase = true)) {
-                playlistUrl = text.trim()
-                selectedTab = 1
-                Toast.makeText(context, "‚úÖ M3U ‡¶≤‡¶ø‡¶Ç‡¶ï ‡¶Ö‡¶ü‡ßã-‡¶´‡¶ø‡¶≤ ‡¶π‡ßü‡ßá‡¶õ‡ßá!", Toast.LENGTH_SHORT).show()
-            } else {
-                serverUrl = text.trim()
-                selectedTab = 0
-                Toast.makeText(context, "‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ URL ‡¶Ø‡ßã‡¶ó ‡¶ï‡¶∞‡¶æ ‡¶π‡ßü‡ßá‡¶õ‡ßá", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, "‡¶ï‡ßç‡¶≤‡¶ø‡¶™‡¶¨‡ßã‡¶∞‡ßç‡¶°‡ßá ‡¶∏‡¶†‡¶ø‡¶ï Xtream ‡¶¨‡¶æ M3U ‡¶§‡¶•‡ßç‡¶Ø ‡¶™‡¶æ‡¶ì‡ßü‡¶æ ‡¶Ø‡¶æ‡ßü‡¶®‡¶ø", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .wrapContentHeight()
-        ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // Header
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                color = Color(0xFF00E5FF).copy(alpha = 0.2f),
-                                shape = CircleShape,
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (selectedTab == 0) Icons.Rounded.Bolt else Icons.Rounded.QueueMusic,
-                                        contentDescription = null,
-                                        tint = Color(0xFF00E5FF),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = if (isEditing) "‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶è‡¶°‡¶ø‡¶ü ‡¶ï‡¶∞‡ßÅ‡¶®" else "‡¶®‡¶§‡ßÅ‡¶® ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶Ø‡ßã‡¶ó ‡¶ï‡¶∞‡ßÅ‡¶®",
-                                    color = Color.White,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (selectedTab == 0) "Xtream Codes API ‡¶á‡¶®‡ßç‡¶ü‡¶ø‡¶ó‡ßç‡¶∞‡ßá‡¶∂‡¶®" else "M3U / M3U8 ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü URL",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
-                        }
-                    }
-                }
-
-                // Tab Switcher (Xtream vs M3U)
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF1E293B), RoundedCornerShape(12.dp))
-                            .padding(4.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectedTab = 0 },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (selectedTab == 0) Color(0xFF2563EB) else Color.Transparent
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Bolt,
-                                    contentDescription = null,
-                                    tint = if (selectedTab == 0) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Xtream Codes",
-                                    color = if (selectedTab == 0) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectedTab = 1 },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (selectedTab == 1) Color(0xFF2563EB) else Color.Transparent
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Link,
-                                    contentDescription = null,
-                                    tint = if (selectedTab == 1) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "M3U URL",
-                                    color = if (selectedTab == 1) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Smart Auto-Fill from Clipboard Button
-                item {
-                    Surface(
-                        color = Color(0xFF1E293B).copy(alpha = 0.7f),
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Rounded.ContentPaste,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "‡¶ï‡ßç‡¶≤‡¶ø‡¶™‡¶¨‡ßã‡¶∞‡ßç‡¶° ‡¶•‡ßá‡¶ï‡ßá ‡¶§‡¶•‡ßç‡¶Ø ‡¶Ö‡¶ü‡ßã-‡¶´‡¶ø‡¶≤ ‡¶ï‡¶∞‡ßÅ‡¶®",
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 12.sp
-                                )
-                            }
-                            Button(
-                                onClick = {
-                                    val clipText = clipboardManager.getText()?.text ?: ""
-                                    if (clipText.isNotBlank()) {
-                                        autoFillFromText(clipText)
-                                    } else {
-                                        Toast.makeText(context, "‡¶ï‡ßç‡¶≤‡¶ø‡¶™‡¶¨‡ßã‡¶∞‡ßç‡¶° ‡¶ñ‡¶æ‡¶≤‡¶ø!", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text("üìã ‡¶™‡ßá‡¶∏‡ßç‡¶ü ‡¶ï‡¶∞‡ßÅ‡¶®", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-
-                // ==============================
-                // TAB 0: XTREAM CODES FORM
-                // ==============================
-                if (selectedTab == 0) {
-                    item {
-                        OutlinedTextField(
-                            value = serverUrl,
-                            onValueChange = { serverUrl = it },
-                            label = { Text("‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ URL / Host (e.g. http://mysave23.com)") },
-                            placeholder = { Text("http://mysave23.com", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = username,
-                            onValueChange = { username = it },
-                            label = { Text("‡¶á‡¶â‡¶ú‡¶æ‡¶∞‡¶®‡ßá‡¶Æ (Username)") },
-                            placeholder = { Text("OscarDuarte6295", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text("‡¶™‡¶æ‡¶∏‡¶ì‡ßü‡¶æ‡¶∞‡ßç‡¶° (Password)") },
-                            placeholder = { Text("naNMGtc9sK", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        if (passwordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                        contentDescription = "Toggle password",
-                                        tint = Color(0xFF94A3B8)
-                                    )
-                                }
-                            },
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = playlistTitle,
-                            onValueChange = { playlistTitle = it },
-                            label = { Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡ßá‡¶∞ ‡¶®‡¶æ‡¶Æ (Playlist Title)") },
-                            placeholder = { Text("MySave TV / HD Channels", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Title, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = logoUrl,
-                            onValueChange = { logoUrl = it },
-                            label = { Text("‡¶≤‡ßã‡¶ó‡ßã / ‡¶¨‡ßç‡¶Ø‡¶æ‡¶®‡¶æ‡¶∞ URL (‡¶ê‡¶ö‡ßç‡¶õ‡¶ø‡¶ï)") },
-                            placeholder = { Text("https://example.com/logo.png", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            // Test & Save Button
-                            Button(
-                                onClick = {
-                                    if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
-                                        Toast.makeText(context, "‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ URL, ‡¶á‡¶â‡¶ú‡¶æ‡¶∞‡¶®‡ßá‡¶Æ ‡¶ì ‡¶™‡¶æ‡¶∏‡¶ì‡ßü‡¶æ‡¶∞‡ßç‡¶° ‡¶™‡ßÇ‡¶∞‡¶£ ‡¶ï‡¶∞‡ßÅ‡¶®", Toast.LENGTH_SHORT).show()
-                                        return@Button
-                                    }
-                                    isTestingConnection = true
-                                    coroutineScope.launch {
-                                        val srv = serverUrl.trim()
-                                        val user = username.trim()
-                                        val pass = password.trim()
-                                        val (testSuccess, testMessage) = repository.testXtreamCodes(srv, user, pass)
-                                        isTestingConnection = false
-
-                                        if (testSuccess) {
-                                            val generatedM3uUrl = repository.buildXtreamM3uUrl(srv, user, pass)
-                                            val name = if (playlistTitle.isNotBlank()) playlistTitle.trim() else "Xtream IPTV"
-                                            val newPl = PlaylistInfo(
-                                                id = initialPlaylist?.id ?: "pl_user_${System.currentTimeMillis()}",
-                                                title = name,
-                                                url = generatedM3uUrl,
-                                                logoUrl = logoUrl.trim().takeIf { it.isNotBlank() },
-                                                description = description.trim().takeIf { it.isNotBlank() },
-                                                type = "XTREAM",
-                                                serverUrl = srv,
-                                                username = user,
-                                                password = pass
-                                            )
-                                            repository.saveUserPlaylist(newPl)
-                                            Toast.makeText(context, "‚úÖ Xtream Codes ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶∏‡¶´‡¶≤‡¶≠‡¶æ‡¶¨‡ßá ‡¶∏‡¶Ç‡¶∞‡¶ï‡ßç‡¶∑‡¶ø‡¶§ ‡¶π‡ßü‡ßá‡¶õ‡ßá!", Toast.LENGTH_LONG).show()
-                                            onSaveSuccess()
-                                        } else {
-                                            Toast.makeText(context, "‚ùå ‡¶ï‡¶æ‡¶®‡ßá‡¶ï‡¶∂‡¶® ‡¶¨‡ßç‡¶Ø‡¶∞‡ßç‡¶•: $testMessage", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                },
-                                enabled = !isTestingConnection && !isSaving,
-                                modifier = Modifier
-                                    .weight(1.3f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black)
-                            ) {
-                                if (isTestingConnection) {
-                                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("‡¶ü‡ßá‡¶∏‡ßç‡¶ü ‡¶π‡¶ö‡ßç‡¶õ‡ßá...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                } else {
-                                    Icon(Icons.Rounded.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("‡¶ü‡ßá‡¶∏‡ßç‡¶ü ‡¶ì ‡¶∏‡ßá‡¶≠", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            // Direct Save Button
-                            OutlinedButton(
-                                onClick = {
-                                    if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
-                                        Toast.makeText(context, "‡¶Ö‡¶®‡ßÅ‡¶ó‡ßç‡¶∞‡¶π ‡¶ï‡¶∞‡ßá ‡¶∏‡¶æ‡¶∞‡ßç‡¶≠‡¶æ‡¶∞ ‡¶ì ‡¶≤‡¶ó‡¶á‡¶® ‡¶§‡¶•‡ßç‡¶Ø ‡¶¶‡¶ø‡¶®", Toast.LENGTH_SHORT).show()
-                                        return@OutlinedButton
-                                    }
-                                    val srv = serverUrl.trim()
-                                    val user = username.trim()
-                                    val pass = password.trim()
-                                    val generatedM3uUrl = repository.buildXtreamM3uUrl(srv, user, pass)
-                                    val name = if (playlistTitle.isNotBlank()) playlistTitle.trim() else "Xtream IPTV"
-                                    val newPl = PlaylistInfo(
-                                        id = initialPlaylist?.id ?: "pl_user_${System.currentTimeMillis()}",
-                                        title = name,
-                                        url = generatedM3uUrl,
-                                        logoUrl = logoUrl.trim().takeIf { it.isNotBlank() },
-                                        description = description.trim().takeIf { it.isNotBlank() },
-                                        type = "XTREAM",
-                                        serverUrl = srv,
-                                        username = user,
-                                        password = pass
-                                    )
-                                    repository.saveUserPlaylist(newPl)
-                                    Toast.makeText(context, "‚úÖ ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶∏‡¶Ç‡¶∞‡¶ï‡ßç‡¶∑‡¶ø‡¶§ ‡¶π‡ßü‡ßá‡¶õ‡ßá", Toast.LENGTH_SHORT).show()
-                                    onSaveSuccess()
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                            ) {
-                                Text("‡¶∏‡¶∞‡¶æ‡¶∏‡¶∞‡¶ø ‡¶∏‡ßá‡¶≠", fontSize = 11.sp)
-                            }
-                        }
-                    }
-                } else {
-                    // ==============================
-                    // TAB 1: M3U / M3U8 URL FORM
-                    // ==============================
-                    item {
-                        OutlinedTextField(
-                            value = playlistTitle,
-                            onValueChange = { playlistTitle = it },
-                            label = { Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡ßá‡¶∞ ‡¶®‡¶æ‡¶Æ (Playlist Title)") },
-                            placeholder = { Text("e.g. BD TV Official", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Title, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = playlistUrl,
-                            onValueChange = { playlistUrl = it },
-                            label = { Text("‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü M3U / M3U8 URL") },
-                            placeholder = { Text("https://example.com/playlist.m3u", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = logoUrl,
-                            onValueChange = { logoUrl = it },
-                            label = { Text("‡¶≤‡ßã‡¶ó‡ßã URL (‡¶ê‡¶ö‡ßç‡¶õ‡¶ø‡¶ï)") },
-                            placeholder = { Text("https://example.com/logo.png", color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, tint = Color(0xFF00E5FF)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        OutlinedTextField(
-                            value = description,
-                            onValueChange = { description = it },
-                            label = { Text("‡¶∏‡¶Ç‡¶ï‡ßç‡¶∑‡¶ø‡¶™‡ßç‡¶§ ‡¶¨‡¶ø‡¶¨‡¶∞‡¶£ (‡¶ê‡¶ö‡ßç‡¶õ‡¶ø‡¶ï)") },
-                            placeholder = { Text("All Bangladesh & World Channels", color = Color(0xFF64748B)) },
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    item {
-                        Button(
-                            onClick = {
-                                if (playlistTitle.isNotBlank() && playlistUrl.isNotBlank()) {
-                                    val newPl = PlaylistInfo(
-                                        id = initialPlaylist?.id ?: "pl_user_${System.currentTimeMillis()}",
-                                        title = playlistTitle.trim(),
-                                        url = playlistUrl.trim(),
-                                        logoUrl = logoUrl.trim().takeIf { it.isNotBlank() },
-                                        description = description.trim().takeIf { it.isNotBlank() },
-                                        type = "M3U"
-                                    )
-                                    repository.saveUserPlaylist(newPl)
-                                    Toast.makeText(context, "‚úÖ M3U ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶∏‡¶´‡¶≤‡¶≠‡¶æ‡¶¨‡ßá ‡¶∏‡¶Ç‡¶∞‡¶ï‡ßç‡¶∑‡¶ø‡¶§ ‡¶π‡ßü‡ßá‡¶õ‡ßá!", Toast.LENGTH_SHORT).show()
-                                    onSaveSuccess()
-                                } else {
-                                    Toast.makeText(context, "‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü‡ßá‡¶∞ ‡¶®‡¶æ‡¶Æ ‡¶è‡¶¨‡¶Ç M3U URL ‡¶â‡¶≠‡ßü‡¶á ‡¶Ü‡¶¨‡¶∂‡ßç‡¶Ø‡¶ï", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                        ) {
-                            Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("M3U ‡¶™‡ßç‡¶≤‡ßá‡¶≤‡¶ø‡¶∏‡ßç‡¶ü ‡¶∏‡¶Ç‡¶∞‡¶ï‡ßç‡¶∑‡¶£ ‡¶ï‡¶∞‡ßÅ‡¶®", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// TEXT FIELD COLORS HELPER
-// -------------------------------------------------------------
-@Composable
-fun customFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Color(0xFF00E5FF),
-    unfocusedBorderColor = Color(0xFF334155),
-    focusedContainerColor = Color(0xFF0F172A),
-    unfocusedContainerColor = Color(0xFF0F172A),
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White
-)
+               xúÏ}mo‰∆ïÓ˜˘úŒ\£÷Ù®[/£DvÙÍ—FM¶{∆d™õ-√&;$[≤<‡Êπ∆"»ıπNÄ$˜zsakåƒ±É˝êuæƒEÿ¸Ñ[ßäE…™b…ni$cu7Y,÷Ày´sûc
+≠wBc›∞];¥M'X∏!ª8KœÒ|t˜¸∑π¯ŒÓÓ‚nÁnw£•◊Ã»s√∑-˚¯z≤ho:Ê‡ô~S=˚]^id4Ì†z‡≠ñ—Yn√rÀËt—ü ≠∂îÆ|Qx’ãÖóÙ&Ê¿Úõcohèlˆ ˙≥}ÇG§π⁄NZ≠‚ñÓ‹1∂NL◊µ£oáéÖf»M€µ¸¬[7ΩwöJØÃÈ¶Ú†∂G∂„òÔºm√ì¶⁄„˚¢qHœÌ“22∑›5!µ53@cbπ·ÜcªcÙzë¯Ôˆ˙G·ÖZ∆s•gı—6SV†hS»∂CòBı}@w%§-”ÓzÉi`[ÏF]‹YŸ›mëQ√_∑ﬂ>±Cç«à∑Z∑Ωíl∂˛†◊,óxŒPΩï±˘Œ>ZÓj£´~ówj˘#«;Cw¡ÑF€;écO[É;¬‚≈5Öˇéïz+zÖt,2ÉÃÒí*?+ﬁhµp©e.eÜ÷±ÁüØ°E8uCÙ◊¶9<F˜ÿ;+l ]£∂©N<ﬂ~X†≥·˚¶{l—˝û|Bcàﬁk∏yN∫Ø6IhÅÑˆ µ*·!O£kúÛ⁄∏IoÍèPg’JpbN`£>Fc<¥Ü[ûèDAæ$"EüπT˘Gû?ƒÎ∆táægﬂiºÒƒ¨ˆ∫gÜ∂Á¢ÌıBﬂ{f5Nòá.--wVVZjíCuXÅÙ5PÜY¢›∂GHqüœç∆æ}j˝ß„Ee˝ä∞Ìöî¢{£æß≈•i≥<N›≥∆∂∑‚Òìâ9⁄Óq3ŸæË◊UºËŒØ∑ÇÒ√Ò–—ª≥HDÃ]ØÇYΩ/@¬G€vpÍ8á>^ÖÕñŒ&–Ê/@ıÒ†¸“ÔÏtÔ-mj6SØYæª≤≤zOë◊ È5ê>œ Ú2Ìz√îÈ≠ÕÌïùéÊH1åFüù–x,Â¿⁄”±~{ Leπ¶Ç»0≠õ’WóKP1HÀ˝ ˇ%ˇm˙õ‰˘Î≈§j"vÇ˙õ∆“}„‡ÈﬁNœËm=ﬁŸyh4∑mﬂÑ∆?Ù"’Ú`È	öˇSÕÀk∆€÷ë—≥|¯Ä¥O”Òé[’;ÚΩ-ÃVÃ#«∫1ö∫—”˙ÊQo‡[ñKv˜yﬂÿ∑Éª∞§ÕΩ–øAVŸ»<E2¥ˆÜËäû~Ò#¥L£_©ÃæèÏsœ±L∞+F&í€‰gœÌYza‹Ë}£7ﬁ2nøa<qÌê^◊˜éèk7z∫î<&æÓe^ß¶oñÈN~0µêZ~tn¯HQ°›Ù‹OCx◊^à¥ù√Q≥—hEÛJnÉæ @ï{˘Ωé√Ωè·ÆÁo[°i;Å¥ïd8ﬂ|£È"π◊¢¶ö⁄Ìs◊‹@åî±HKÉE0ÚΩ±·x&íY—ﬂ
+,ˇçã·ö·‘Gãà®ãé1$-n%≠¨«}kíFX! ∑ nÌõZË“®Ô∞P◊£âf‹ §$¢¸sp/ã¶'µù†EÙ–V¢q¢v∆g
+hËwPº0“å◊^3n¬ó÷èßh	5O‹gÆwÊ6dπxæµe¿¬CjÂ/~ÀBb›t∏Û÷M‚óoà#*Ä^	uí‰rƒ´Òïö‹»¡£Kó◊ÎÃºˇˆıˇ˘¯øæ¸¿†€!h¥"ÊœÙ»vê-FŒ4/∞õd!∑Ùÿ}Õæ.ùb‹<öatwí«f88±Ç~z<Û44©tFﬂ{è;é–(Ò%„ûÍ.gæeM≈+≠jkM‹‹–
+æ=Ã∏πn¿∂ÖÂñ˝M˘iè;GwÁû_™?‡Üh~bV∑núùXÆ—Ã.ﬁR«K/4ûˇ5∑8·Rf9%›∆obÛª[vËÆÙÏE[9øV’'P∫$™5[zm?∂ïa©èÈùÜûïô⁄úìÑÑòGdE¡ôû<ÚÇÎ•YFp”€H'Òû¯N÷Ñcòp’§¬ﬁw∆ì=Êá–D&Mg%ÚÛFœ¢_fﬂ#äo£Tﬂ›u`N–uéÌ>CÉ`Nbô∂`$íé—x‰≤æê»;¯ôÎe!n/xÇêÙ≤}lÖá˛£iàÖJ¢EI#å%~Fã#SH+Ï∏!´i:võÃÎ»OEË…òIô.∂èÃ¡≥cÏ“&„ÒÈ.ÆvÓFKó{§ÿDku”Lûq8¡k<õr◊∂úa3;éS+-F“FéÁ>ÖK‡ÙË.|ûR◊—Ã:±&é9∞N<áÿŸy.'∂nóü_æ¸…Â≈//æ2./~ˇø|˘—ÂÀ˜//>CæDﬂ_^¸	ˇ˚[Ù˘ó¯jÙøﬂ‚?>5öó_‡´?GüÓˇ`ûôÓÇ—˜º¸wﬂÚåG¶ãL‰s4›æ9ó∑Ô-o,mÆ	¨?∆∆ç:róeÿL∫§ºÉ˘πá^¯£	ˇÌ»s“&”∫@®∂VH8·Ç⁄ÿ◊ús∂≤èC:èÌ0œ„Ígi•Çe%|˝€úÜ!ÍπÁn9ˆ‡g•4–NîyB8/æÂx»¢·øwcçúﬂHø:9≥‚€ŒÖiz†Té3ãé-˘æÖNŒπ¿ÒáIºgé//Z`ŒÉizcº”ÒàÕl√®?¿‡\*„_mÒí]"ÄìÊAÚ»äıê nb[	åÍ‰›˜ÕwœsÁ0—>"√Å˝ÖyK¿ûLßµŒk8Gæ2øœëáÓòŒB2ô•
+öF–Ãz 4®…
+) Tv–ãîÃi3∆˙z‹ ÁnﬂÄ#€0:±ï[Œÿ–‚,ÙHZˆ–j≥†	”µë2cÌ"+7‹Ì|éö>íêO#!Aê√¯¸∏”ÓtGDó ?“Öüó£ü–ü#>Û$A∫7±08PöCs<Aˇ}?°o€´›≤•B{4r≠ ñy_ÿÓ—ØàCpﬂ;pi«<≤`q5∞(ﬂä∆¢Q¿™Å§æo….Ì.ä=ÜTƒ`”@ÃS3è¥ˆwó‹Ø∏‘}›ï’•ùMÒ}‘>»yŸ˘ïˇv±è]Ûıî]ÚKá¸ÓÓˆÍ‚¢ƒ!üÂÁt3œ°2µp¯îü–—9∆7ZÉCÔl«±NÕH4rˆi7éàÅe…oH'Äß¿˛iR¶"í∂Á‚^rûv⁄AÅD*˝(ˆ2£!Dó ∑ìÑµ†{¿EX˚»2⁄ÑQÁü#“L‰g1ÙÃÖ⁄ò¬≥18a:áÑ∂Ò)£ÿ0—9xπÏtw÷v%«iÂTvì:i…ˆôÁ€•lLÈó∆˘åÚ9L^W∫õí“,È8SÜs⁄ßáñ£@›ÂÜ¬©Óâ°_Bá†+9—çP„-Í¨Å £fIëËÅé`≈«a0ä öÚn‰ÿ‰T œ†ûÖ¥∫|wym≥µ¿]åÃ“Ú	\‚ıÛd∞~x˘Úg»÷DˇÎı˜óçÏ◊ãø`ò¢œ·SÙ{c!mgF¡vÚh∑‘vKSﬁµü‚~˝=ŸÄ~^|u;Ó—ÀÔ–/üëÓ}H.≈?íK~ELm|	ÿ‘øAˇ§˚Ô'g_"e,Áxè∆ˆL!O[&n“◊^„˚æ≥Kô2á˝æÒ–
+Gé˝ŒÌ <G“¡1œΩiàc±óÎ]ƒÁﬁ„{gÈ‡0lDõß¿æâM—∆÷ÿ0AoãYoÉ°ë:ò:°}{7Ú_"-€º∑LﬂCí ô|åúŸÎN@l¡◊szhÿB¨Ü‰gs⁄îgT…∑ÄBƒJ$XHÊ ¥O≠ñÔÌ!ñé‹HZ‰HîÑ?†±Ÿà_…·Si¨¢àf~(ÚŸ7ßÓ‡ƒÓåFhg_òLQlg‘‡6„££Vrvb£Âﬁ$Nvµ(îg0Á.ËÆh C^h-¥aöH«^‹WãK»Œ»∫—Ã~ı:zÅ6Z¥‹A)|H˘`…JB+⁄Y¥«ô£Ò∞¸˙µπ∏`f‰6z!i„É©øÀﬁGˆ©v~?˛ü•Î›†W’\l«NPk˙æJ<”?Ï	X*ÙPRˆ¨TÙPä=Ò(‰Ωî$1Ã2µäRô	›ÃÅ›jÕ@E¨rä“ &ÄîI˛†°Â›ŒäÙÕR˜õ5ûg≈ª8,ª˝î-ÿT£*÷lÍ÷≤ME˜4≥l%ÁÚÁëÃΩ¨ùªy8[^√ïìçÆå.0√¿∫{aW,∆˘ku€ôHì	⁄Ù!ˆå4á‰Îº´$ÕÆVc_…r·⁄R™`6jg™“y#8w{cÛX#=≥∏ÏJ°Á ∆õ˜˚√IpˇŒ⁄⁄S7ò8fp3xgr‚ÖﬁÌŒ “ÍÚÚbgiuµªv{m˘ﬁ†s˜Æuw’Ïºy∂æ∂∏(8O„◊NÀuO;œ	7J$Ÿ:Nq£€[æß~™ßKãHÌ*Â¸:A«îÔ*ÒÒ≠Ãi¥÷ç@õ˛-%jÂºÂõCMç~;@Q¨V©{ÅàΩ›G¶≤©|‘˝®ﬁTSl“⁄-ìÛ¶ÈLNL¨•‹ïàÊ¥NŒ¸≥≠ﬂ[ÈÕ!%˝ªÙÓP›JóALØ71|lá2)ƒ∑£ùpá$à)5•úTyØô‡7k&ﬁ3Ù;.'(K⁄UÁxáæ2“:1’Ã«®9ÀË*≥Q4RÑ)•}wÿû›ú»@ôyn
+s|DàŸNtG◊5M•qÎyblønt^†ç|Î9«Æ~°°VP™)OàıbvjÕa—OâR>9YÀú,)JîÍœAQ∫L≈îf©vFΩâ›µΩ–Ù9ÅÊ“ñbnΩ™<ÿ:ªNK~ÈqjΩ’®/af∆âJI†zsÅÚ¨gß”Ÿ^^”‹yö TéQñ¸ıˇÕÿ›ŸË?yº≥mÙˆ˜˜ﬁz–/¡Åx«[•™úDH©	RÜR≈Â´‡jô“µﬁ@EAK<∫öÙpÁm„ÒŒ˛ŒFoÁõΩkJ©.@ﬂîM£~•2<äjÉÂ)*˙◊Ä*ØOVü^´b¢e ÄäQwNãŸmπuD√ﬂ^_ˇ˜ˇgp.¿ôv‡dÓ.vW¬À Õœu-æö ≤ñﬁïL£$‚àG`Ë«∆Î
+«(µCõ˘≤π 5úYe)Œy ˝ã}é«(˚a@ÅÓ∂Ñ>zp∞ïwÍî–_Íu4ë˜‘LûH…MÙ*ñ$kt©¯X,Ke‘1N¨ﬂ#«<GÀ⁄;ìF˙	„˘:´zªãíd€û·3kM	NâÍ¡K5t"ˇ¯¡t2“3h `€^Ñ›ê◊F pÄ˙˜Z>ÿ≤6áìy©ô`8Zé[ï≤oÈ~ìyÀû;ÚJ≤ïí€∂lﬁß±ê”jÆ÷ ™éB$˝HFÅ™˝ìÈ¯»EÃ∆Ä‹ÛI*péêç–#¨∞’üBˇu√µŒ‚†º(]>b„3k”πió"™öN)¢Y∏õ%±™c™ßx‚)+ñ
+iûH,‡kxà2"I†[Sﬂ'cÇZÇ@ˆ¯ L£!à˛ƒKªûœ,]£≥’(	âZ+üíòMÜ*5Æ/ÔµŸ1ÊÂ˘˜I2Ú"NfR!fv%˛Ω#ÃÿìQ·0¶üy}»%XfG< V‘ì÷ïQ@µG"í¶º‰≈≈xÄ◊‘cHSÌRˇ?á©ˆ\`i)èjÜd¬QÀ5	#≈¥“‚ƒÛ£≠¢›∂û§'õ∫ôçôÂæÅFètµLÌ£Z†:V;PÖ0ø∏	Íï_*ß„œÚ‰H¡{ÊFEô–\ñhòn¨b‘ü€’äœeâk%},qàêiπÜÄ]ñÍ⁄D@Qhπ≥ß∏ƒá&M—	È¨œ¥Ä*ül÷4›:I√@¨˝ªXœAh¶ˇ_].˛°ÁèMÖ$ï+[¡R}%,R˝‚˘,à6‘)ì¸™;%Ù~·QÂæ∫s«xlπ`õX ÉÁ?Û `p˙ Ω&=ü{héMÀ©M+0aa∑7üY,b‹*ìâQÃ^±±^$XŸ Ë]çñ9,`‡J™÷\ì”aH`PU∆—1=≤ukg*⁄vumZ·ôeπ“Ut/eızz®æ˚¨6Uùï^4Ω˜’"ÁRs•q¯xÔ≠Ωá˚U"*Fµ‘W7•LPãjx’Jµ™:ãïî+Ö∆ä¥rK∏L}≥Í¡pYµÕ3wﬁ†õn$,œrçò√≠Á±ÍC2K¢™ï√ç§¯∞"™fò‘Ye^1ôs¨úâœwïóú=±N}œ}c©6à|l⁄ß∂uf LëZ#9l*≠%<ò&î≈∫Gï#◊zjî"≠?{<Îç»ˆƒ	˝ÚòJÂ≥œ™0¥<“R≥g…OÒT©0IR≥πÉXqœÒ°¿„/ÛÒ‘EDN.wÕScù_jÄ¿ØÛjõÉÛK¿|Øˇ¯W_Äﬁ@ÛÂ·lX‚A€0ùoŸ	m/Æ%H7+£ñ*ÍKs√ƒÂQ'm*ÿ}®8,)Êt´ P™ú‡«= \fv_Wˇ0BìIØ8Õ&8–2Ïﬁ(-7^ˆËL53÷é’≠[≈ÑuûCxâ„4µ∏L\0gw≥ kÀ[y ÜÂxãó”{Å J- VÊQzeÈ°-ã z¥:0[ldi,”™ B©e√ ©+»:&q∂ÍÒÎ‡ÃP™˚@Z∑æ{™3@1ƒ∞Ÿwå•í'π¬*Q∞ˇ+sB<Æ˚txπﬁ”·Ò,OÜwÌíà=ı†:±§®Ì∞D–lnÔ[£–¯…w2éîlX*ù≥$ëÀ¨v«‹¬$™$Ã„Õ°ï≈H‚Õ'sßéPô˝T˛¨(ÚUçŸ|8∂¶’ÉmÌ¢·,’ñ^$)#NãàØ·ÇH’Qo2P≈*¿•û´ó"Z
+Kphåƒ£{|-Y
+ﬁà52>Ó“⁄åŸâ6ÑPYfR*äê“¨C(]…v*9†@ÍŒaYLy6¥ÆÀèê8Î®R≥9∑ÚÓ Ωù≈Õ
+êÑ@‚<(5w≥à ﬂYòH•ôü•j"(%÷}¬¢Am_kó’ª)’*—ÅÊ ’ÈcDí}ŒKH?,Ωúh&≈zñè8`I3BQÄõ—K6„Q%ë$˚!ññ’$>ÁpyqÛﬁZß>SHE˛óFÜ£TEn’∆Ü_ˇ˙w∆≠Á˘ÖÙ¬Ë˘ß◊ò!È∆´ﬂ† ∫
+-ËzÛ<Z¨«!;¶,KLiŸR/ö∆ È{««éE;ï^ñµ©kÕ5‡3õRˆF‹&â–C_Ã5ó%+¡UíÂUS”±#Ù©5ô√4Ô≠åÓØO¨ÿ#ßUƒ/DÑ∂^Å›F˙=ÛrLlÊÓ2"ˆt™*/Î˝Â“'Å xEÙÆ÷∫\yñ“µ:&Q›“ü≥+ÅT¨·$AÂx7óxTÙb&‰†Éß(Ê†ö4}@Õ∞å•¡(NÕÉtÜTiëºÙRÈóÆuèR≠Ä-Q¨[ßbKïm“†⁄|äoÃ√ﬂ´õ¥|‡+%â£!Ÿ%Â±K´/È+^qﬂƒ47˛ß®ﬁgÆnÁnTó◊∏cÙp©O„-ﬂ\õ∫¥8˘L\cIËa◊™Ü≠(∑Y\9·,	=≠√©_9[´R±Ï∆ﬂ>˙_ü∑ryqÕ[œ3Öò±K¢%·VZæÜrRì”_Âkgº–µV<[˘pΩ+ëë)s≈“àŒ‰'ÙM„¡vÅ@)YéC/C¢ºR4´¸˛/JŸø≤ 9«|˜º}åa‚ﬁü∆5µlADÌ sGêÉj≠BK[ñ„Ì]Ä∞“¬y%
+lÃùNÑ}FKÏ¶É·S-Ÿu∆ﬂ∞‹µØó$´ïd ŸóÀ®!Óüƒ˙C4e}ïjÒS„êÙ⁄ ’2ù,àÈ_VèÈü{:vo„‚‡}Ò¸«Ëœ•û-føé¬mú–zv)já÷kÖ”W°óÖÕ+‰%UïÑ«ß6 Ã¬„ﬁN7>=Ûs
+}üO∏{¡2™÷ûönÂ∞ˆbúêÇIS
+Uü+†GÈ–ÛR°Ê*ûV›PÚk:^O®x-°·’C¡Bø9{h˛ a mƒh1l|∑&<kuÎ⁄ûx¿◊ø¸≥q¯˝J∏"%<f0K`ëW#ÄóâÅK	Õ€à≈/ø∏3Z;µûZiB◊OiŒß<95dWƒã¶^X§R2©$ã9Ç»î€–ı˙Õc_•æ;1MjP+Ù}-ˆ§V§u›{R+dhF;R+saVô
+sYÌÍá~HS’LÉö2ÿLÇ∫‘;4ı ®ÓúÄ“ö#'ÊÂ¢FÍÑÍœW±KÖ⁄´âçÍ°ıuömöÛ¬˘JºRkïÃ†ä˙lä®W∞≈aÛ‰”ÓÎa'µ£»Ê˙>_áüX‡?Q`◊XØ7@ΩVU≤D z<Ôz%¢8ızUP=mÎ
+∆küm@xA]Õ⁄lC˘Ø“üU∏Ázx¿eÖÈCÊ’∂8ˆ!ëT-™1P]ñç»(ù Vä¿Vå∏Ój‰≠Vóé˙®ä1‘À /Q9ÇU¡ZWL¥ˆBúIÃs≈g•òf¨ò_˝u8„e3√@‚Ïø¯?`‚`'Zyx€6ÔˇS$*P|ì∏IX A0ˇ∂õ7ô´˝¯*bê¬c“ ®E6 
+ûô—zJõv–w∆ìBõSøëÖ8∫®—^Ë[ÊòÙ°Ÿ80m7≤WÙ.|≈ﬂaqz7$É»h•˜•Án€¡ÿÇ«÷èßVÚBœ0åYıUVïùW∆Qb)w9ëuX:q]Ô»ÀEôÊ0ìPp*·{ﬂsú&]‰#âckUH¯◊DöÅ4ÚBWi“Qñ®∞Ë.ÉàÎi©b÷
+»ê)P™3ºX-º®pQ)–¢|ÄÖ¯ó¬∞†*ÒàäaÏÚQí•õ˛MÈi•mm4äÍfiƒ√µ¸1d]˜;@| äîÈπsrºò≥Q≥œ¶
+HΩ¯%ál5'l…”¯R+µ¸Èª‚_ëΩ®¶¢ó;]/u™ÆÆQÕ¨õÂy¢¯WëVÃ˝Z)KIh'W—ô∏+ù	Ì”$A§ùÙÄπŒ˜zá”⁄zƒï0©(
+[1Œzv1Ã3‡8‘†…rÙ¢ŸÂÆñ«/Zˆ=kl◊Ã|÷≤Ãg©vÊî§ÿ’¬1òy§5£ç¢ñÔß\:*éú
+NvbªEÂπ™çZ0ìq˚˙èˇèyNπqSc é[5I<A	qìå–01ê¿©Çf„–«àÀÚr• y≤πßË≤k•
+»zSêÚ5wVeK]î« ˝˙Œù»πdê¨'Ù∂Âı|‚~yÒÂÂÀü_^|Ñˇ˝”Â≈Wóü„o/˛
+ü·€?íø—∑ü‚ﬂ…∑ü·oçæD?|àø˝	|hﬁzû>æá∆/æ‚∑Ÿ∫_g:ù 9J]:Raa¨:ı§‚⁄ø⁄∫…geÁ
+íWmÏG-(`Öùß˛)v’‚€Ño˚Á¬õÏ†π27/Î¿]_'=ê∂§$ÀÙì‰≥î>`£ΩW(¨Æ§ï’µ{D∆r⁄ØÏrjÊ¢•#?bÆµ¸∞≤“Üµ™9ÔY∫Ú"«j—≥	‹H«`lª%ÌkàéMÖ\dV:q-g◊¯Í‚∆ nˆÄCF‚∏ı µ´J•Q .€vKï·U¥*)j™({Á€ÈÛ˜§s1L:ò;í≠i2Êåƒî;úŸ˛ò±qÀdÒmL<õÿ•Ç‹‡…7“c)›>∂¬CT&áÉ∑‡‹Ñ^â˙Ñó=>ÆÖú˚æ˜»1œ8≥„OÙ5€ìˆ‘wƒM 9Ö∑e í>	4k¥Jî‘OF?ŒÂ>¬£ƒ~…¡*uLSÆ∑ï◊]L©§éR¨“Søe>#…,“lFI&ÔlA¬‘ã*Â
+`úä2	V≈˜bÜ⁄x€'Q¬CÔÃh^^¸õˇq˘Ú˝îi“j,»]‘9<™¸s•{{HNÓ%{∫Ìo64µË|_
+	÷ÿr–k,à=3ÖØ"Wæ∏ÅÏOdkﬁÆBµ4–ﬂÿ4ñÔèˆ7~∏ø◊ÎΩ≠«;;ç&IAÄuâÀ,=1^3˛≥Ù˙C+0LèZ’ªΩ-¨äÉ⁄{c4u˙ƒæy‘¯ñ±ÈIÙupﬂÿGˇ˘.Ωlœyoê5‚[®;Ù¸Û˚fUè„/»4úÈæ±ÈyéeF~å{ªèﬁ˛H´‰QÒÁ7ZÄàÒƒ•á«ûK{AqZ–›Ò5∞Ï^‹†Î
+ãÿŸXÁÿ˜ê&ªE>∂S9ôÀ|oäÙ2´áX=l[±ï˙!¯«ûy¶?<0]ÛÔqÚÑÃ˜Ò£¢;}√Ñˆ©œ≤,∏'5‰oæ—$^øqStÜ`(\§]»ÀåÏMÅ‡[pZ%≠⁄¡ægÇπ°‘«4
+‹? Ω!¯ã?òZ˛πºÅFÉΩ;˘#≠ƒXÚ&†pzã	‡"AHF ø#àFPw–€cjº∂ìÁûxg√!}Á®Ω7ß≠ˆΩÙúZ¶∂Ôm£	≠Rç——ÿkn`MPó@Q&‚ü`· ÷|2†KËÃOl◊0„‡F6—}ê)Ô ±fπhudñ2«/ùπ"£ı‰÷Ô∫¡¨…¯2ŒÇZ7çà´„ˇ s–™•OjNú˚;*“NMí.•9A€1ß.ƒiAïﬂ ÎFËO”	c!Íe^æaw∏®0è°º≤=≤ê∏îÙy«2‹^ÓBlå¿/m;à#˛◊3É∞=6üYXÙF<s¡h\^|pyÍF¢{¿ø‡.ç¨Dy˘3£æ¸ôŒS¯ÂÏ
+˝î‹Å[Äœø∏|˘˙√à~á‡}Ωâ‰<Èƒ˛Œ√∑˙˛•˜‡qø’Ü=…Q◊3rﬁ`e©âÑÃŒ;∞ ë˛∆{U´(i!⁄3Ég}\m˘¶%C!ã‡wT1ª¯òåÀóóü”Àæ Ô˝xih‚7Ë_8ß≤⁄c+ê®x°>/åëÌÇ_ÜÛñº≈âï@9JÖæ¬¢)ﬁ‘¿_±.áò@|]º 7ëJçÆ4Ê.ôD>rrú#Î—y¨må$nfW~vä£∞ßHºû€)hV'“êû˜/⁄HπEõ}Ä∏Mõ` F†á'ùÁ§∆*’Oäö»ÏEao8\lA$Ï≤Øñ{¶Ø÷òÁ◊∆ñ,l+à%Ëz∫úÆÎàü¬∏ÔΩáõLÜh}]ÿIŸC)óŒø4[:∞ÔΩ'u„ìhì?í7Äˆ±Î˘÷ñX.nïæön√πV≥„˚⁄k©∑Ó∑¯O^ ±JòWA b.^ï∏œ7;ùÓ"c5e⁄’,sà≥ü”œûLhDâhı\W‹ÌúÀ]	∂\êÃóQî.™‚RíÎg<R‘Ÿx$”„xƒwM éäè“> ÏˇŸ,L¢Êg[¬}!)Ï/^ÆudÆÍ`‚ﬁ,¡æ?ãÚØF“(ÿàzkª÷PïXèPM),(Z>Ïìıπ≠*ù(ËÂ\U ∑íÔR–ô!>ZÌˇÿº≥q–P9ê´‚˛Lµ£Éé°\Ò±´ZÒQ‚√V ‘•T=$R+#Ö!ú)]s)`1g4¥ïú¶0«åw˝_î#”»!g∆∆lÅÅú¡°^ 0r€ÌvÉ}6n=œY2ôh*5Á¡Øbzˆe$:µ≈πiÍmiVÃëEx˜u™Eè≠ëo'eî¢ËVΩàùÌÅñìô¡“ÂVã“∆
+s‘DÁ∞x®d∫í≤ˆ_ÑW¡·H˜ æJ‹S=kTˆ&¯ml0uLˇëÔ£uÏπCÙ¿≠
+·÷/rp(˜VíêOõâºu/ˇb_ÜîôÒŒ$i∏m.b≥‰¬%lécJ›π:+∑–F.HpLäºJ‘°øá•/Œ?.d iæªÂx”··h$çH»ÒŒ’ÂªÀk•!åUX)»r¶G¡èüıtÁ|˘ŸÌŸ[1
++¬m√ˆïÀ˝ÈŸıh+H^‰}Ú–}yÒ”ÀãO‚Hå¯¢xq∏˛œçˇàº?9Á¯9m<›ﬁÂ'ÀbÚ!fXü¬k3≤·ﬂ—ïd4+‡Ñ))
+äSı»°äi\Ñó„Ò≈k-≤x>ˇ3bÈx˙íâhËÁz»ø·V∫ó‹ÑCs7∞áV|íª˙pB˛ƒﬁk◊∂A.¯iTdà„íÊ^Ôπ∏,âÖ¿Œu≤Ÿ°h¬ëxX'hb∂Ò<˜[œ3Nñ∑//>2Ö_‚±Gˇ˚-ôëîå9Uv7◊£caeÿ$Óáií7’côTï=6ÙM€aû+>Q g	ÔåÉ≈YëØt∆,`7Æ¿Y*õ ∂ôó-Å%•∆g¿v…î0÷ä%Ì‡RÂ‡øππÒ%â*≤P∆ÆLÒâ8Ë`ÑﬁÔ˘àoäÑ˙ÈX‡‰≈ q∫à≈P['ˆÑêú®Rà⁄Æh& È‘Îì–¨ìâËÏì&Fî!°≠™ë§¢d!•}RI(JÂ…Œ_Q{Ú]Fã„Öı‘∆£ú@/ ◊∆‚◊«ì2PÌNwîX4là<ÆèßZhÓ%ÚÄ‚2y…`âO≠Ä‰3YG¶√äGT+>J-≤€ohxi“≠ƒ?’F§*µA+¢È’ÇR¿æ’≠	G^*=4e·“>˝››Ì’≈EE0˘ÙP*?≥[∂–|ä—)L⁄CÔåWléa2I1XåáZ|‡V–ïîóLXÅ"¶+∑ºdX∫∫$nSß¬$æÅóÔòFX∂Uœx‘ÜÁDè-á¶·aŸ|0~¬ˆId≥ÏîRÊ)È√y–ª2ÈbÃÄ‡+A˙XÚBÃ∑=l*&VÕ*->i¨◊D‡XÂ\›óF°@ÌZ£	'œ∂7åÂ€§Ü5›Áﬁ4Dv≤—äÅıpÄ≥1ÇîaîêÚ$àŸË]›)(SA˛UÆoqÌe≤*ñÍ/ÆΩ,òñ®‚Uäk',\ÚÄÚµµïöüUiÌ‘âg+2˜äp	H⁄#æ‚x3m˝(nCRôË¬˙jj#Ÿá⁄´π†v“CNAÌŒbb%¨æ
+µô!zÖ+iG…ñôŸX]KX√≤Z=éDi¢£¢pOcb÷Òï‰é6‰B.Ú’-“ÕnæW®H7≥^±"›Ÿ1]+äÊöu›nv‘R∑é£™ä-ë®zÄ∫⁄C¨´EÂWAΩ£•€™´⁄„QR≠JÆeâ⁄@ÇÛsãbE5VQ? p1∑‘ëtÄ´2+ïömî‚wn=Ot≠◊çéja†ä≈Äî
+<¨i‘°ç˛}ïv≈Ã…8¢€=Ù&Ücçäw;áΩ}[R˝U.©∞	ﬂå™y5’'\§4_ãRô3ﬁéÇÄ}uiÙ nQ\Òí7€/¯hôïˆ≤&–≥óu•.Ω}Œ50s©◊∂¶j1=†Ju'ıJpƒ∑©Å_k0Ä:CNY*vr
+bg≥§∫Èkﬂ;ˆ€5ﬁ∫°A.é”vä+"÷\a©r	aﬂö©wò¯yó’ÀL∆-‚RA‰}±¥–º=W,à¿§i6Ç-5Uﬂ»ÉÌ±6ú•Vx6ètdÜ—¶"™n§¢Õ#’“J<¢Âñ2]“cÊ@‹ÿ:⁄™F˘KNõÂJ*Ò®Íé£ƒ€yÀ…ô—íZa^nÀ’v†˙’¬–^·†.◊mÁæß¶∑ö‡]lµßìâÂÃ@G8È´]@43/ÍUôE¶TROÖj4vhs¸2≠Lu”¬™Y“X"ä∫ìö	SX¯Tñ∂ü%Fb˜qÒ¬-Í€øÜb∫D‰¯^Ó!‘R¬j∫⁄€¸e^i{™Ç¯(ÒT™¢LIºMªl€Œ’⁄[	¬BWÔŒ"¥Ω÷dâ?z-…™?3√æ§√U≠≈ö8ﬁ≤&«ã¡ñ–bù∫ ≤áOÄ %QjDáH—^}k(ñ%é§ÌO™VT,K5©uû}©oMµ±ífGÖ@]fè∞ùd<7ë–Pâ£ÕR'	îîNπÙ}Á¥Èju–≤T—ç^‚Å⁄’Y™\\ù•∫u_†îE? |π™E_ä?’À£ÄJC‰Qºj˘Ó  Í=^§;¸@ÂxPñoë%°?\@%kõâ®“Q€è%ë0¡rm*3•Âöò~(√ò¥–[ÅÍÏD’ËÆvEÌ%Qn§ˇ yóê˙zÄÏÛ2w€ˆ≠‡?c¨\£y8	Ì1ZöCåXﬁäî‹Ô»v¢òıGæ7FsÖEÅÎ8«7ô9º˛:i"∂ç±ˆ≤m∞¿{Tñœ∞&\ÿVãùº¯ß:oñ”º nû˙é˛≠◊æ5æúÀ#ÑëÔù˜»∏p”1ÚÒ„8h±}oBcÒ˙‹2p–$£=u◊ÚRı,©xê‚°Px;Å*Pµ,öä¡àç‚M+<≥¨Ù â@oÎ¡⁄,T®®‚ƒxﬁ≈BEX≈>∑(çz®ééY,Ÿ«ÆédÅåB§úåì1Ÿ7KÂ2«¡À™‡oT¡à(÷ƒl8ˇzäE
+zF˛aC|@Ñ≠í2V°Ãùl£TF&oV:I˙AWΩD©:P!§Èöaâ»â:™7ˆ!≠ ñ :‡á*^›ÚÆV±ˇóqCﬁ’GRRù^2á+)+ﬁ%Fä˙Öw˙O¸Û«⁄»íJÅ¡‚ÅZd›‰% 'Ûﬂpe	˜Ó:äÅÍCy‰öqA§kÈît5˘à 'Û¶)ac,û¬í{Ö˜ÛÀÒâóç∏≈
+ıÑg&æ◊§‚ªBVÎb¢	Áù”óÆ
+4·‘®V]ï…k¥0À¿Ø¢€
+ó∏4¨Çw¨&‹V†Bâ™ÇY®$‰‹ˇh¯´4à‹¸ÂdG1ú° \ƒP06∏	˛9ª¢:ÉwpŸA®òe4°L†9`ìÁ”O«nﬂ‰Ú[Aú≈:S¨/fKÀÀß·0JàÉ™ÿ`¢<NâÄà\œÇñ´3d·Iòà◊IT+¿NDu‘p|Zd∏ÈÚ—Bá0⁄%µ‹%¬‡X◊ëíu”ü'm#0˝∑|sh£aS˜¯G∑8ıÇKÇ)d
+*	≈R°=≥∑¡ë|Pÿ¨…ÙVç∏+(p\´mT(˜;í¬ @ïÀ◊ iúi§jn<⁄«<íí4ùÂ˜XÖ I-)§≥\q=íUrbÅÙè’¸‰Ò˛@§ê˝+¿∆R¸Ê_ƒ’æå>–[t˙¥∑óQŸ…O±*˜9Ö~ü‘™¸êß˝0VÛîï;†
+YøÏ@/VhÒ™hX@…´]œ?C⁄∆ûW∫Víïsä-ì%9AM*1ÉÊLUﬂºæõˆ0âÄT5—ûy«P‹Úpœº”>}ºgπâTﬁ9gÊd‚Ø˘Yñﬂ!Æ‹Z†°˘'üï±°˘ì~U‡–≤±T®Ùı*†G«¯¡“√R}Q‚^õ~4˚âS'wˇmµaá^≠B;’îrzx8±‹˘ËTíî”V‰v=>≈T≠ôÙîV>øñGx©⁄Zœ˝O<0ü∆ä?—⁄°ƒíë≤∂¢
+-ƒ‹Jïu˘ﬂÒ!vbã˝´(ëVVàqæXã˙∏ó:›#E^
+CîRbÙu+√î=˛™´<Ly¥ºj∏d\dödëæ(}^Qâ¶˛ıˇ˝êXæ«ÖåÙO7§lbût˙Oa ,„ƒåÂ◊tá4~Ë∆?¿9ÖiôéÈ"aàØ;≤Ãihè¶éqj[˘ ]H^%∞›n9∞›Ã±ƒÇërÄKé™@ÍfŒ;k«‘UkV†∫èR÷8†Í⁄*à∫‘~2÷Û°Æ?≤ãÒtÅu¬—ÕÅÂN+√Èí™˛∞Vx^‘^ÕºIq’é5Â™Wä¡K«AÜ¡+KÇN¿&˚D{ÈÖ∏_#@_G˘ø-váà•⁄^P“‡5AıM
+D£SãóY¥sƒ‚MU¥£;˘’Eﬁe˜„¶ZZΩ∑¡≠˘}=Äwô©ØRÂ[ÿ›[e0*©∑™0\±1ì‚}7à|©™Å«±ÄÛQ∆mcu=0¬À@œ¥}ÉÑ∆˚Œ íïB&µ22Ff∫àHˆEV+>∏Mµ»œ7!ôÿ à∆’!5T3q‘Â˚u‡Gï≈é¢∏QŸæË&¡sLŒ∏…R∞5"F’ÅU¨/æù:~ı∞‹q,t!†¥`sÄÆ√ÍÜe©ZòPñÿÉ±vxjƒXÙÔlH ˜™P."iquewy5ë¥|wmÂÆf˙4K∞bÍÌeggicm#›KRz°\/ıÔ“FÓ®B	?Z33]-+KÈ”˘‰Ñm6ë˛~ﬂ>µ˙ß5¡™xe)U∑	H5.…∫ZV`dÈä◊¿≈≥K™D4…h	,=i·í˚*Ú@Z∏AïÒ“™!=«ÕP—	ä0ı:Úµ&\ëñrÈõÖƒ¢´IXI<kø+%¸d©„dfÃ∑@•|®0t89¸kêQj¸Ì£ˇ˝+ÿ´ö·@ïq¬ÅÑÅLk3¬4ö1ûQE$q†Y·≈√˘^’¿úfê+óÕﬁ’¡ßT?$Q°5ıÃyΩQZHKö≤t%(93êO,ï@ Œ)ˆæ7xVw@‰Ω‚≥iû{wÀ∑]ù
+(âD˘‡Ú‚wEÁ*¡·"™Lè#~ÓñÄNÕ6%8s≤1’ÂÅﬁ’µ[¥í‹˝‰R∫Í\Û;ãù„;ã›vª›2^3ÒVSÉ„ªrsB©0[™û1a·ä93E>ùëâ¢Q¡LÉ=„4Ç‹Jô≠%2sPV~q¬{∫öPŸ‹T˘Aiø∫F‚\°∆wne„
+*X8e∆gßª≥∂ª8+úWfrÂµÆ´U§√LñnΩ00p†âµLƒì—Ñx84·˛Ì2öëΩî‡Â©˜'}úV¡¯Ç3X}=ñ…p)•Üd#Z„∞,µ@Vâ≥bı+
+URÒK+}i€‡¿Û-´UT\^~P§ˆTPùÛnlNúF˘Ê“ìÊ¶˛jﬂ≤Ì{ì°wÊ¬Ç.∑
+¨w&&L>ƒ›1ª£‹XzÓ∂åÌ xl˝xj·…‹¶√äuÓ:nt¡ò€>dgb/¥∆ïOµÃÀ_„Ù€O≤‹<˜f.ˇ†0*NF
+	òÖÉÛâKπ*ıé·˚ïŒbyÀ∑⁄·.7<±tìzF3•rœõ·"'NñØÚπ¯◊c!ÔÌPoØ.n¨Ïn|C◊0]∂}ÜâG˙{_∆ü„e˚ípˆáàesW2±≤vóµÊøû∑-«
+E	›Çuˆõæ¢…–ºJk˙™˝¶≈W^¬FÏ>4«ñqË:Á»ƒ˜ ”Ω˘–CzjËõdøYéwV<JZÆ2a•°úSKπFwqÏta3™ Ë´S™O≠ær⁄qtWDÅGØTø∆≠ÁqÜ–ã∂ë@ìﬂ%´†k˙˛ ÷ˆ´'TAV%êAø‘?Ë*_^I±Çﬁ™vóÊW2P›≈]ø/˜kMeUà¥AeΩ
+—F6∂∑çG˚?‹ﬂÎıçÉ√Ìç}c{ocˇ-£ŸõN&bZÓqí ÉøµÍÎ,;n2>Àò–èá>h„ÈK“º(™ ¸(IoÕáï˙÷ƒl\ufù˘êæ(ˆÙ2§ ÆØ«s{Ê©’õ$ã3œ[•ÕÂÆˆ‹857J>Ã•dÅ¥f±@v∂˜˙¢˚ ç¡â5xVÛö»Xa7…l≤ãT√¨çF.øy3æ
+⁄"W…‹˚˚Ê‘Eo1‹ç–Ô—<—ÿ˜L$µ∆Ê3C,ÖﬂA÷s„Î_ˇ˚}˘ÅÅç˝v?[C|¡ Ùø◊ü0~RY~æ¡Â'ÛüÒ}/Òøü„ñ?∆?ˇIÌ˘I$¬
+åêC>` @áæ¬ $Ñc“va$p.Ëwt3¿äD√≥øÛ≠˛ÉŸ?|¯V´û£IÂ¨lò^Ô„Â©(Òºr|ÅLo^)q†4á‡æ
+œê,Êj#ì¥W¿“√î¸>Å≤Ω≥ø”ﬂI8∆÷·√›Ω«˝Ω√ásgë±+b8œ?≈:»YÊÅØ”a¯ÜWÅyß‰§]ìô}mD8E•∑wÏr–ﬁ‡2öDõö{#x(o+bªC∏Î´;ƒqQΩm˙.R≠J˘®$¡ä›Ç≤U
+˘ ©ú⁄P/!ë
+üæYÄ∏ìˆÇ≠°i ô÷»g…mÅˆ>Fﬂ˙ä¨˘Øb4›?„∑¯uºæÄO»zçò ±Vˇ©!›Zts›• ûﬂèœ∂–‡pv˛µ–*Ÿ˛8äÅΩüF˘©ìHæˆÔ£'ÅÂ«ß:î–©0Ä|‰KBÜöô±ú(˛L¸Å[&?f`Ô¡·„æêR™ZKG$Fù÷‹»8›	aÑ Oÿë(ï•¥MáÑw¨gä#¨S÷HCPÕÇóz<3¸‚C3-$çËSôÈœ"€ |Aû±“‘Á€-·»ÒŸ8Ôz∂ rÅZã[§RﬁÆB–¿„ù'ΩçÕ˝Ï*…⁄√T°ç2+	.~Ô…£G¿™?˛{[xï Úœç—‘ï[<+Á~|‰ ’lﬁ$Cú0ˆ˚‡Iôè36N¨U›7ö-@úy‚R;)eª∞?ﬂ†ÀîÍà£˘⁄˜ê^¥E>∂SﬂGs…\Ê£›ÖVQo‡·Ë]ä˘µï˙!‚™¯«ûyp(f∫Ê1ﬁL‰	ôÔ„G≈w⁄Å§ÀöÇ7°Ñ°Õœ øo…ë»∞≥4›ÿõπ§>®π%Ç¢Á∑Z∆b‰Qm1vW ªÜÅé¶?>RCü¯NAo≤=IÓ{ÛæëT8Ü&!b“ÖC(Ω„€rNÃ 8CºK≥¡¯6aÉOÌ¿>r
+:C¬—·D{fåd
+©‰îŒX8`Â_Øøƒ`»w6∫@é¶ºŸâ@T4õ¢wÂö2fÖ^ìÏùq≥qªv–G6Z”hÉªh«∂üBÓ#- võRcvÅö”–§£]ﬂcŸ¸Â~ÑJó5Ò'¶O‡ŸçGˆ‹ño+	=7ìÏG 7sº@…[è”FzÊ<=ﬁ4Ò5ÅÖ8d:Â(ﬁÒE·âÌßØI˘5p˝o¶Çx^¯√ªüxÿ(f˚÷F√ öçì0ú‹øs)xhb”_…˜¡ƒ±ëÚp˝âÔ?Ùeq~º ƒ&dZCß°Û?Ó.)„⁄º?µh™sƒ·ßt√/2£ûÁuc1ıõÿπÚ€üXı˘Ñhª-˘X«ˇ#ÎÁ¯)òn/vˇ¯Òé¶Äõj@‰Õ¿Œ#ê~s x€Fˆu<Ú∏ ;˜W<πiçã´∑7⁄„•iÉW∞ù∑$X>µNå∂Ãòc∑§«∏£·ƒB„ÃA™ÆkTôëÂú™0€Q˝Â’_NX«'3\≈p,pâI∫˜adﬂ¬ˇ/È∏*”Ôbà«?HuéºxjÉ¿∂+Ì÷øúu„q‹wÒWâ90ÒëËá6>€&M<äøj"Óä‰UH§ëÕÜ£6ËYÈ	ªÚ §í‰1^°Ö*ï˘êr3+!ªí+!´ì!A˘ãŒ|sYg$zÄôıºo¸›s £j∞éJPNR CPUDß»D·á«Rë≤˘¿2áúNLs]ı"U)ÎJ+UI#≈n‰M+<≥,~!jôG¢^ﬂ:êr0ú:–ÖJeLë 
+ó
+*ÑjA¥úBhòj‘ó^Vf,%o—»™¢ã˝`jM≠Éi`¥#‚™ ãï+›∆R¡—åR;≈WïB*.A© KAX∫¬"Rd`íóIQ˝jQfEdVTÆ°‘Û“`KÏ¡◊]Â ªJ`≈k´‘åÂ˜yæl(Æw˘)=$CÉˇ+©Çß„œÃ¨Å>ä˝7k“9C wô	“´h	ƒNSß®¶%PΩ%ﬂÄ∏•bçπD¡óÇöwËGIÕª:ä§‘)X=Ω3;ú@`|¥ÄNÉ$‚ê•ï,È‡ÈÑÑKÛ5ƒ•|
+Z•∫≠XÑ»VÄízT™ÙBRq∏¯⁄T±˘¥^•zÅ§Ü %6Z<œßrXÑl¿xÈº»,àœ.xT¥˘î∞ndhLÓÄ Î©(ÒD,n´F¯/Â˙ú ∫©nyq†äzbƒãVì zDKT›™Aÿ◊QöH[iH©öb\2ÙD˚™4ËzeÏÿªﬁfS)ÚÃ®j§ìÃó°§é<@®ºrÒ JàŒ’IàŒ∑‚õ"!ˆmWGif¢Û≠Ñ(&*!¿‘∑Ò$£~mÖCÁµo˘v[o†Í”–ªgÛ∆»˜êdßë9Q\ùéW(êÚ}dde=πweû‹¬´≥ÈãjrIûQ2…∫»˘^øî◊-¡«Mî∆#û îV»àÆL≥ñì†ô…˚Dõ˙∆Â-Z56Puö÷#úK∫¯≈Ó}µ≤c5»[ÖÇÀ@˙ÚVCê ÃÜb<™π—ŸHﬂr¢yf≤H¥QÜÜ∫F≈V≥QØÌc+ƒ€z≥çßçâ≈#P;hÀôà,u à\ÙmqFı∆J∆ª†’˜À;Ó‚+ç"aøã‰ä◊h’dè™ûõÇÄQb5≠9*è" IAùÔô^å9©≤IV√ﬂ>˙≈œ»	—˚ÏI^Æ÷;{vS∂˙;–¨‘gÖƒ÷Ã˝çMcÒæÂlnÔÙå›√«5¥Œ˜]âÀëKfãÊÔ¿l·Hl9ø<çJn«±|ÚµËπx≈ëD1ú˚√⁄a—û§Ö≤|3QÑﬂ„”6≠ˆq€à8«ÁÅyjuó@Ìo5
+a√pÄÌ	ZaX¢”Gr⁄‚"©≠.ﬂ]^€,'S¡FsÉŸ¿U∆Ïm0BoåÁ;bjL•ÇÜoGoÏXÄÄ≈ø /ØÄ\% öö„ﬁ†Â∫[ÉâD/≥3˝◊ÀãﬂF˚# ?ˇ‹h>âö-ΩÉÅÈoOM?¥Vª˜VfΩ˙Y~‡πﬂnÄWw–l	›¿dYîŸ $˙À8$:Q5õè¢ñKÔ◊|xV8∏|÷Àˇ˚÷˘l÷~Ëõ∂√<\…]êãgyûK˝Z7nføz1£–EúÒìzT´¯ˇ  ˇˇÏ]ÕOAøÛWåÑ4ê45Oûî#	ΩëJ[ÿdiõñ™ƒì$Í≈Éâ·då¥ûH#ˇçäÛÊ£;ªùùùØ-TwÑvwg;oÊΩ7ø˜{¨˜»◊∏ô«'õ≠ñ¥›‡Zú≠u∞Hè∫√Ä/≤£UÅ30√YÙıêúòhøŒZ+Ì˙]…Ωï'ù6sﬂoE˜è›ñµ‹uº‰¥Pã—`∆´u2îÃj…N#Ë‡¥9Ñ◊‘òQ<0yüıB^=ÅiT€ãaA{⁄x∂ÊΩ™”.tö©æk*$<Í◊N<Æ(ﬁˇ≈≥ï¯œz©»ˆùˇ3¸l5pıçs2w!∫±˘∫~‘!À…—]hD•€>»[H÷!4°í[ $6Gê⁄QPPå·-™œm≤îM≈A¯b	ë•?Â§[,yùPøsÄE··fÃçˇ¯∑\ÂRáíßÛ@Ÿ2Jı#`≥
+©l,≤ôüíGŒì^G◊>î^Ûx–k?–<^Ù»„e,	TP5œ√D.îJHXÜŒí˙Ωó¢G5-,ZUÃ¡ÛdSL5¡v∑©b˛w%cü¡k5˛P≈ˇ·5}≈Ë‡
+cw dÈ<ÓÄ2˘ÌeÚzÉÃp“¡£,ΩFV•√MÛ/A√öxOÄÙv’•›ÌÖ÷æaÉ6ó^∂o/˜J'ƒ3√¯5:†Y\ZØoæ⁄ÇFäÏEÊ)L‚ÁIröîl¶ÓAÌÕΩŸ9È„ΩäS’Ç£fÔ3ﬁ∑MÈ°pJ…lˇ¨¨»ÿ&F€ºöH)dˇ±±©„•zΩÖï£ ~¸kì§SüÑOyºå≤*çHïÃ+èÖ@<Ãá&rû…2Æ FÒ“◊KëÃãôkú)≈àâhôUß‰˙à¯©É+Â|+ø	GàÑ∂VM¢‰ùUïÖô¡≥∆∞u◊}˝HuòëÔ≠0™˘¸∏èÊÑ≠ŒKGxÀ{ì-Õ6†˘a÷ﬂëÌ¶•|Oi†¨ÁµZ2ÕUñ4Ç»áÙâ{öÄG+ $∞! °£ô∞!…q‘UjÄ&a÷{[ΩŒAOËıv#ÿØ„•j~¸◊*8é)≤Ωå˙VÀ)_Ùì˚¥C·Œîo	 u‰2˘˘°R©Ãé'As¢@1Zî$/ßÚádÄßŒŒ ¨KZg¶Ë¯ªã<˙Y}‚°∂Ä?Ëa9—vËrﬁÚ2ΩnÇwd˚{— ØG∂=”∆‹t∞Ø‡B&êƒ°)]æW∑@|D<∫ÌsG€‹—.üîizC&©ª):Q‘ŒÙt49s55'bbZõñ÷&•µ)icBÍIò'ì1É~3√:‘∞›uS˚Oc&9[%∑◊&ÒGZooˇòR;€8¯íG\“trs15_	/P„*Uﬂ·Õû˘‚}$ê-¡yØEnˇû[‚	[B∞ÁÀ´ .ŸlµÇ}¨U∏íˇÂ»‹QL,∞%q∫hØ"íXq|ÇIFYÖ)3vÆ“Aÿ$
+·òZ·∏i–UÆ*ÑÅñ[ Ç}m*qC›2ÏÓ4n˚—Ω„;ÂßÁ˘gáÁ^ÂÂa¢e‹ä∞é[pàJËYß6¸ÄvãI/ìV«◊m‚ÁV;
+·‹QPo¨b·ß‘=(Ûêö∫≈Æ3≠·ﬂÒbÌUœë|{|p4À«ƒPpœôúÄ*¢Ùçy¬7é7£Sƒ∏…¡≥^º*Ù’{r˘GqúπuäS∞’Dàúºíé;õ+BÇQ7⁄#ΩÂ⁄É∆”nÿ©7Ú;I˜W`·I:@B‘«‡÷˙ôúóîûQ}∆˘'œi>kkœkË—˙⁄∆*ZŸ‹ÿ‹ﬁAè◊6∂÷∂˝'Òî®Ñ∏∑∆Ùˆ(ªΩâ4∑’¡O7‘Èûé"˜⁄w3˛π≤XÛJf˛¢DÂ∫∞€k$ØkJ∂ÑQ•)wÕ,Ã¸  ˇˇ í§⁄
