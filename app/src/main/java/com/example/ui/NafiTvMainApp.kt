@@ -7964,7 +7964,7 @@ fun AdminEventMatchCard(
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 30.dp)
                     )
                 }
 
@@ -8069,7 +8069,7 @@ fun AdminEventMatchCard(
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 30.dp)
                     )
                 }
             }
@@ -8284,236 +8284,23 @@ fun JsonPosterEventCard(
         border = if (isCardFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 8.dp else 3.dp)
     ) {
-        if (isTvMode) {
-            // -------------------------------------------------------------
-            // TV MODE: HORIZONTAL SIDE-BY-SIDE CARD (Details & Countdown always visible)
-            // -------------------------------------------------------------
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left: Poster Thumbnail Column (Image + Tournament text below)
-                Column(
-                    modifier = Modifier.width(140.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(86.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF090E1A)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
-                        AsyncImage(
-                            model = bannerModel,
-                            contentDescription = sport.title,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-
-                        // Top-Right Status Badge (LIVE / UPCOMING)
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isLiveNow) Color(0xFFDC2626) else Color(0xFFF59E0B),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(4.dp)
-                        ) {
-                            Text(
-                                text = if (isLiveNow) "â€¢ LIVE" else "â€¢ UPCOMING",
-                                color = if (isLiveNow) Color.White else Color.Black,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    // Tournament Tag BELOW the photo in TV Mode
-                    if (tournamentTag.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(5.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF1E293B),
-                            border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF334155)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(text = "ðŸ†", fontSize = 9.sp)
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = tournamentTag,
-                                    color = Color(0xFFE2E8F0),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Right: Details, Countdown Timer & Action Button
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    // Stage Header & Time / Status Tag
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stageHeader,
-                            color = Color(0xFFF59E0B),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.4.sp,
-                            maxLines = 1
-                        )
-
-                        Text(
-                            text = if (isLiveNow) "ðŸ”´ LIVE" else (sport.matchTimeFormatted ?: sport.eventTime ?: "UPCOMING"),
-                            color = if (isLiveNow) Color(0xFFEF4444) else Color(0xFF94A3B8),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    // Match Title
-                    Text(
-                        text = sport.title,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    // Countdown / Live Status Surface
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF090E1A),
-                        border = androidx.compose.foundation.BorderStroke(0.8.dp, if (isLiveNow) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF1E293B)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            if (isLiveNow) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = "à¦®à§à¦¯à¦¾à¦šà¦Ÿà¦¿ à¦à¦–à¦¨ à¦²à¦¾à¦‡à¦­ à¦šà¦²à¦›à§‡",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else if (remainingSecs > 0L) {
-                                val days = remainingSecs / 86400L
-                                val hours = (remainingSecs % 86400L) / 3600L
-                                val mins = (remainingSecs % 3600L) / 60L
-                                val secs = remainingSecs % 60L
-                                val countdownText = if (days > 0) {
-                                    "${days}d ${hours}h ${mins}m ${secs}s"
-                                } else {
-                                    "${hours}h ${mins}m ${secs}s"
-                                }
-                                Text(
-                                    text = "âŒ› à¦¬à¦¾à¦•à¦¿: $countdownText",
-                                    color = Color(0xFFFBBF24),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else {
-                                val timeDisplay = sport.matchTimeFormatted ?: sport.eventTime ?: "à¦¶à§€à¦˜à§à¦°à¦‡ à¦¶à§à¦°à§ à¦¹à¦¬à§‡"
-                                Text(
-                                    text = "ðŸ•’ $timeDisplay",
-                                    color = Color(0xFF60A5FA),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    // Action Button (Play / Link Notice)
-                    val playBtnScale by animateFloatAsState(
-                        targetValue = if (isPlayBtnFocused) 1.02f else 1.0f,
-                        animationSpec = tween(180, easing = FastOutSlowInEasing),
-                        label = "playBtnScale"
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = when {
-                            isPlayBtnFocused -> Color(0xFF0284C7)
-                            !hasVideoLink -> Color(0xFF334155)
-                            isLiveNow -> Color(0xFFDC2626)
-                            else -> Color(0xFF2563EB)
-                        },
-                        border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8)) else null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(28.dp)
-                            .scale(playBtnScale)
-                            .onFocusChanged { isPlayBtnFocused = it.isFocused }
-                            .focusable()
-                            .clickable { handleEventClick() }
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (hasVideoLink) Icons.Rounded.PlayArrow else Icons.Rounded.HourglassEmpty,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (hasVideoLink) (if (isLiveNow) "à¦²à¦¾à¦‡à¦­ à¦¦à§‡à¦–à§à¦¨" else "à¦“à¦ªà§‡à¦¨ à¦•à¦°à§à¦¨") else "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¿à¦‚à¦• à¦†à¦¸à¦›à§‡",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            // -------------------------------------------------------------
-            // MOBILE PORTRAIT MODE: Full banner card with details below
-            // -------------------------------------------------------------
+        // UNIFIED HORIZONTAL SIDE-BY-SIDE COMPACT CARD (TV & Mobile Portrait/Landscape)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left: Poster Thumbnail Column (Image + Tournament text below)
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.width(135.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 1. Top Poster Image / Banner (Full uncropped view without text overlay on flags/teams)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+                        .height(82.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF090E1A)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -8525,315 +8312,210 @@ fun JsonPosterEventCard(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Top-Right Status Badge (â€¢ LIVE / â€¢ UPCOMING)
-                    if (isLiveNow) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFDC2626),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp)
+                    // Top-Right Status Badge (LIVE / UPCOMING)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isLiveNow) Color(0xFFDC2626) else Color(0xFFF59E0B),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                    ) {
+                        Text(
+                            text = if (isLiveNow) "â€¢ LIVE" else "â€¢ UPCOMING",
+                            color = if (isLiveNow) Color.White else Color.Black,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                // Tournament Tag BELOW the photo with horizontal marquee marquee scrolling if long
+                if (tournamentTag.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF334155)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                                Text(
-                                    text = "LIVE",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFF59E0B),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp)
-                        ) {
+                            Text(text = "ðŸ†", fontSize = 9.sp)
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = "â€¢ UPCOMING",
-                                color = Color.Black,
+                                text = tournamentTag,
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // Right: Details, Countdown Timer & Action Button
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                // Stage Header & Time / Status Tag with Marquee for long stage text
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stageHeader,
+                        color = Color(0xFFF59E0B),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.4.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Text(
+                        text = if (isLiveNow) "ðŸ”´ LIVE" else (sport.matchTimeFormatted ?: sport.eventTime ?: "UPCOMING"),
+                        color = if (isLiveNow) Color(0xFFEF4444) else Color(0xFF94A3B8),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Match Title (Auto-scrolls left-to-right news ticker style if text is long)
+                Text(
+                    text = sport.title,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            velocity = 40.dp
+                        )
+                )
+
+                // Countdown / Live Status Surface
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF090E1A),
+                    border = androidx.compose.foundation.BorderStroke(0.8.dp, if (isLiveNow) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF1E293B)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isLiveNow) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "à¦®à§à¦¯à¦¾à¦šà¦Ÿà¦¿ à¦à¦–à¦¨ à¦²à¦¾à¦‡à¦­ à¦šà¦²à¦›à§‡",
+                                color = Color(0xFF00E5FF),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
+                            )
+                        } else if (remainingSecs > 0L) {
+                            val days = remainingSecs / 86400L
+                            val hours = (remainingSecs % 86400L) / 3600L
+                            val mins = (remainingSecs % 3600L) / 60L
+                            val secs = remainingSecs % 60L
+                            val countdownText = if (days > 0) {
+                                "d h m s"
+                            } else {
+                                "h m s"
+                            }
+                            Text(
+                                text = "âŒ› à¦¬à¦¾à¦•à¦¿: ",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
+                            )
+                        } else {
+                            val timeDisplay = sport.matchTimeFormatted ?: sport.eventTime ?: "à¦¶à§€à¦˜à§à¦°à¦‡ à¦¶à§à¦°à§ à¦¹à¦¬à§‡"
+                            Text(
+                                text = "ðŸ•’ ",
+                                color = Color(0xFF60A5FA),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
                             )
                         }
                     }
                 }
 
-                // 2. Body Details
-                Column(
+                // Action Button (Play / Link Notice)
+                val playBtnScale by animateFloatAsState(
+                    targetValue = if (isPlayBtnFocused) 1.02f else 1.0f,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    label = "playBtnScale"
+                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = when {
+                        isPlayBtnFocused -> Color(0xFF0284C7)
+                        !hasVideoLink -> Color(0xFF334155)
+                        isLiveNow -> Color(0xFFDC2626)
+                        else -> Color(0xFF2563EB)
+                    },
+                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8)) else null,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .height(28.dp)
+                        .scale(playBtnScale)
+                        .onFocusChanged { isPlayBtnFocused = it.isFocused }
+                        .focusable()
+                        .clickable { handleEventClick() }
                 ) {
-                    // Tournament Badge / Event Tag BELOW the photo
-                    if (tournamentTag.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF1E293B),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(text = "ðŸ†", fontSize = 13.sp)
-                                Text(
-                                    text = tournamentTag,
-                                    color = Color(0xFFF1F5F9),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-
-                    // Stage Header & Optional Playlist Source
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = stageHeader,
-                            color = Color(0xFFF59E0B),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.5.sp
+                        Icon(
+                            imageVector = if (hasVideoLink) Icons.Rounded.PlayArrow else Icons.Rounded.HourglassEmpty,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
                         )
-
-                        if (playlistSource.isNotBlank() && !playlistSource.contains("Tapmad", ignoreCase = true)) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFF1E293B),
-                                border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFF334155))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PlaylistPlay,
-                                        contentDescription = null,
-                                        tint = Color(0xFF38BDF8),
-                                        modifier = Modifier.size(11.dp)
-                                    )
-                                    Text(
-                                        text = "à¦ªà§à¦²à§‡à¦²à¦¿à¦¸à§à¦Ÿ: $playlistSource",
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Match Title
-                    Text(
-                        text = sport.title,
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 21.sp
-                    )
-
-                    // 3. Dark Countdown / Status Container
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF090E1A),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Schedule,
-                                        contentDescription = null,
-                                        tint = Color(0xFF64748B),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = "à¦®à§à¦¯à¦¾à¦š à¦¶à§à¦°à§ à¦¹à¦“à¦¯à¦¼à¦¾à¦° à¦¬à¦¾à¦•à¦¿ à¦†à¦›à§‡:",
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = 11.sp
-                                    )
-                                }
-
-                                Text(
-                                    text = if (isLiveNow) "LIVE NOW" else (sport.matchTimeFormatted ?: "UPCOMING"),
-                                    color = Color(0xFF64748B),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            if (isLiveNow) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF10B981))
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "à¦®à§à¦¯à¦¾à¦šà¦Ÿà¦¿ à¦à¦–à¦¨ à¦²à¦¾à¦‡à¦­ à¦šà¦²à¦›à§‡",
-                                        color = Color(0xFF00E5FF),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            } else if (remainingSecs > 0L) {
-                                val days = remainingSecs / 86400L
-                                val hours = (remainingSecs % 86400L) / 3600L
-                                val mins = (remainingSecs % 3600L) / 60L
-                                val secs = remainingSecs % 60L
-                                val countdownText = if (days > 0) {
-                                    "${days} à¦¦à¦¿à¦¨ ${hours} à¦˜à¦¨à§à¦Ÿà¦¾ ${mins} à¦®à¦¿à¦¨à¦¿à¦Ÿ ${secs} à¦¸à§‡à¦•à§‡à¦¨à§à¦¡"
-                                } else {
-                                    "${hours} à¦˜à¦¨à§à¦Ÿà¦¾ ${mins} à¦®à¦¿à¦¨à¦¿à¦Ÿ ${secs} à¦¸à§‡à¦•à§‡à¦¨à§à¦¡"
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "âŒ› $countdownText",
-                                        color = Color(0xFFFBBF24),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "à¦®à§à¦¯à¦¾à¦š à¦¶à§€à¦˜à§à¦°à¦‡ à¦¶à§à¦°à§ à¦¹à¦¬à§‡",
-                                        color = Color(0xFF60A5FA),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 4. Warning notice if no video link is present
-                    if (!hasVideoLink) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF451A03).copy(alpha = 0.85f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.7f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.WarningAmber,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFBBF24),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "à¦®à§à¦¯à¦¾à¦š à¦¶à§à¦°à§ à¦¹à¦“à¦¯à¦¼à¦¾à¦° à¦¸à¦¾à¦¥à§‡ à¦¸à¦¾à¦¥à§‡ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦†à¦¸à¦¬à§‡ à¦…à¦ªà§‡à¦•à§à¦·à¦¾ à¦•à¦°à§à¦¨ à¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦",
-                                    color = Color(0xFFFEF3C7),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    lineHeight = 15.sp
-                                )
-                            }
-                        }
-                    }
-
-                    // 5. Red Full-Width Action Button (â–¶ à¦²à¦¾à¦‡à¦­ à¦¸à§à¦Ÿà§à¦°à¦¿à¦® à¦“à¦ªà§‡à¦¨ à¦•à¦°à§à¦¨)
-                    val playBtnScale by animateFloatAsState(
-                        targetValue = if (isPlayBtnFocused) 1.02f else 1.0f,
-                        animationSpec = tween(180, easing = FastOutSlowInEasing),
-                        label = "playBtnScale"
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = when {
-                            isPlayBtnFocused -> Color(0xFF0284C7)
-                            !hasVideoLink -> Color(0xFF334155)
-                            else -> Color(0xFFDC2626)
-                        },
-                        border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .scale(playBtnScale)
-                            .onFocusChanged { isPlayBtnFocused = it.isFocused }
-                            .focusable()
-                            .clickable { handleEventClick() }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (hasVideoLink) Icons.Rounded.PlayArrow else Icons.Rounded.HourglassEmpty,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (hasVideoLink) "à¦²à¦¾à¦‡à¦­ à¦¸à§à¦Ÿà§à¦°à¦¿à¦® à¦“à¦ªà§‡à¦¨ à¦•à¦°à§à¦¨" else "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¿à¦‚à¦• à¦¶à§€à¦˜à§à¦°à¦‡ à¦†à¦¸à¦›à§‡",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (hasVideoLink) (if (isLiveNow) "à¦²à¦¾à¦‡à¦­ à¦¦à§‡à¦–à§à¦¨" else "à¦“à¦ªà§‡à¦¨ à¦•à¦°à§à¦¨") else "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¿à¦‚à¦• à¦†à¦¸à¦›à§‡",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
         }
     }
 }
-
 // -------------------------------------------------------------
 // -------------------------------------------------------------
 // TAB 2: LIVE TV SCREEN (Playlist Category & Multi-Server Support)
@@ -9135,75 +8817,393 @@ fun LiveTvTabScreen(
                                         .padding(start = 48.dp, top = 2.dp)
                                 ) {
                                     Text(
-                                        text = "âš¡ xœì}{ÜÆ•ïÿúTG×è†G­éž‡FBÆÎ<­ÙiMKÞ »XpºÙ3„ØÍÉžñXpsÜà"Èõ¹N€$÷zsaŒ<ì`ÿÈ:ÿÄ_eà/°û¶N‹,’UÅª"»gää ‘§»Éb±çUçüÎ­ö©ízö‘ç:Á©„íÐ}ßyÙX¸a)Rß÷üÀZ·¶à¿íwOÜÈQ¿yè£Cô@tÿÝöJ;œèÝú®ãŸDèæÝäC{Ó÷ê­Œü;tx‡ñŸí‰=¸ããæ‰¸ï£†mýºÜL,4B‘ÛÇ_tÐ-¥ç”_õRzÅËÒŸïÜ±víSÔ×È±"ÿøØs¬£iùcËŽÐ+€q‘6±×÷Ç›øžfi_ýñ–çöŸ£xþîáÒç7û'öxìxmwÐ²^–Ïgô•F´m{îñ¸¹ÿŽœqÔîù“ñ@m:ð
-ov×”ç/YÝÒ[ZÖ‹Ò&a°Ë‡ÈÙÇÎ3§áæ­¦¢¡ná&Âö:8ƒv2ûŽ:‚ß6ý`àjû5¡AÝvÂ~àN"­¤u«A[Rd‘;Ž²Æ¢¹øÞîîÎî2¢éoúõêòÝåµÍ–Zû¼‹'¶³ª4±ò+J¶êót¤0‰Æë{èzÞCû=`MÍEšáZky®…W}ù§${Ýœî·-ô<H®òÎËÛ¤½Ø{|ìÐ6ÓOq«•7bˆ[„Yûþ±o¹c‹%kËúžSzÿ¦ÿžÚþ4^ ²XÉöè¢Û–µ†ìŠeµUœ´Ö÷ÜI“¼ßá‰=q4n=²ûÏàMF†ë4€yK³ƒ×Zº—––;++­vßŸœ7morb£qZl¯[ÛS-¦$[Žå{^añ Á¬Ü¤¢ÌCKèi€DZøhêyÁ¦gŸ7[ªmm„çãþ0sµuE	­/6m®+êÚ—›Ó#7ò4Ô5¦½C´“¬ö¥Û»n¤×X•D‰·“–—“´¤.è3­šï(µ+_’î©¯"†­íÝÈµ½PùÞSÄüÝø¦üô·#û¹Ó\jµ§“‰ôíPUä õœ÷"½E¡;@1ˆ{£»øcs™ÅÝÎÝî†"¡$´<Äõ›Š-˜ìì,#s†Ìq§‹þ¬{ù(¥—Nì>âÜ<]êH‹¡VyKÌâìÁ¢Â|ÁvÇ
-ûy>â6Ö¨ÞuÑ‰Æú¦ãÛ¥”½t5* yÊ0½oJC±@w%¤-;ìúýièX¥qqgew—Uú+8r[­‹}ñfë\#Á~o-wà®]õ»|¤=ÿÝvlïxHú„®w„Ä‹)n
-ÿ/*õV<ô
-èXä™â%U~¦âú¨K-kp);rŽýàÜz-Âé8BmÚƒc4qOü³ÒÐ5j›Š1 „æNï5Ø<'ÝW›¤Äˆ’ðgñ5ÞymÜäpQgÕJ*ê[ì‡Øò$
-°EDŠ¡ÑLäµaïÞC6Éhâ‡N{Ý³A)nÉaøHBf
-ßšQôøi¨uÆeÖýxE·Ý!¶M¬Vcß=u¬Þ³†ŠŽ%Î`¶]“RtaÔ÷´¸4m–Ç©‘«Ç­”]¿«y'JWoã‡¥â¡£wg™ˆ˜»^	”±û„V±µùP}<¨¸ô;;Ý{KªþHJuðšå»++«÷yÎPéó <ß!Ó®7<@Å‘ÞÚÜ^ÙéhŽ4ÃhôÙ	m€ÇR:w:ÒoÏü<É€©à2ŒEëfõÕ¥ÆTR³_ù¿¿Í~“~"½¼ñòÒÿz›ÖÒ}ëáÁ³½CëpëÉÎÎ#«¹íN?²þîðàR.=E³wê¢Q}Ãz×9² > ÝÑöüã´s»
-ÝøÎf
-pîzc8ÇOëÙG‡ýÀqâ“…þò¾µï†Ñ·aAÚ{‘3z‹¬‘a|³7@W:Ñ·7A‹,þ•JÜûÈºö=Ç«`h#©K~öÇ‡Ž‡^7zßj&·¬ÛoYOÇÔ—?ßC—’Ç$×Ý ¬çÔ¬Ð±ƒþÉw§RªÎ­ ©¹£#´^X£i„Ï˜#¤«›F+žrô1pªšËïÝð<îíxwý`Û‰l×¥­¤Ãùö[Í1’Z-jˆ ©Ý>Û#¢@[ˆMƒ*ëX°†?²<ßF'ž!k8¡œ¢q±Æv4Ð~Æ>î¢gH‹[i+ëIßš¤–…Ã-ˆ×6¼º4î;¬Ôõx¢'i	˜`ÇîŸÀË¢éÉlh½´•ê‹¨QÎrý¢Üb9n½ñ†u¾t~0EK¨Ùx:~>öÏÆÙ~àlÙ!0à(˜:Å‹ßqP¶=îÅ<±…5‹äåÛ}âF
-¡WB"½qZ|¥&o òðèÒåõ&3o&¿}ý?ù/?LŽÛÃF+f-ÉL]Y`ñbäLó»I
-KÝ×ìëÒ)ÆÍ£FWp'ydGý'<ÄAgž†&•ÎèpÇ}ÂÉ¸gºË™oYSÉJ«ÚZ77`Ž0n®[°ma¹åS~ZÉãÎÑÝ…çÀ—ê¸!šŸ„Õ­[g'ÎØjæo©ã¥	Œ/þZXœp)³œÒnã7q9áØ.Cweg/ÞÊÅµª>Ò%Q­YãµQþØVŽid>fwzVnjêGÊ#b‘gntòØ#¬UæÁM7Q2Ì¸jÚaï;£Itfó>
-ê¬Ä^ÚøYôËü{¤Bñ]Ô‚êÛ »ÚtçŽŸ£A°'‰L[°¦’ŽÑxä²¾È;ø™ë#!nX/y‚ô²}ìDÁãi„…JªEI#Œ%~F‹#SH+ì¸å#GÊÎ4$‘ …ƒ{â¯é.®vîÆK—{¤ØÄkuÓNŸq0Àç; ‹p×u¼A3?ŽS'+F²&Š?~—ÀÙÏ±ƒcÂX%pmÀ¼jâ!CÿÄ÷ˆ•\ärbÛ´qyñùå«^^üáòâ+ëòâgðÿËW_¾úñåÅïÑ‡/Ñ÷—Äÿþ}þ9¾ýï×øÏ¬æåÅøêÏÑ§ûÖßÙgöxÁêùþþ»ïøÖc{ŒÜs4Ý‚@§¢õzoycisM`»1j|LQ¸,Çf²í åŒGˆêÂÃ‹£Ç²1^dZø'ýÀ	h4VÁ­WˆÒC:ë1ÏãêgY¥‚e%|ýŒ	/d£³+¥v¢ÌÁyñ-ÏG ^m\ÐÈ¾º,´¥ÔžÌ”ÊadÙ¡#ß3Ð)¸8Þ,‰ï«Ãñ$àE‹Oþ§aäðNÇ#6ó£þ ƒS)˜üÊh3rJcÒ¤Ñ`²b}$€›ØV£:}÷}ûýóÂ)J<ƒÉp ÇaÞr†'×i­ÓÎ­Ìksä£…;¢³ŽFn©‚¦6†*|òB
-f„‡±2‚9mÎ^_OàÜXpàÅç­rË; Zœ…KKÒƒš°Ç.Rfœ]dåF!¾Ï‘#;@òY,$èño”œþvÚîèäGú¢ðÓârüúsÈgž¤#hCNœ>ÎÔ„æÀMÐŸÀO8¦lµ;D¶Tä‡c'„e~ˆ/lÒ¯ˆ;oß?piÏ>Â‘V,Ê·â±h”°j ©çZ²K»‹b1Ø4sÄÌÌ#­½ÀÝ%w&+.s_weuigS|µ
->r>Gå¿]â!×|=e‡úRÎ¾»»½º¸(q§g‡Cù9ÝÜs¨L->å'B*µ†­Á¶ã9§v,9û4<…eÉoH'ü¦ÂþiR¦"’¶?Æ½ 
-ä <ì´ƒ‰TúQì#FCˆ.n'	î˜¾þs¸kyF›2êâsDš‰ü$…ž˜PSxa>‚&ÊÐÀ4>#e›|@ýNwgmwQr¨UNeç'™s’|/‘yn±]ÊGÔ‘~iœ®(Ÿ¢u¥»ÂhO§`ÆpÎúôÐr¨»Ü@6Õ]£òŸæ¡FtãËx‹Z–ÚPWV@y&@VYSÞœ
-àÔ³h6Š8Ódy„ñz‚ù2X?º|õdk¢­œõúÛË‹¿ÄöëÅ_,0LÑgøðú½±ÀÍ«“Çªe¶3Xšò®ý÷ë§èÉôóâ«ÛIwÀˆ†_~ƒ~ù=éÞGäRü#¹äÄÔÆ—€Mý+ô¯Eºÿ~úIþ%2Ær÷hlÏ”ò´eâ&}ã¾ï;¿t)sÐëYœhè¹ïÝ£s$<ûÜŸFØ1–x¹ÞG|Žá=–½ ÃF´yJì›ÄÄmlÓ„>ðV±˜åð6©‡S/roïÆþK¤eû‘‡ã–øH “±Ã3wâÜ	‰-ø¦eO#[„ÕâlcN›ñŒ*ùðAˆX‰ÉîGî©óÀ	ü=ÄÞ“I‹<‰’ð46Éë!9|
->U´ÑÌÄ!:ûötÜ?q;Ã!ZÆù×&SÙÁ5¸ÍzËê¨…œ¸h¹7‰“]-†ä9ÌùtW4å„´Ú0M¤c/î«EägdÝjæ¿z½@-Zî ”>Ä<Ô@²’ÐŠ¶‡íq®Ãh<œ ~m..X¼¹^HÚxì²÷Á‘}¦ï'ÿ'ézwCèU5— Û±Ôš¾o€ÏGÀô{–J=””=+=”Ï@2
-E¯ %I²JÆ¨I~ƒn^ƒ@–g6—±ˆøŸ}2¬NêïvVÔÓ¼‰ÍšÌ³â]–Ý~Êl¦Qk6skÙf¢{šy¶¢”˜/s/+ÆV&nÎ–×påäc#“ƒÌ0°î^Ú‡q~ÀZÝv†6ÒdÂv}H<#Íùºè*É²«Õ4I·< 0Kµ3Uél’jš¤™æV
-=W¶Þ¾Ø_MÂûwî`L‚°=‡ÏO`ïLNüÈ¿ÝYYZ]^^ì,­®v×n¯-ßëwîÞuî®Ú·ÏÖ×µ0Ex9«ùîig)‰W·_#xTO—‘ÚUÊÙq‚Ž)ßdðÉ­Ìi´Ö@›Á-%jå¼ØM~;@q¬–Ñ½@ÄÞî!Ó
-ÙTê†~Ln¦)6e%ŸwhñËiœùç[¿·6ÔÏ{Ò¿KïÕý¡tÄôRÖ"…èt´îô.¥¦”³»€*ïµ*6I#TãúÊHëÄT3›¢æ5 «Ì%ÑHð¥”õÝax~s®®èî}ýÌæøˆ8óè¯k’IãÖ‹ÔØ~Óê¼DùÖŽ]­UF©¦,7 Ö‹Ù©5E?¡Hùä¤€´¤“Q‰ÒeªàK”jgÔ›Ø]{Ù'Ð\ÚRÂ­ÕÑ}tv–üÒãÔz«Q_ÂÌŒI z3Š¬g§ÓÙ^^ÓÜyš dÆŽ(Kþúÿbíîlôž>ÙÙ¶ôö÷ÞyÐ3à¿@•`#YªœH©	†RÅôâ«àj™ÒµÞ@eAK<ºšôhç]ëÉÎþÎÆáÎ7{×©.@ß”M£~¥2¸‰jƒæxýk@•×'«O¯ÕaÀÆ_À òEÔÓ"Bv[aÑð·—Ö×ÿýÿ[œp¦8™»‹ÝÕ†ð2HCs£s]‹¯&¸¼¥w%Ó(‰8âú±ñºÂQ9:OY$éÊgVyJrHÿ’CŽg?ô)LÝ–Ð'@¶ŠNý¥^GyOÍä‰ŒÜÔÀžbI²F—ÊÅòd¢Žqbý{ö9ZÖþ™4Ò¯9Z_‰lÛ3|f­)Á)‘@=x©†Nä?˜NFzÆ M¬cÛ‹°ŠÚˆ	¨¯Õàƒ5µy8œÌÏÌÃÑ
-ÜÊüÉ¼¥ûMæ-{ã¡oÈV·ÿlÙ
-¼Oc¡ Õ\­ATCHú3†ŒU{'ÓÑÑ1rÏ'™ÀU8B¶"Ÿ°ÂVG|
-ý×ó¬±s–åÅ©èò«ŸY›FÈM»QÕtJÍÂÝ,‰ÅPS†…‡O|"åäÃR!ÍIƒ|ÍC"ŒHèÖ4È˜ – =9 Óh¢?ñÒ®'ü3O×èl5NB"ƒÖ*¦$æ“¡Œ€Âõå½6;Æ¼¼ø>iF^Œ ÉL*ÄÌ®$¿w„{2*Æ^3¯…ËüˆÇÙŠzÒú
-êišC;^\LxM=†4Ó.õß (–yTsì ŽjÖ$ŒÓJ‹Ï¶ŠvÛzfvœlæf6f–û=ÒÕ2µjêXí@Âü’&¨W~ÉLÇŸåÉ3>þöÌ
-Ó*0”h˜n¢bÔŸÛÕŠÏe‰k¥}48DÈµ\CÀ.Kum" 8Ôìì)iWšÎúL¨òÉfMÓ­£‘Ô ÄÚ¿‹õ„æúŸóÕráùÁÈÖ¬éDÉ¬èKõ Èô‹ç³ ÚPÇ &ùuwJèýÂ¢*|uçŽõÄƒmâ ^’ÿÌ+bÁÃéc ôšô|î‘=4-;¢6­À„…ÝÞ|î°ˆp«L&Æ1{åÆz™`e+x wµ8ö „+©ZsMNS„!AUMSDÇPôÈÖ­©hcØÕµéDgŽ3–6¨¢{)«×³ÐCõÝgµ¹¨ê¬Ó¢é½¯Ù8—Š)ƒ'{ïì=ÚØ¯AP1ª¥¾ª'&A-ªáU+ÕÂ«ê,5bVÈŒifKØ¤:Yõ`¸<„‹Úæ™;oÐM7W¹FÌáÖ‹Dõ!™%qU†ÊáFR|XU3Lê,k2¯˜Ì9Ö½T/Ážœ=qNüÆRmùØ´Ï\çÌ˜"µF
-ØTZ+Jx0M (Ëu*G®õTEZþxÖ’í‰úå1•ÊgŸUahy¤¥æÏ Ò3žò©Ra’¤6as±â^àCÆ_æã©‹ˆœ\îÚ§Ö:¿Ô _çÕà7ç—€ù^ÿñ%®¾ ½æÍálXâAÛ0oYù	m/®¥H7+Ã–*êKsÃÄåQ'm*Ø}%¨8,)æt«ÊPªœàÇ= \fv_Wÿ0F“É®8Í&8Ð2ìÞ0‚–I7=:“@ÍŒ´cuëV1a^âÀ8M-.ÌÙÝ, ÃÚòV€a9Ùâfz/I™Ó`eeW–Ú²¢G«³ÅFæ‘Æ2­
- ”Y6€º‚¬cg«n¿Î¥º¤u«³gÚ°C$#, ›Ý¡uÇZ2„?)V‰ƒý_›âQÝ§ÃËõžfy2¼ë"öÔƒêÄ’¢¶ÃA³¹½ï#ë»$ßÉ:R°aÉ8gH"—	XíÎx`q“¨’0·€bdŠ‘Ä›OæŽŽÉþ2?kŠ}U#6Ž­iõ`[»ä7Kµ¥IŠ€Óàk¸ RµGÔ›€T±†¯ÑsõïRDKa	‘x_K–‚7bL…»´6cv¢ádÊLŒ¢)Í:Ò•l'ÃRwËZ`Ê³¡um>z@â¬£JÍÜÊ»+÷vuÞçIœ¥æn‘ù¥‰TšÉñyª&Ò2b= ,Ôöµ¶©ÞM©V‰4©N#’ìs^Búaéf¢™W8tÄ4ÌYD!nF/ÙŒG•D>DìGXZV“ø@œÃåÅÍ{kúL	 ùoŒG©ŠÜª5¾þåo¬[/Šé¥uœ^c†¤Ãk¬~ƒè*´  ëÍóh±r‡ìÙj`°,1¥e^4‹AÒó=‡v*=¼4µ©kÍ5à3#{#i“Äè¡/IÊ’™Ap²¼jj:v„>sús¸ƒæ½•ÓÝ“õ‰þoäT¢Šøâ…ˆÐÖ+°ÛX¿g^Ž‰ÍÜ]FÄžNUåÅb½ß,}ÈÄ+¢wµÖåºÈ³”®Õ1‰Zè–þœ]	¤b'	*Ç»…Ä£š s!l8Å1fhÒô5Ã2ƒáQœšÙ©4Ò"}é%ã—®uR­€-q¬[§bK•mÒ Ú|ŠoÄÃß«›Ô<ð•’ÄÑîsìÒêKúŠWÜ71Íÿ)®÷Y¨Û¹×åµîX‡¸Ô§õNà,®Í\Zž|&®±$ô°kUÃV”Û‚,®‚p–„žÖáÔ¯œ­U©Xvã??þß¿·nòâš·^ä
-1c—DKÂ­´|fR“Ó_åkðg¼Ôµfž­|¸Þ„ÈÈ”¹riDgò©¶õ`»D –ãÐË0WŠf•ÿÀÿE)ûW$çÙïŸ·#lCÜû³¤¦–+ˆ¨ícîrP­UhiËñ¼°½ëVV8¯Äm‚¹Ó‰°Ïi‰Ýl0|f %Û¡Îøû–;£öõã’dµ’Ã\9{³€âþI¬?DSÖW©?5	I¯­\-ÓÉ’˜þeõ˜þ¹Çñgc÷ñ6.ÞÏ_yŒþ\êÙ2aöÉë(ÜÆ	­g—¢vh½V8}åzYØ¼B^RõPyAx|f£Ì,<¾äítÃà³3?§Ð÷ù„»—,£ªaí™éVk/Ç	)™4¥Põ¹z‡ž…š«xZuCÉ¯Aèx=¡âµ„†WWýæì¡ùƒ|Dq ´• Å°ñÝšð¬5ÔU¬?h{>à_ÿüOÖÁßWÂ1Àó˜HÀ,E^Œ ^&.%l5l#¿ü÷åÑÚ©õÔJº~Œ9ŸòäÔ]‘,šza‘Œ0d2Is‘1ÛÐõúÍc—_¥¾;1MjP+ô}-ö¤V¤uÝ{R+dhF;R+saV™
-sYíê‡~HSÕLƒš2ØL‚ºÔ;4õ ¨îœ cÍ‘ó¿òQ#uBõç«ØeBíÕÄFõÐú:Í6Íˆya„|%^©µJfPE}6EÔ+Ø€â°yòé
-÷u°“ÚQdó
-}Ÿ/IBƒOðŸ¨°ë¬× ^«*i€žÌ»^É…8N½^TOÛºÂ€ñÚÄg^RW³6ÛPþ«ôgÕ î¹pYaöyµ-Ž}ÈÅ_¤U‹jAT—†¦Ù}¥ÄJØŠ×]¼ÕêÒQ? U1†zYù%*G°*x@ëŠ‰Ö^ˆ3‰y®ã¬Ó¬a‚Õó«¿g¼lfH|ƒýÿŒAìD+o»¶çãß`ŠDŠo7	ËB“ $æáßvó&su\EÌRxLµÈ@Áób3#^OYÓÃùÑÎhChsæ7²Ð G5zŽ="}h6Úî8¶Wô.|ÅÓÀcqz7<$ƒÈhe÷¥?ÞvÃ‘†OœL0²ä…žaóê«¬*;¯Œ£ÄRîr"ë°tâ:ºbÞQ”‹2Ía&¡àTÂößóštM$Ž­U= Qà_iÒÈ]¥IGY¢Â¢»X""¬§¥RˆY+ C¦@©`Ì,ðbµ4ð¢ZÀE¥@ó ñ/¥aAUâÃ>Øå£$K7ƒ)šÒÓ$JÛ¸hÕÍÒ˜‡kùcÈºî!v€ø )Ósçx1f£fŸMzñ/JÙjNXÃÓx£•j~ú®xÆWf/ª©èf§ëF§êúçÕÌºYž'ŠiÅÜ¯•R°”d€vr‰»Ò™Ð>MDÚI˜ë,p¯w8­­G\	“Š£°ã¬gÃ<ŽC½š,G/š‘]îjyü¢eèŒÜš™ÏZžù,ÕÎ|€Rƒ»Z83´f´ñ=ÔòýŒKGÅ‘SÁ‰ÃNl·¬<WµQ‹Cf2n_ÿá_’Q#Ï17å0¦ü¸U“Äó”07ÉR	œ*h6Œ¸,/Wªœ'[xŠ.»Vª€¬7_sgU¶ÔEy¬Ü¯ïÜ‰KÉzBok®§à÷Ë‹//_ýôòâcüï//¾º¼ø{ñøßþü¾ýÿN¾ý=þö—èKôÃGøÛÂ‡æ­Ùã{hüâ+~›­ûu& Ó	’ã Ô¥#•ÆªSO*¯ý«­‘|Vv® yÕÅ~Ô’VØyœbW-¾ýûø¶*½ÉcW&ãæe¸ëë¤Ò–”cd™~’œa–²l´÷
-…Õ•´@ SMP»GTa4Ó†xe—33/ùs­å‡••6ì¨UÍyÏÓ•9V‹ö˜MàF6c{¬QÒ¾†èØLÈEn¥×r~¯.n¬ìæ8d$Ž»P²Q»Ê(qÙöØ¨¯Ú UI±PSEÙ;ßÍž¿§Ë‰aÒÁÂ‘lM“1g$¦ÂáÜÐF$ˆ{X&‹ocâÙÄ.Äàú'H~Œc]1‘Òíc':@or8xÎMè•¨a$qÙããZÈ¹ïù=û<u€3;9ñD_³=iOOÜ¤üSx[ í“@³A«ÄIýdô“\î#ü1Nì—¬RÇ4åz[EÝUÀ”u”r…žú-ó™H^`ùeû0šH2ùg¦^V)W ãT–I°*¾3ÔÆ»vÔ?‰ÃùgVóòâ·ØÄø·ËW?Î˜&­Æ‚ÜE]À£*>Wº·ää^²·¡ËñþfCSËÎ÷¥`-m±Æ‚Ø3SúÉ'råËÈþD¶æí*TK½Mkù¾õxã{û{‡=ëpëÉÎÎ#«IR`]ârÆ—žZoXÿ€ÙzýZ¦G­ê]øÎVÅAí½1œŽ-úÄž}tØ'fÓ“øëð¾µþómzÙÞxè¿EÖHà vÜÈÎï[˜U=I¾ Ðp¦ûÖ¦ï{Žû12ìí>zsø/ ­.G%Ÿßj"ÆÓ1=<öÇ´§Ý\Ëîåº®°È€uŽ}i²[äc»?à“¹,ð§H/s«‡Bc+¶2?Ä¢ßá¹“#ßí±}Œ÷8yBîûäQñe÷#÷ÔIfYÜ“ò·ßj¯ßË¤):C0c¤]ÈËì[Mà[pZ¥­ºá¾oƒ¹¡ÔÇ,
-Üß'½!ø‹ß:Á¹¼Fƒ½;ù#­$Xò& pz‹	à"AHV¿#ˆFPwÐÛcj²¶Óçžøgƒ}ç¸½7§­öüôœZ¦¶ço£‰£Æèhì5×w&¨K (ñO°pk>ƒéÓ%tæF'îØ²“àF6Ñ})ï!±æŒáÑàëÈ-eŽ_:wENë)¬ßu‹Y“Éeœµn51WÇÿ6æ¡UKŸÔœx÷-vT¤š¤]Êr‚¶gOÇHgUqƒ¬[Q0Í&ŒE¨—Eù†ÝEà¢Â<†òÊöÐAâþqn4Ð;egÈp{…±1¿´Ý0‰ø\ß£öÈ~î`ÑóÌ«qyñáå¨©îÿ‚»4q°mäÕOÀúê'8Oá—/°+ô3rn>ÿìòÕÇè+þ>€÷õ&’ó¤û;Þé=øçÃOz­6ìIŽºž“óV+KM$dvÞƒUŽô7Þ«:m@I‹Ðžé?ïàj+6-
-áXø[4 ¿¡ŠÙÅ'd\¾¼¼øœ^öyï?ÃKC¿BÿÂ9•Ó9aˆDÅKõAxiÝ1øe8oÉ[œ˜Q	”£Lè+,šòMüërˆ	$×%r©ÔÈàÊbîb‘I$ác¯À921°žŸÇºNÈHâf~åç§8{ŠEÁ›…‚fuB éy¯õ²”[´ÙûˆÛ´	bzq²ñyNf¬2ý¤¨‰Ì^övÃÅDÂ.ÿj…WaúêŒx~mlÉÂ¶pÂD‚®§¡ËyáºŽø)Œ›õÁ¸ÉtˆÖ×…”=”réâK£±¥ûÁR7>‰6Iñ#yèýÀÙ²C'æÁå­ÒWÓm¸Ðj~|ßx#óöÂý–üÉ V	ó*	@,Ä«÷ùf§Ó]d¬¦ü"C»úcpösö™Â“	(Í£žëŠ»]p¹+¡Àš…É|eé¢*.5 ¹~Æ#EG2=ŽG|×¤ìH ü ëÂþŸÍÒ$j~¶%ÜW"‘ÁÀþ2áåZGæª&îÍìû³8ÿj(b€¨·¶kUIôÕ”Bã@Qó°OÖç¶ªt¢ —sU)ßJ¾KAd†øü!hµÿCïÉÎÆÃ†Ê\÷g¦tåŠ]ÕŠ¶ .¥ê!‘‚÷X*áLÑÐèš˜+èˆ1€ÅœÑÐV
-šÂ3ÞõQŽL#‡œ9³rjÿ™zÀÈm·ÛrôÙ¸õ¢`Éä¢©Ôœ¿H,èÙ—‘èÔç¦©·eýY	GáÝ×©=q†ž˜(Eñ­z;-Ú-ÿ&7‚¥Ë9¬¥•æ¨‰ÎañPÉt%eí¿¯‚	Â‘<îAr•,¸§zÖ¨ìMðÛ¸AêÙÁãÀ?Fë&ÜÐ#´*„[W¼HÈÁ¡Ü[IB>9l&öÖ½úˆ}YRfÆ;“¤á¶…ˆMÃ…K&,ØÇ”ºsuVn©\’à˜y•¨CK_œ\Ê”³|wËó§ƒƒáP‘Pà«Ëw—× JC«°R’åL7Ž‚?ïé.øòóÛ#¶·4bV„Û†í+?–û÷¤Gd×£­üy‘“¿˜€îË‹]^|šÜ@bÄÇ‹Ãõ²h4øÇäýÉ9ÇOiãÙö.?ýD«°P1Ãú^›±‡ÿŽ×¨$£Y'LI‰PPœªGULã"¼/^kh‘%óùï1KÇÓ—NDC?×Cþ·Ò Ð¤Äà&šCwà$Ç!…«¦äOà½v]Çä‚ŸÆE†8.iîõþ—%"±xÂ¹N67M8/}çíAÌ6^Äã~ëEÎÉòòöåÅ‡B¦ðs<öè¿&“ ’’	§Êïázô¬¬›ÄÝã0Mò¦z,“ª¢ÇFízÌsÅ'
-à,áq°8+ò•Î˜ìÆ8KÅaSù6‹²%t£ÔØBãØ.…ÆZ±¤\ªü777¾$QEÊØ•)>1íOÃÈá=óMÑƒP?=œ€¼x ŽCq¡ä jëÄðÒU
-QÛ-£Ò z}²šu2}RÀÄŠ3$´U5’T”"¤¡O*	E™Ü Ùù+jO¾Ëhq¼¨žÚx´ƒè…ym< ~}¼(-Õît‡©EÃ†Èãúxªåñ€æ^"()“—–øÔ
-H>“udzñ0¬xD…°bá3 Ì"»ý–†—&ÛJ²ð3mÄš¡R´"š^-8 ì[Ýšpä¥²C£Q.ëÓßÝÝ^]\T“Ï¥ò3»¦…è€æSŒHaªÐ>øg¼bs“I‹Áb<Ôò7S@WR^2eŠ˜®Üò’‘quIÜ¦N…I|/ß± Œ°l«žñ¨Ï‰k†eáaÙ|0~ÂöIä³ì”Ræ)éÃyÐ»rébÌ€à+AúXúBÌ·ü`d+&VÍ*-?i¬×DàXå\Ý—F¡@íZ«	'Ï®?­åÛ¤†5Ýçþ4Bv²Õ{†õp€³5„”Aœò$ˆ¹è]ÇSP¦Ââ«\ßâÚËdU,Õ_\{Y0-QÅ«×NY¸äæµµ•šŸUiíÌ‰g+6ð÷Êp	HÚ#¾âxsm}?iCR›èÂújj#Ù‡Ú«¹ vÚCNAíÎbj%¬¾µ™!z+iÇÉ–¹ÙX]KYÃ²Z=ŽTi¢£¢pOcbÖñ•äŽ7äB!òõ-ÒÍn¾×¨H7³^³"Ýù1]+‹æšuÝnvÔR·Ž£KªŠ-‘ªz€ºÚ#¬«ÅåWA½£¥KÛª«ÚãQZ­J®å‰Ú@‚ó‹bE5VQ?Êp±°Ô‘t€«2+•šm”â·n½Hu­7­Žja ŠÅ€”
-<¬iÔ¡þu•vÅÌÉ:¢Û=ò'–çËw;‡½ý­¤úë\R`¾Uóþ
-jª§N¸Xi¾¥2g¼ûêÒèµÝ¢¸â%o¶_òÑ2+íeM / f/ëJ]zûœk`R	®mLÕbz@•êNê•àHnS¿Ö` u†œ²TîäÄÎæIuÓ3Ö¾ì[îØÂ{ë„qœ¶W^¨´æ
-K•KãøÖ\½ÃÔÏ»¬^f2i—
-"ï‹¥…æí…bA&M³l©©ú@®Xlµá,µÂ³y¤#[0Œ6qu#m©–Vâ-·”ë’3âÆÖÑV5Ê_rÚ4+©Ä£ª;Žoç-§gFKj…y¹-WÛêWC{e„ƒºÆnäÚ8÷=3½íÈïb«=Lœ o‡:Â	H_í¢™yq¯L™RI=ªÑØ¡ÍñË´2ÕMK«.äIc‰(êNj&LiáSYÚ~ž‰ÝÃÅ·¨oÿŠiƒ"ÈÉ½ÜC¨¥”Õtµ¶ùË<c{ª‚øè+ñTª¢LI¼M»lÛÎÕÚ[)ÂBWïÎ2´½Öd‰?z-Éª?3Ã¾¤ÃU­Åš8Þ²&ÇKÀ–ÐbŽdŸ … J¢Ôˆ2?>¢½úÖP$,O:IÛŸT­¨XžjR;ê<ûRß&šjc%ÍŽ
-ºÌb;Éza5b ¡G›§N()réûÎiÓÕê å©¢ÝàÚÕYª\\¥ºu_ ŒEß'|¹ªEoÄŸ€êåQ@†ÅyT¯Z¾»²²zOƒWé?ÏÊó-²$ô‡È°¶™ˆ*å±ðX	4kS™)-×Ä”ðCÆ¤Ý€Þ
-Tg'ªFwµ+j/‰r#ûWÁ»„Ô×‡È>O!s·ÝÀéþ3ÆÊµš“È¡¥9Àˆå½gHÉ}è¹^³þ8ðGh®¢HB  pçø¦óÀ"‡à¯“&R`Ûkßâ Û†¼GåùaÂEmå°Ø)áÁK~Ê óæpa9Í€aáæiàéßzá[“Ë¹<BùÞ)pœ7#Ÿ<ŽƒÛó'1¯ÏM2Ú3·p-/UÏ’Š)
-…·¨UË¢©ŒØ(Þt¢3ÇÉô¶¬ÍR…Š*NŒç],T„Uìp‹Ò¨‡êèˆ±Å’ìêPÈ(DÊÉ9Ó}³d–9^V£
-FD¹&æÂù×3,RÐ3²ð»âÒ \•”±
-eîD`F™¼Yé¤é]1ô¥êx0@¥¦kb„%"'ê¨
-ÜØ{Œ´‚D*ë€ªxuÍ]­bÿ/ã†¼«¤¤>:)¼dWRV¼áKŒõG
-ïôïøçO´‘%•ƒÅµÈºÉ '‹ßpe	÷î:ŠêCyšqA¤k”é”tð5ùˆÊ'ó¦)ac•,žÒ’{¥÷óËñ‰—¸Å
-õ„g&¾×¤â»BVëbª	³—®
-4áÌ¨V]•Ék´0MàWÑm%ŒK\VÁ;Vn+P©DUÁ,Trîÿ4üEDnþr²£ÎP.b¨ßÜÿ\€ÝqÁ;¸ì TÌ²šP&Ðî³ÉóÙ§c·oúÅ­ Îb)Ö³¥ååŽ³pâ *6˜(S" b×³ åêYx&âuÒÕ
-°%Q5Ÿ–nº|´ÔÀ!ŒvI­·Aë:Rò¡nÓð¤avðN`\4lêÿ¸â§^°!èB¦ ’P4
-í™½ŽäƒBÀfM¦·jÄ]IãZmk R¹ß‘Vª\¾H«àL#Sƒwãñ8æ‘”¤é,¿Å*IjùX!åŠëÑ,Ã‰Ò<>TóÓ'ûh ‘Bö¿ 6–â7ÿ,©öðeRðÞ
- Ó ½½ŠËN~†U¹Ï)ðI­ÊpÚ5OY¹ªõËôb•ï Š†”¼Úõƒ3¤mìù%¡k†¼ÈÌ(¶L–ä 5©Äš3U}‹únÖÃ$RÕD{æCqo(Â=óNûôñžå&Rxç‚™“‹K¼"äg	X~‡¸rk†æŸ|VÆ†æOúUCËÆR¡Ò×ë€àKKõmD‰{m6øÑì'NuœÂÁÿßª;ôzÚ©¦4ÓÃƒ‰3ž¾@%‰™¾°"7°ëñ)fj¥È¤§´òùµ<ÂëHÕÖz†ïâù,Qü‰Ö%–¬ŒµWh!æV¦¬Ë§øŽÈ°[ìÏXE‰í€/°²B,€OŠÅZÔÇÝèty)QˆÁèëV†1=þª«<Œ9Z^5\2Ž
-.2M²L_”>¯ŽŠ¨DSÿúÿ}D,ßO’BFú§R61Ï:½g0Žub‡Ör‚Œk4ð~è&?À9…mÙž=FÂ_wäØÓÈN=ëÔuŠ@º¼J`»]3°ÝÜ±Ä‚•q€KŽª@êæÎ;kÇÔUkV º3Ö8 êº*ˆºÔ~²Ö‹¡®ßwËñtuÂÑÍCg<­§KªzƒZáyQ{5Ãó¦=ÄU;Ö”«v\)/¯t,	28›ìíå0Âýú:âÈÿm±;@,Õ¥ð‚’¯	ªoZÀ C,^fÑÎ‹7SÑŽîä×y—ÝWŒ›jiõÞ·æ÷õ Þe¦¾J”¿ÁîfØ*ƒiPI½U…á’ˆå˜™”xè»AäKU8‰Ä˜?àˆ²n[»¨ë¡8z¦8$4ÙwV¬2©•‘1ê@0ÓEÄ@²/²zXùÁm¦E~¾	ÉÄVF4®©¡š¡ˆ£Ž(ß¯?Ê;ŠâFåû¢›Ï19“&`?jDŒª-Ê¬/¹:~õ°Üq,t! ´`s€®Ãê†å©Z˜PžØƒ±vtjÄXôžìl<””ïU¡BDÒâêÊîòj6"iùîÚÊ]Íôi–`ÅÔÛËÎÎÒÆÚF¶—¤ô‚Y/õïÒFî¨B	?Z33]-+OÙÓùä„m6‘ý~ß=uz§5Áªxå)ðe€Û¤š—f]-«0²tEˆkàb„Ù%U"šd‚-´.=má’û*ò@Z¸A•ñÒª!='ÍPÑ	Š0õ:†1òµ&\‘–ré›…Ä¢«IXI<o¿+%üä©ãdfÌ·@¥|¨0t89ükQjüçÇÿç°W51Â*ã„	™Öf„i4c<£ŠHâ@³ÂJ†>ü(®9'Ì !V!›½«ƒáO©~H"¡5õÌy½a -¤%MYº”œÈ'–LˆsŠ½ï÷Ÿ×y¯ülZD¥çÞ]ó¶ÍÑ©€ÒH”//~Qäpp®.¢Áô(1âç®tj¾)‘À™“©.ô®®Ýb •äî —²UçšßZì,XßZì¶Ûí–õ†u€·šß•›J…Ù2ðŒ	WÌ™)òéŒL
-fì§VÊl-‘™ƒ²ò‹ÞÓÕ„LsSå¥üj3ŒÄ¹BoÝÊÇT°pLÆg§»³¶»8+œWfråµ®«U¤ÃL–nü(´p ‰µLÅ“Õ„x84áÁí>2š‘½”âå©÷'{œVÁø‚3X}=–Ép1RCò­IX–Z «ˆÄY±ú…€*©øÆJ_Ö6xèˆÕ**./?(V{*¨ÎE76'NÃ¼ù’ô¤¹©¿Ú·lþdàŸaA›­ç½‰“qwÌî0K¼í†#7Ÿ8?˜:8|²°ép€b»Ž@A0æ¶Ù™Ø‹œQeÃS-óò—8ÇýöÃ|7Ï½YÈ?(Š“‘B&Dáà|b#—C¥Þ1|¿ÒY,oùV;Üå†'7©g4S2{Þ9q²|UÌÅ¿ygàFzkxuqcewãº†é²íù00L<Ò_û2þ/Û_‘„³ßÅ,›»’‰•µ»Œ¨5ÿõ¼íxN$Jè¬è¸³ßôM†æuZÓWí7-¿¢ô6b÷‘=r¬ƒ±wŽL|0Ý›|¤§FMöÛ‘ãùgå£¤å*V*8µ”kt—ÇN—6£ªŒ¾>¥úÔê+gGwU@xôZÕñkÜz‘d½l[)T1	ñ}iX]Ó÷gZÛ¯žPY•@ýRÿ Ë¼¼’b½Uí.Í¯d º‹»6~oökMeUˆ´Ae½
-ÑF6¶·­ÇûßÛß;ìY¶7ö­í½ýƒw¬æát2ñÓg!	0ø[«¾^À²ã&ã³Œ	ýx€6ž½$Ë‹â
-ÀÓôÖbXiàLüÐÅUgÖ™Ù‹O%C
-àúzüñ¡}êNû}’ÅYä­Òæ
-Wûã$57N>Ì	¥t´f±@v¶÷z¢’øÊ­þ‰Ó^óšÈYa7Él²‹T£¼F.¿y3¹
-Ú"WÉÜûûötŒÞb°3¢ßãx¢±çÛHjìç†X
-¿‡¬çÆ×¿ü×ÿøòCû1ì~&¶"*ø‚Aè#~¯?bü0¤ò0ü2|ƒËOáç?áû^á?Ç-‚þ£Úó1’HŒ#‡|È”€}…AHá'¤!ìÂHá\Ðïèf€‰‡gçÑ;½ÿ¼ðèV<G“*XÙ0½"ÞÇËSQâ	xø™Þ¢Râ@YÁ}ž!YÎÔF&m¯„;d‡(ý}&e{g§·“rŒ­ƒG»{OnôöÍqÄÆ®ˆuà<ÿë 7ä™¾N‡yà^æAœ’ÿ–uMæöµãoïÄå ½Á=d4‰65÷4FðPÞVÄv‡pÖWw
-ˆã¢z×ÆHµ2òQI‚»%eªòR9µ¡^B".>{»q'ë[CÒ”3­±Ï’Ûí}‚¾õYó_%hºÂoñËdÿ|à‘õ3b­þcCºµèæºKA<ÿ89ÛBƒÃaØÅ×B«dè£8Bô~å_¤FL*ùÚ¼ž†NœêP~X@§Â ŠTg,	jnÆJp¢ø3|ðÏn™ü˜g€‡žô„RÕZ: 1ê´æ>@Æ‘èNø3#T~¸ÀŽ„1T–Ò6Þ]²ž)Ž°NY#@I4~æñÌlð‹Í´P4¢Oe¦ÛXàòŒ•¦®¼8‡@Øn	GŽÏÆy×³KÔZ¤Ø"•òv‚žì<=ÜØÜßÁ®’¼=LÚ8³’àâ>}üøBõÇg¯@þ¹1œŽåOÎÊ¹Ÿ9@5›·É§Œý¾xRö“œ“hU÷­fgžŽ©”±]ØŸoÐåJuÌÑ|íûH/Ú"Ûýi ¹d.ÐîB«è°ïãè]Šùµ•ù!æªøÏùp(fíc¼™Èrß'JîtC2I—7o2B	C›!ž~Ï>’#‘agi¶±·I}PsJÅÏoµ¬ÅØ£Úbì®Œw‡L¤†>¼’Þä{’Þ÷ö}+­pMBÄä¡ôZLn+48±Ãðñ.Í“Û„>sC÷È+éh	G‡í™’)¤’Sn8á€•½þƒ¡ØÙøý9šòf'QÑlŠÞUhnÀ˜zM²w&Í&íºaÙ\hM£>F;¦´ýri±Ø”³<ÐžF> íþË6à/÷cTº¼‰?±ÏÆh´ø;²ç¶g XIè!¸™Tˆ`?¹™ã= JwØzü˜6ÒÐsçéÉ¦I®	Ä!³)GÉFH.ŠNÜ {MÆ¯ë3Ä‹ÂÞýÄÇF1Û·6(€ÐlœDÑäþ;HÁC›ý:L¿'ž‹”‡;èO|ÿA (Cˆóã!6ùcÓ:½ ˜ÿIwI×æ-ø©ESc&?e~™õ”?¯[‹™ßÄÎ•_ÿÈÂªÏ§DÛ%hÉ¿Ã:þX?ÇÀt{õ“ÛøÇ¯ˆw4c ÜT³ bovôÃ˜á».²¯“‘ÇÙ¹¿â	(LkÒXR½½Ñ-M¼‚í¼%Áò©uò`´eF»%;Æ'gRu]£ÊŒ,çT…ÙŽê/·¨þrÂ:>E˜á*†c‰KLÒ½bû†ø·xI'U™~“@„ÿ+þù#ªsdàÅ3¤¶]i°þå¼ã¾K¾JÍI€”À rñÙ6iâqòUqW$¯"@"m6µAÏÒHOØ½P •$ñ
--T©\È‡”›Y	Ù•B	Y•Ð˜lø	*^tØ“Ø:#ÑÌ¬}ãïŸ‹ UƒuT‚rÒ‚ª":E&Š?<–Š”ÍŽ=àt`šëª©ŠHYWZ©J)v#o:Ñ™ãðQË<õúÖ”ƒáÔ.Tâà(ó`ŠTV(8¸¬PpP!T¢åBÃT£¾ô2°Š0cy‹FV]ì»Sgê<œ†n_;"®
-²˜Yé6–JŽf”Ú)¿Ê4	¨¼¥,aé
-‹H=dIJ]&eõ«E™±YQ¹V„RÏÁ–Øƒ¯»ÊAv•À,Ê×–ÑŒ÷y±l(®wù=$Cƒÿ©‚§ãOÌ¬>Šý7kÒ9CÊ·ÉéU´b§©SVÓ¨Þ’o@ÜRx‰ÆlPð¥¤æúQRó®Ž")<u
-VÏá™õO 0>^@§aqÈRJ–tðtBÂ¥ùšâR>%­RÝV,Bd+@I=2*½V.¿6Sl>k…W©^ ©!H‰/ò©!0ÞC:/2’³•m>%¬Z“; òº@*J<QËÛªþK¹>§²nª[^¨¢ž3Å²Õ$€Ñ<%U·jöu”æÒV2ê¦—=Ñ¾*º^;ö®wÙTŠbsªé$óå#(©#2W.^[	Ñ¹:	Ñù›„ø¦Hˆ}w¬ˆ£43	Ñù›„('*!ÀÔ·ñ$£~m…CçµoùvÛá@Õ7¦‘Îæ­aà#ÉN#sâ¸:®T -úØÈÊ{rïÊ<¹¥%VgÒ×ä’<Ã0ÉºÌù^¿”×-ÁÇM”Æ#žÉ”VÈˆ®L³–“ ™ÉûT›úÆå-Z56TušÖ#œ]üb÷¾ZÙ±ä­BÁe }y+!Èd
-æÃx1ÕÜèl¤¯™hž™¬RmÔ…„¡¡®q±Õ|ÔkûØ‰ðÄ¶ÞnãiãGbñÔÚr."K ¢}G[œQ½1Ãx´ú~cÇ]|¥^„è¿   ÿÿì]KoÛF¾çWlŒÀC©c7mhüHcÄŠ[I{X‰²	Ð’AJn ‡hƒ¢=rj‹Òº§AEòoòúº³rI-÷ER±[íÁ°$rÉ}ÌîÎÌ7ßÈß[ïÓÏÑ²Á	U½4°ÄZ8­%GCMžoÍž®çœ4™4ªáŸçO¤¢'¢'o*×»è»qÍþ¥®ã³A`kîŽîíôÁ:bq›í­í}t§½×ª v¹íª8¹b´xüŒAb«×Ë–r;Áò©çâhHf#±?"0ëd’'ÊNùÍŠ~×Ñ] Ó6üæA1 çÑiìø7VáØ¿´ ¥# ÛC<ÃÈŽÎ)©KÊ¤vsí£µ7ôäd&ÜhÃ¸ºÊdyëMâñèˆŒ7[Ô4‹J	-ŒÜŽ[úÀ€Ãð¯êËK0WEMÍP68¢ÜV4$º‹dàõõ‡wç¿2ù`ñç¡ÆV­³´ãžmM¼hìß¼qëÃºgÇâÑp. —W x´„­ Q.@ñÐoHtzÔltXÍÎ20ôî·>÷nÅ÷êžþ÷üÓzæþ8ò‚Px¸‘¹`
-Ïòx*ôët5ÿÕ75AIÄOæQy¬"ù7s|Úd Åô‚’ Å…îè ‹tÒôxE£
-J5Æº žx!ñ˜hßc­•výCÉµÍû£!3ßwÒë§.Ó-·ó…:[jZ¨Åh0ëÕ:Jæ´dtpÚÂkÇ˜$˜<Ïy!oBˆ4ê>aA{†x¶Ö½ªÓžŸi.­¨°ð][!áQ¿nâñšâñ_<[‰ýL —JußÆ»óŸ­~ý…F•Rw!ºÑÿÚ;:!ËÉÑuhDóxxP·ì@hÂ\H.€¸¸ £  X%Â[Qûmt‡M°ÅAøâ""K§[,uy¨ÝŽÀÒðp3æÊö[~äR‡’û@ÙeThGÀjRéXd3?#·¼ÈxKšö¡Dþx?5<^ÌÈãe,	TPýa"J3$,ƒC¾¤8:-ªEaÑª*`ö–'—*`ª	º»K1îJÆ>ƒ×jü¡…ÿÃkúÊÐ;À/ŒÝ¥ÜËäÝ—Éã-2ÃI²ôZi•Â‹Ûæ_‚†øxO€ôv­Õ	Ýí…Ö~9	Â>m.ýÙ½½üyÜJ(aœ}†Ùßè€ê¸ŒïÕFŠìEö)LbçÉsš”læ8|ôèÚãýÓïUœ2¨ù-¼Ïxß¶e¤‡Â)%õöYY™±Í¶}5é¡ýÇÆ¦9ÆKõÎ Ž‚¬û×%áI?s|>Õñ0Êª”*ÙW º…@<ì‡&5žÉ²® Cñ›¥HæÅN‚…µ|JâF"ZvÕ)¹>2~êàJ9ßÊÂ"¡­UÓƒ(ygU%Cafq¯5lAÝu¿ýDÏ0	‘ï3þ(jaôäóÇ:º&lu•tDeyoôbàÍ³þªl7]\„ï)”Sà¼QKÐ\sÕ ÜqHïX3D”Ôâ Ì¢|	““	K’GÓCÐ$LB/êD£ƒOèa?èyx©jô¦ßVÁqL‘íË(&°ZNùbž´¸*@;nLyžƒ ¼MM&>i6›ÓIÐÊ Q X-Jƒ‰—SÙC4PQgk«ÅRÔÙO):þîeý¬öx¨u`Ä",'ÆæSÎ[^.¯™à;²ý}›Ò œ¿Mt{v:˜2#ÐÁ~÷2<õœÒåWjÈŽH…æ’úyIÝ¼¤^>+Õô=©¤åUÑ™ª nªgI•³VUs&*¦³jé¬R:«’.*¤™„U¤2jè75Ú¡X~Q·ÕÿfRi­äâê$Õ‘Ö»ë?¶ü¥u
-üŠ»#^Ñtò#æJa¾^*@«Žúöov`ÈWÖ‘@¶þ^)ŠÜý9slIEØ‚=ßØpI{0zøT1Ç•ü_\æ%ÅÄ[’¥‹®TDr+N•`’$«0eÆ®U:›Ä\8.­p¼oÐÕ\5Z.€0úµ­@duÇ°»³¬îG÷Žß)?=Ï?{þ¢Ry¹†h·"ôpÑ"ú|…ýj@»óI›-šIkbë¶±s«…àwŽ7N±ð—Ô<(³ÚšÅ®³­á¿c1Ä§W3CòÅ±ÁÑ,3CiÌÀ<gãU8¢Ì•yÂ7Ž7£3Ä¸ÉÁ³¾$xUè«ïÉÏsÇ³rR*Øj&DNVÉ’;[Y„£ntGzË9´'ýÇáÈë×çI¯®ÀÂ“L€œ¨OÁ­Í39¯*-£æŒòO§ùìnÑEwv¶w·Ðf{·½·înïv¶÷ªOâ)9âÞš:·§Ù…èE¤¹ƒ¾ÛïS£{1
-ˆ\;j®füsËbÍ›ÚüE¹ÊMo`—wI^×‚l	I¥W]Yºò/   ÿÿ 7L6"
+                                        text = "âš¡ ${availableServers.size}",
+                                        color = Color.White,
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+
+                            // Favorite toggle button at top right
+                            IconButton(
+                                onClick = { onToggleFavorite(channel.id) },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(28.dp)
+                                    .padding(2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                    contentDescription = "Favorite",
+                                    tint = if (isFav) Color(0xFFEF4444) else Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                // Channel Logo in White Circle
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (isTvMode) 52.dp else 46.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                        .border(1.dp, Color(0xFF334155).copy(alpha = 0.5f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!channel.logoUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = channel.logoUrl,
+                                            contentDescription = channel.title,
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier
+                                                .size(if (isTvMode) 44.dp else 38.dp)
+                                                .clip(CircleShape)
+                                        )
+                                    } else {
+                                        // Channel Initials
+                                        val initials = channel.title.take(3).uppercase()
+                                        Text(
+                                            text = initials,
+                                            color = Color(0xFF0F172A),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = if (isTvMode) 14.sp else 12.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Channel Title Container
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(if (isTvMode) 34.dp else 28.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = channel.title,
+                                        color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
+                                        fontSize = if (isTvMode) 12.5.sp else 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = if (isTvMode) 15.sp else 13.sp
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                // Category & Country Badges Row
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF0F172A),
+                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
+                                    ) {
+                                        Text(
+                                            text = channel.category.ifBlank { "Live TV" },
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = if (isTvMode) 9.5.sp else 9.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (!channel.country.isNullOrBlank()) {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF1E293B),
+                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF475569))
+                                        ) {
+                                            Text(
+                                                text = channel.country,
+                                                color = Color(0xFFCBD5E1),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+// TAB 3: MOVIES SCREEN (Direct JSON & M3U Movies & Web Series Catalog)
+// -------------------------------------------------------------
+@Composable
+fun MoviesTabScreen(
+    movies: List<MediaItem>,
+    favoriteIds: Set<String>,
+    isTvMode: Boolean = false,
+    onSelectMedia: (MediaItem) -> Unit,
+    onToggleFavorite: (String) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+    var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
+
+    // Dynamically derive categories from loaded movies preserving natural order
+    val dynamicCategories = remember(movies) {
+        val extracted = mutableListOf<String>()
+        movies.forEach { m ->
+            val cat = m.category.trim()
+            if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true) && !cat.equals("General", ignoreCase = true)) {
+                if (!extracted.contains(cat)) {
+                    extracted.add(cat)
+                }
+            }
+        }
+        listOf("All") + extracted + listOf("â¤ï¸ Favorites")
+    }
+
+    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
+        movies.filter { item ->
+            val matchesSearch = searchQuery.isBlank() ||
+                    item.title.contains(searchQuery, ignoreCase = true) ||
+                    item.category.contains(searchQuery, ignoreCase = true) ||
+                    (item.description != null && item.description.contains(searchQuery, ignoreCase = true)) ||
+                    (item.year != null && item.year.contains(searchQuery, ignoreCase = true))
+
+            val matchesCategory = when (selectedCategory) {
+                "All" -> true
+                "â¤ï¸ Favorites" -> favoriteIds.contains(item.id)
+                else -> item.category.equals(selectedCategory, ignoreCase = true) ||
+                        item.category.contains(selectedCategory, ignoreCase = true) ||
+                        (item.description != null && item.description.contains(selectedCategory, ignoreCase = true))
+            }
+
+            matchesSearch && matchesCategory
+        }
+    }
+
+    val featuredMovies = remember(movies) {
+        val withPoster = movies.filter { !it.logoUrl.isNullOrBlank() }
+        if (withPoster.isNotEmpty()) withPoster.take(15) else movies.take(15)
+    }
+
+    val categoriesWithMovies = remember(movies) {
+        val catMap = linkedMapOf<String, MutableList<MediaItem>>()
+        movies.forEach { movie ->
+            val cat = movie.category.ifBlank { "Movies" }.trim()
+            catMap.getOrPut(cat) { mutableListOf() }.add(movie)
+        }
+        catMap
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF020617))
+    ) {
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = {
+                Text(
+                    "à¦®à§à¦­à¦¿ à¦“ à¦“à§Ÿà§‡à¦¬ à¦¸à¦¿à¦°à¦¿à¦œ à¦–à§à¦à¦œà§à¦¨ (à¦¯à§‡à¦®à¦¨: Jawan, Toofan, Leo, Panchayat)",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.5.sp
+                )
+            },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF)) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White)
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = customFieldColors(),
+            singleLine = true
+        )
+
+        // Filter Categories Horizontal Scroll (from JSON)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp)
+        ) {
+            items(dynamicCategories) { category ->
+                val isSelected = selectedCategory == category
+                var isCatFocused by remember { mutableStateOf(false) }
+                val catScale by animateFloatAsState(
+                    targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                    label = "movieCatScale"
+                )
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = when {
+                        isCatFocused -> Color(0xFF00E5FF)
+                        isSelected -> Color(0xFF2563EB)
+                        else -> Color(0xFF1E293B)
+                    },
+                    border = when {
+                        isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
+                        isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                    },
+                    shadowElevation = if (isCatFocused) 12.dp else 0.dp,
+                    modifier = Modifier
+                        .scale(catScale)
+                        .onFocusChanged { isCatFocused = it.isFocused }
+                        .focusable()
+                        .clickable { selectedCategory = category }
+                ) {
+                    Text(
+                        text = category,
+                        color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
+                        fontSize = 12.sp,
+                        fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                    )
+                }
+            }
+        }
+
+        if (filteredMovies.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Rounded.MovieFilter, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
+                    Text("à¦•à§‹à¦¨à§‹ à¦®à§à¦­à¦¿ à¦ªà¦¾à¦“à§Ÿà¦¾ à¦¯à¦¾à§Ÿà¦¨à¦¿", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("à¦…à¦¨à§à¦¯ à¦•à¦¿-à¦“à§Ÿà¦¾à¦°à§à¦¡ à¦¬à¦¾ à¦•à§à¦¯à¦¾à¦Ÿà¦¾à¦—à¦°à¦¿ à¦¬à§‡à¦›à§‡ à¦¨à¦¿à¦¨à¥¤", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                }
+            }
+        } else if (selectedCategory == "All" && searchQuery.isBlank()) {
+            // OTT Netflix-style layout with categorized horizontal rows
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Multi-Featured Spotlight Carousel (Horizontal swipe/scroll + auto rotation)
+                if (featuredMovies.isNotEmpty()) {
+                    item {
+                        var activeHeroIndex by remember { mutableStateOf(0) }
+                        
+                        // Auto rotate every 6 seconds
+                        LaunchedEffect(featuredMovies.size) {
+                            if (featuredMovies.size > 1) {
+                                while (true) {
+                                    kotlinx.coroutines.delay(6000L)
+                                    activeHeroIndex = (activeHeroIndex + 1).mod(featuredMovies.size)
+                                }
+                            }
+                        }
+
+                        val safeIndex = activeHeroIndex.coerceIn(0, featuredMovies.size - 1)
+                        val curFeaturedMovie = featuredMovies[safeIndex]
+                        var isHeroFocused by remember { mutableStateOf(false) }
+                        val heroScale by animateFloatAsState(
+                            targetValue = if (isHeroFocused) 1.03f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
+                            label = "heroScale"
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp)
+                        ) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(215.dp)
+                                    .scale(heroScale)
+                                    .onFocusChanged { isHeroFocused = it.isFocused }
+                                    .focusable()
+                                    .clickable { onSelectMedia(curFeaturedMovie) },
+                                shape = RoundedCornerShape(16.dp),
+                                border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF)) else null,
+                                elevation = CardDefaults.cardElevation(defaultElevation = if (isHeroFocused) 16.dp else 4.dp)
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    AsyncImage(
+                                        model = curFeaturedMovie.logoUrl ?: "https://images.unsplash.com/photoxœì}}oäÆ™çÿþœÎœÑB4-u«¥ÑNvôê"©gfƒì! ºÙ1ìf‡dK#OldEvÏrN 'wÞÜÚ²‘Ä/È^ûŸõWø\>ÂÕSÅ"‹d±XUd·¤ñ<0Æên²X¬—§ž×ßs§¹¸°ÔnÏ7––ZËw–Û÷ºÍ»w­»KfóÍ³•åùùÚìk†$uÝa`ƒËïzö(°Ý¡±btÇÞ–ecÏêíº§¶ÕìÀ±”=ìšŽ…š[g>6Ö=w$ßÒÀíÙ}ÛòP+»áŸ¾í8»æ³Cûm«>#Õ’ÜUkî³z™ŽIß¤ñÑ­Gf÷é±çŽ‡=ùþRZóÆþIãÔòMÇ[žÙ³ÑÔ¨·äØ~°××»hÝu\¯ÑñÌ¡?2=ÔùuÁmª>ÿlkk~«y·µ:Óèº£óºéŒNL4Eó»ý™JZoÍ/5ïfZ¿·ÜW›CJêw©Ý!»?¤.››3:îÈðìã“À8¹ƒÿZG+1@;aÎX3{Ç–TSîÙ÷š‰::¬¯Â¿´Ìè-6‡=Å]72{={x\o¶½‘Âb:q=ûmÄMgÕCKýØ‚. Wa>5ÐúïZ½µóú’ZÛtG¯íF¯¹nÁ¼<¯qÎåÖ‚ñ\úñ‡c¯:®Æüs§Â00«·îzCË;„/ëËjoÔ…­‰Ïà%kbéÍ¹´¨º÷\¯‡—›9ìy®Ý{†šŒ\ßjô¡Ó&“5|Ñaà¹O­zõ|6ìÄ“;°Òhõgä×›Ê u¬g,<@w¡¾Õn?÷Í¾µ&ã™ñ}£y6òíç}öü÷>:¦.Ä
+J‰é!t~sqkKƒ÷Ñ‚ÓµÖl¢£×Âó¬c+ú€fÒé©·ÆM(ˆ÷<úu¯ºUÑ°Ì'ÀÆ.¤®¼cøhÖÆƒá2ê57ÜÁa`z.·^’l•]§t~©qjµÕ¨~ÂLŒi@‚SAñL¤”e=›ÍæF{Yqç) ;¢,ùÛOclm®vln‡û{í·t4ø/PòˆÄ§“^C¾§Å€i#\&G·^“Òœx)Í‰[ÊœHí9ŽLéZo ÖâÒÂæÚMØ@7Ÿ›;›«‡›/÷®Ñ]€^–M#å!^÷â'x4ëmx3ùŽª/Ópy–µ¯•^Ÿ¬<½¬¼0+dãóÙŽ=´|èˆÚ.Z•}Ç=CwÂ\ì…›Žc|Û—s*\D­)-"¤·eÖQ×¬c×;¿0¾ý§ÿkp.8·LÏxó¾QkÍ·–j¹—ýlŒ$ñà\UãËžëk‹›MÅÃ'­é]É4.«M#(Jr8i_ñp\#}HA!£ä×»ûõå9úûÐr¬n°kõl³žžúãBSR€ýKú·aõÍ±ø#ü¯¿Níso=×&@ëY£Ž†üR­¡‰¼'îÞ>9&QÓá_MglùÉc³ÙNŸ›m½‡
+ÖèB[Ý’ !Žm£÷®Ã?~#ËÆ¾cž£eížÍò=HÃ±ãÌr»–¤P+W"ÛöÌî'ª'8%Ì„kðRµY±¬•`N-´'©ìí˜^ÛÞÇ›>Üå[®·a¡ÝèøiD‡T¿×*°Áêê<Næ&f‚áhn¥ÿdÞÒz™yËö°ïj²Íí?Y¶ïS›ÍH5W«_%¾¢À‚<7g¬›ž;F\ÇèœŒGCÄl´Qí‘Q¯ep!køg6âh«#>…þï8ÆÐ:3¨Í8x!Ä#f÷:Çka¼a4efeáŽùö¹´yX]d”Ûä“07b1žà]R<6²±Ð=RV/5©¨	³ør^ÝyCÞaŠÖœí¯=Œ	jÉXY1"˜BCj/í-·‹ÖyÏ8:7<4cƒ#4DÏÁ80ë0@*Ù^¿Þ7„ë›è[…Ú#·77[÷Öf½[6cÒ>WevŒyyö}à0%¯@~`'uÆh6£ß±„¡mGÍÆPýÉïC|éÖÖÆÒü|fÄÚÍÅEÅÓZÑJSÒ·ž¦á+ž¢vÐ–hÎÏG¼¼¨e[ŒìwËz·»C<Ôë'Às{hójYTSì MxÐ°}úQ¯I)¦•Ãìö©õÀò\â°Ç,L¹m55íBÔàhŠÑjøæ.¨!p3[î(ôHUÊTvÕU±ÚJ„ùEMP«ü‚žŒ?IÏ3’3¥bÕ?v·æ±Æ!„fßrðEŒ†ã»<›NO‚`äßŸ›³á~c<ôGŽéŸÀy57:q÷Ž0>·¥ŸËW%Šû¨áDHµ\AÀ.KUm" ¢àµõ|OQ#ˆêyÒIû´€J{6+šn‰¤¤5Ÿ«ÿÎWãMõ?e«#½g¾|èzÓÑ\Ë±“ª¥×B‘³ª:7î‘†š1É7Ý(¡öKö[ŽYcnÎ8°† ›Xf÷ÄX]l Wd®ýoHM}b'¡¢ïz›pçs£NýsÍ5WS6G……Ý^jƒ•–¹Ut&†1{ÅÊzÑÁŠM8ñ»,³WÀÀ¥D-ÝSAÕÖ€ïaOjÞ*9¨’k”$¡íí©Z:“‘Æ°©kÍ
+Î,k(lPFö’¯'!‡ª›Ï*3Q)Ûg¶Eë}¹ÈFZ?8aï`û­í‡«;e"JFµ¨G[UÔ"^µX.¼JîJ9Ö¦6Û4–‰=Òô–°ê<WÇÊ£‹²Q&rÃ]%oPM7Ê2‡ÐJ{˜Ãíç‘èC2Kò¡t¸Ñ½öêÂÚr‰p#uÅ$o1BxÍx0!¦Q2&³*¦!‘F‚ý»RK:×O¬SÏÀXÊ"×:R{l[gHÌp$—V`cùAsEå:¦[ór²G—k±3´rIýi÷¬Û'Û<º=qL¥´ïS9’Jb”„Á´"öñO•“ÄÌzÄæf¢Å=ÇNžqnÌŠ÷’x.·ÌSÔJß<EïXÛ=¿†ÕùuÜj[nsÿå6êeõîKè*î4OlŠ¨qshPc[Žk«>nXAØ0½c+À«#²û0Ÿ1ÒÚ˜_îS§Ýüb&ú»/Ï’I#9Y]ôXä'î™ƒúÿüdàÓVÖð»ßZ>Xˆñ…Cú9vÜ3…“É1°º†Gm*Ø}x0k’’ŠÔeÐêü¸À6³ûZêÀ†£RO®8Å&2ÀäÞHùòÔÜgÚ®³„õ"¶;PŽÕ­ZÄ„u‹'
+‘ë¢a`œ¢—Šæìn€a¹½ž`hG[\OîR(XáìÄ*:¨’+ëÎòÅ8Ä‘µÓ«-+<L*Ïm¦žF($%Ë,Zã§f(¼e–×&ý±Þ#_o2Ws–3&ï+/ «¨@ÄØªÄ¯‚3C©j‡´Š5Ó†é£1À`½Õ7æŒMøÊ†ö¿1âAÕÞávµÞáÁ$=Ã[¶&bO5¨N,IJ;,4›;;V?0~DòŒ#i –´svçòF?ØöB_Óñš›Ç›A1ÒÅHâÍ'sGÇHgéûÚB[Õ€Í‡kØ}ÄŸ†O‘8V{°QÓI” TYz1cÁJŠÖ`#ë‹Ú>wúˆj¤^÷š~ ˆú]’h),ÓÃãkÉRðF¬©ðq—–'ÌN”!¼€t™‰V!¥I‡àQº’í¤9 @òÆaQ±ÑÖµþèåg•j6cVÞZ¼·9¿V’(?JÎÜœGúw&R)&Ç§©Ü‘”8Ö=Â¢Al_nèÊÝ”*=Ñ¦pªÓÇäìS^BêaézGóîØ	ì;‡–‡8 æ3B‘›QK6ãQ©#Hpìø´,wâqœËók÷–›Õ©@2ç¿62¥2çVel¨öíû2n?Ï.¤ãÐ;½ÆI0†×Xõ
+ÐUHA@×›çm…>C‡ì˜r`°,¨¥D ”Ä é¸ÇÇŽE;;/uuêJsøÌFKßˆÚ$q jè‹™Fè2Ö„àÒdyåÄtl}luÆ¹ƒæ}&%»Gë6üßˆW¢ÌñÅ¡­—`·¡|Ï¼›¹ÕFÄz§Êòâ|¹_/}HÇ*¢vµÒåªÈ³”®•›D.tK}Î®R±O‚Œ{7“xTôb*ä ‰§0æ@Mš> bXFm0<J€Só ™!GZÄ/½ ýÒ•¡îQª°%Œuk–@l)³MjTšOCñxø{U`“ê¾Râ]¢]Z~I_ñŠ{ÓÜøŸ.È\'Pl'° ˆgÎ8D+¸{b¼åÙ=‚k—'Ÿÿ.ïËµ°«œé²çvNWæp„žVaÔ/­•'
+ˆùåUÿàþÕ¸É‹«ß~Þ'œÒŸp+%[ƒÞ©É†é·óò5ø3^hZÓÏ–v®·rBdDÂ\ñiDgò‘x¦ñ`£à@Ñ,Ç¡–!¡/M*ÿÿ‹Tö¯(HÎ1ß>o#FØ€¸÷ÇQM-;'¢¶‹¹#œƒr­BKë–ãø-€°’‡óbØ–3w*ö))±•†O´`;T_Àr'Ô¾z\RÞî%áÿI.ª—PAÜ?‰õ‡hÊjbý£øþ($]+¾ŸÓÏt² ¦¿-Ó?õ8þdì>ÞÆÅÁûùóW£¯cöP5q°aöÑëHÜÆ	­g—¢rh½R8}ézQØ¼D^RùPùœðøÄF™Xx|ÁÛ©†Á'g~J¡ïÓ	w/XFeÃÚÓ-Ö^ŒR0iR¡êSôÐ=×
+5—±´ª†’_ƒÐñjBÅ+	/
+.úÍÙCÓùÂ h#B‹aã»áY+¨«X}ÐötÀ¾ýÝ—ÆÞKáŠhàyL$`’À"7#€—‰K	õˆÅ·XÜ¥ZM­´\Ó6ç“žœ
+²+¢ES-,’†L"ÉbŠ 2zº§ß4öqñUò»#qÐ¤¹Bß×bO*EZW½'•B†&´#•2&•©0•Õ® ~¨‡4•Í4¨(³€Í$¨J| ±C“€ªÎ	Ð–91ÿ‹/‰©ª?]Á.j/wl”­¯RmSŒ˜Ï/Å+•VÉª¨O¦ˆz	0?lž|ºÂ}]!ì¤rÙ´Bß§ËC¢Ðàì'²ìªëÕ¨W*Jj Gó®Vr!ŒS¯VU“¶®0`¼² ñÉ„ÔÕ¬L7ÿ*üY6€{ªÎ.+L:™—ù±©ø‹¸jQ%ˆò§¡nDvWÊƒX*[2âº¥·ZþtT@•Œ¡nK¿DéV	hU1ÑÊq"1Ï%cœ¥bšT°*`~Õ×á„—Í‰_cÿÅÿe;ÑÊÃ¶é¸Çø7˜¢¼Å·ˆ™„e¡Q óðo»u‹¹Ú‹®"ê)<&‚šg ày¡š®§¤êaûÝ`s0
+Î!´9ñYh€£‹=<Ë>Ôk»¦=õ•Ú,½_ñÈsXœÞUAd´’ûÒnØþÀöýëgcËq¡gÆ´ø*ªÊÎ+ã(Ð”[œÈ:|:q]!ïÈž‹"Éa"¡àô„?ìz®ãÔéš IÛLù€ÄûZžd Œ¼PšT„%zX´æ‹ADrëiÉbV
+È	P²¼X*¼(pQ*ÐB?À"ÿ—Â° 2ñˆ’aìò‘:K×¼1šÒÓ(JÛìÙhåÕÒ‡+ÙcÈºî v€ø )S3çdx1f£b›Múü_¤²åŒ°šÞx­•ªï}—ôñé‹r"ºžw]Ë«®î×(§ÖMÒŸ˜ÿkžTÌýZ*KêPN®¢3qW8ÊÞ¤œH;¡ƒ¹Ê÷jÎie9âJ˜T…-g=¹æ	pjPd9jÑŒìr—ËãÏ[ö‡ÖÀ®˜ù,§™ÏBåÌ(VH±©…£0óHiFk?F-ßO˜td9%Œ8ìÄ¶ŠÊs•µ0$`"ãöí§¿‰F<GoÜ¤Ã˜ÒãVî$žÆA	q‹ŒP/VÀ¨‚fcÏÃˆËâr¥Òy²™§¨²k©
+ÈjS°57—DK=/•ûõÜ\h\2HÖz[}9{Ü_\~õâã{qùþ÷‹—ß¼¸ü{ù_ð¾ý”ü¾ýÿN¾ý+þö}ô%úá=üí/àCýöó¤û¿ü†ßæÌý*Ðé‰qPª’‘
+cU)'×þU–H>+;W¼jc;jA+l<õN±©ßþ|Ûÿ(¼ÉöCS&cæe¸++¤Â–¤cD™~‚œa–’6Ú{‰ÂêRR ®$¨Ü#*0êIC¼²Ë‰™—ŽØÅ\iùai¡jesÞÓtåEŽå¢=&¸‘ŒÁØ*”´¯ :6r‘ZéÄ´œ^ãKó«‹[i‡ˆòã.äƒlä®ÒJ£@\¶1Ô*Ã+7heR,äDQöÎ'Iÿ{Ü¹Ô1L:˜qÉV4SFbÊ8çú¶7 Al\g™(¾‰gË7© ×=AçÇ0”£Sºql{ˆàuŸ¿	½õÑ&{ì®…œûŽ»ï˜ç± ŒÙ‘Ç}Íö¤1öœü&ÅNÎÜÛR qŸr$ë<h•0©ŸŒ~”Ë}„?†‰ýÇ*5LS®·ž•]s˜’¦ŒR,R¯_›ÏÈòÎ|>$Ù>Œ&:™Ü³YS/ª”›ãT”I°”/f¨µ'fÐ=	ÃºgFýÅåŸ±Šñ·¿“PMfj³bu*û\áÞîÏ½`oC—ÃýÍ†¦ù÷…`µum±Úl¾e¦ð5¢OäÊ‹×þ‰tÍ;e¨’:«kFû¾±¿³úãíÃŽq¸~°¹ùÐ¨“X—¸œñîÂ#ãuã0ÛA¯ß³|ãÁøh¦|~°ŽEq{_ë‡}bÇ<:ìz–²éQøµßØAÿûïô²íaß}ƒ¬ÏBíØëß70«:ˆ¾ Ðp¦ûÆšë:–Ú1ìí>zsø? ­Î’GEŸß˜DŒGCê<v‡´§Ý]Ëîâ5º®ð‘;Ë;.’d×ÉÇFwì““¹ÌsÇH.³«‡Bc+Ö?„G¾Ã±GG®éõvÍ¡yŒ÷8yBêûèQážavûÔŠfYÜ“ò7ß¨«ßEÔ!Š!’.Ä¥Föº@ð-­âVmÇ5AÝêc…	îï’ÞüÅ-ï\Ü@­ÆÞü‘V"¬?qP8}†	à"AH†¿#ˆF+Psèí±	5ZÛñsOÜ³Õ^¾sØ€Ú›ÓV;î&zN%SÛq7Ð€–Vct4¶A›ëZ#Ô%”ÉñO°pk>ƒéÒ%tf'öÐ0£àFÖÐ}*ï cÍÂ£ÁÖ‘ZÊ»têŠ”Ô“Y¿+³&£Ë8jÅ¨ÕB®ŽÿlÌA«–>©>rîì¨;5Š»”äÇÑAœ<¨²dÅ¼q2a,@½ÌžoØ\&*Ìc(¯lô-tÜï§F½CöŒãn/s!VFà—†íG9®kúAc`>µðÑòÌY£öâòÝ— nÄ²üæÒÈÀJ¤‘vÔm€ñ~ù›B?!wààóo_|üúÃ‡`}½…ÎyÒ‰Í‡ouüôðÁÞAg¦{’#®§Îy£‹…¥::d6ŸÁ*GòïU­ ¤hÏtŸv<0µe›Eîø[4 ¢‚Ùå‡d\¾zqù½ìsòÞ_ÃKC@ÿ‚ŸÊj,ßGGÅ…ü \}{vÎ[ò'fT9ÂQ"ôMñ¦þŠe9Ä¢ë¢¹†Dj¤p%1wñ‘INÂ}'Ã91°ŽúcmËgNâzzå§§8{
+‚ïgv
+šÕ4¤þ^ã¢„[´Ù»ˆÛ4bzq²¡?'1V‰~RÔDf/æöv–ÃÅfó»ô«e^…é«5àÙµ±&ÛÂò£t%]N®+ˆŸÂ¸?ÿ9n2¢••ÜNŠJ¹tö¥ÑØÒýùÏ…f|mãGòÐ>ºžµnúVÈƒ‹[¥¯¦Úp¦Õôø¾þzâís÷[ô'/€X&Ì«  1¯JÌçkÍfkžÑšÒ‹íê–ÙÃÙÏÉgæz&¢D]=×w;cr—BÕÙ2ŠÒEeLj@bùŒG’2Drø¦I‘K Ø´aûÏZa5?Ûî+‘H€``{YîåJ.sY÷föýY˜ÕF1ÀFT[Û•†ªDr„lJ¡v ¨~Ø'ks[’ò(¨å\•Ê·ïR™!>{ZíÿÐ9Ø\Ý­É8äÊ˜?í¨ cHW|lÉV|Ø°% u)•‰ÌyÅ¾ÄN®‰©‚ŽhXLm1#)L1ã]ýéÈ4âäLé˜3  ÇJð×Ô
+ Jn£Ñ¨×gíöóŒ&“Š¦’3ü>Ò '_F¢YYœ›¢Ü–´gE9ï¾J±èÀê{–¢#…·*ÈEì´(´ø›ÔDä,]Ž³:/m¬0G-Ï‹‡J$+IKÿExLŽàq¢«DÁ=å³FEo‚ßÆöºcÇôö=÷­{ØCÐªÈÝºù‹„8ÅÖJòÉa3¡µîã_"öe™Ï'IÃm3›š—0LX°Ž)4çª¬ÜB¹ Á1.ò*‡¾K??ÿ¸)'ùîºãŽ{{ý¾0"!Ã;—ÚwÛË¥‘«°XåL7Ž„?méÎØòÓÛ#Ô·bs·ÛW~,÷_IÈ®G[ù=ò"ï¿˜€î—¿zqùQt‰ÿK/×iÐhðÈû?Ç¿ÑÆ“í½øèCQ¬Âl6ÄËSxm†:þ;\£‚Œf	œ0)!BBp*9T2‹ðr<¾x­¡EÍç†,O_<5õ\ñ7ÜJƒ@sQ‰Á5pš}»gEîÌÕ{ã ò'zð^[¶åää‚Ÿ†E†8&iîõî—%"±xÂ¹F6;È›pt¼t­´1ÛxŽûíç)#ËÅ—ïæ2…ßá±Gÿý‘LBÞ)qªônÈ]Ž……5`“¸{¦IÞTeRQ"ï±gÚóÜ|Kx>gE¼Òµ€Ý¸9ÆÒü°©t›Ù³Å·rF©¶ŽÆ°]2•kÅ’rp©tðßÔÌø‚DQ(cK$ø„´;öw€÷|È7ó„úéX`äÅ qºˆE¨õ{Äˆ=ª¢¶•·Œ
+€Têõ‰hÒÉDtöI#ÌPÕHRQ<ˆR„>É$%rƒDþWÔžx—ÑâxA5µñhGÐýÚx@üúxA\ªÑlõc†‘ÇõñdËãM½DPT&/¬|¯x&«ÈôâaXñˆÂ’…Ï€‹ìÎ
+Všd+ÑÂO´J†RmÐŠhjµà€$°oUkÂ‘—JBY¸¤Mkkci~^L>9”ÒÏlé¢šN1: ‰©Bû çžñŠÍ1L&.‹ñP‹nº€®¤¼dÌ
+$1]¹å%íê’¸M•
+“ø^¾cæ0Âg[ùŒGexNôX=|Ø 	ËæƒñÆ°M"e'•2OIÎƒÞ•JcÖ _å¤Å/Ä|ûÐõ¦dâaÙ¬ÒbOcµ*G+çÊ¾4
+j×uð<ÛîØ7ÚwHkttŸ»ã éÉFç1ÖÃÎF2PzaBÊë f£wŽA˜ò³¯r}‹k·ÉªX¨¾¸v[ 0-ÅË×ŽY¸àúµµ¥šŸTií„Çs&Tð·‹p	HÚ#¾âxSmý$j#¤ TÐ…ÕÕÔFgj¯â‚Úq9µ›ó±–°t
+j3Ctƒ+i‡É–©ÙXZŽYC[®G,4ÑQ‘¸‡'11ëøÊ
+r‡r6ys‹t³›ïéfVÃ+ÒÓå¢h®I×ífW@%u»À]x Êè±¨XQ «=Ä²ZX~Ä;Zú±°­ªª=ÅÕªÄ"Qš8¡$8?³(ecÕ£ç3{@IH²*³T) ÉF)~ïöóXÖú¾Ñ”-ì T²¸T‡e…:#´ÑïViWÌœŒ#ºÝwd8V¿x·sØÛ«’ê7¹¤:À&¼Uó¾5Õc#\(4_‹R™ÞŽ9ûò§9ÐÝ¢¸â%o¶/øh™¥ö²"Ð³—UO]zû”k`fR	®mLÙbz@¥êNª•àˆn“¿V` U†œ²TläÌ‰M“ì¦g¬÷Ø5ì¡÷Ö„qœ¶S\¨°æ
+K¥KãøÖT½ÃØÎÛ–/3µˆK‘÷Å§…âí™bA&M±¬©ÉÚà\1Ø+ÃY*…góHålÁ0Úô€«©€hóH¶´h¹¥T—Ô˜97¶Ž¶ªPþ’Ó¦^I%•Ýq”x;¯ûŒä
+ór[.·å¯ÎíêÚmâÜ÷Äô6¬‹3ñhdy]ÓW9œ€ÔÅ. š™öJg‘I•Ô“¡
+•Ú¿L+SÝ´°êBš–ˆ¤ì$§Â>¥í§‰9±;¸xá:µí_ÃcZ£rt/×	µ³š–²Â6ý3O[Ÿ*q|t¥\<¥ª(SÊß¦-¶Šmójõ­a¡¥vgÚ‚Zk¢Äµ–DÕŸ™a_Pá²ÚbE¯­Èñ"°%´XÇC ÙÃ @I¤‘ÆáRG´—ŸÀ
+Š„¥I…#)ÛÓ€ÊKSEbG•¾/ùm¢(6–’ìè!A—Ù}¬'ÏZ(ÔdâhÓT'’”—KÝvN›.W-M%ÍèT.¨ÎRéâê,U-û%4ú.áËe5z-þT-Ò,†È£*xUûîââÒ=^¤:ü@z<(Í·È’P. ÍÚfyTÊ•Ç6ÂcI$LP¯Mi¦Ô®ˆ)á‡2ŒI¹µ(ÏNd•îrWT^åµä_ë_w‘~CænØžÕügŒ•kÔ÷F=@K³‡Ë;‘»ëÙN³¾ï¹4WHP$!P¸Žs|ãy`‘Ã5ð×I1°m„µopmýYÞ£Ò|†…0á¢ÀÎ¤°Ø)áÁ‹~J ó¦pa9Íç ÃÂÍcÏQ¿õÂ·F—syDnä{3Ã=R&ÜdŒ|ô8ZlÇQÄX¼>W{4ÉhOÜÂÕ¼d-K2¤h($Þ.G([MFaÄJñšœYVr€ò@o«ÁÚ,¨¨àÄXÞó•Ü*ö¸EaÔCytÄPcI?v©/
+dÌEÊIã}³ —9VV	{£FD±$fƒÿë1>RÐ3’ð[âÒ l™”±eîòÀ6´22y³ÒŒÓZùÐK”ÊãÁ Bš.ç#,‘s¢ŠªÀµí}$D§²
+ø¡ŒUWßÔšoÿeÌwÕ‘äG'†—ÌàJŠŠ7|…‘¢¾ ðNÿ‰þPYR*08 æY3¹ädöîYÂ½»Šb êP™fò¸ ’5ŠdJ*øšüŠ?DäYÓ¤°±
+OaÉ½Âûùåøò—M~‹%ê	Oìø^ß%²ZçcI8“èœ¼t)GNŒj)ÐUÑy¦ü*º­€qå—†•°ŽU„Û
+Tx¢Ê`Jbîÿ94ü}DnúçdS2œ¡ \ÄP46¸ö9›Â:ƒs¸ì TÌ2êP&Ðì²ÉóÉ§c³oüÙ­ŸÅ:Q¬/fK‹Ë'á04Žƒ²Ø`yyœ‚"4=ç´\ž!çzÂòxÐ¡Zv¢ ª£÷i‘â¦ÊGÂhäjpk„Á±¦#)êš7öOF`zoyfÏFÃ&oñ+nqêk‚Id
+JŠZ¡=“×ÁÑù °Y‘ê-qWPà¸RÝ¨ðÜo
+
++•._¤Tp¦–¨Á»º¿†ytJÒt–?c‚$µ| ‘ÎrÅõhHH–æÄ©ªùÑÁÎ,@$ýÀÆRüæßFÕ¾Š
+>Ð[tú¤·Ã²“Ÿ`Qî3
+ü©UùNû^$æIw@%²~Ùž/3Ðù;¨¤b%¯¶\ïIÛnAèš&/Ò3æk&b‚ŠDbÍ™Š¾Yy7iaÊRUD{æ¹¡¸7dážyÞ>u¼g±ŠTÞ9£æ¤â¯ùY –ß$¦ÜJ ¡ùžÏÒØÐüI¿*phÑXJTúº	èÑ~°ÐYª®#
+Ìk“Áf?qªãdÿ¯ªävèfÚ)'4ïáÞÈNG^ '‰ž¼°(V°«±)&j¥ˆNOaåókéÂk
+ÅÖj†ïŸñÀ|	þDj‡KFBÛ
++´u+QÖå#|Ç{dØ‰.ö5QB=às,¬àÃl±ùq×òî‘"/…ƒ‘—¢1úª•atÝ_@U•‡ÑGË+‡KÆÀá"’$‹äEáóª¨ˆJ$õoÿÏ{Dóý0*d¤îÝ²‰iÐé<†°ŒÓ7Ú2®9ìÑÀGø¡ý ~
+Ó82sˆC|Ý‘eŽ»?vŒSÛÊf ©BòJí¶ôÀvSn‰Y#a ¸Ê@ê¦ü•cêÊµ?)PÝý„6¨º¶¢.ÕŸŒ•l¨ëOìb<]`àºÙµ†ãÒpº¤ª‡×«žµW1<oÜC\µcYºjÇ•bðÒqað
+Ç’ ƒ°É‘^Ü¯> ¯#Žüßæ[=ÄRm
+/(hðš úÆÂÑÑÄâeí±xíèN¾¹È»ì¾bÌTK÷V¹5¿¯ð.3õeÊ ¼‚ÝM°UÓ ”x+Ã%8–CfRìðP7ƒˆ—ªpˆ1ÀeÜ1¶P×}#8±ôLÛ³0Hh´ïŒ. YIdRK#cT`¦Šˆ‘É>ÏÊaÅŽÛD‹ü|’‰-h\RC6CGQ¾_~”.vÅJ÷E5	ž£rFMjÁ~TˆUZ”&X_t;5üªa¹IâX¨B@)Áæ ]‡TJS¹0¡4±Ž±FpbÄXt6Wwå{e(‘4¿´¸Õ^JF$µï./ÞULŸf	VLµ½ln.¬.¯&{IJ/èõRý.eäŽj ”ð£3Óåâ°Ò”ônˆ— 'l‹°‰ä÷;ö©Õ9­&P.À+M‰€/Ü& Ù\¸8ëª-ÀÈÒ!®‰f—T‰¨“	6ÐØ]x4ƒKFìÈ`È)á•ÆK+‡ô5CN„©ÕÑ‘¯áŠ”Œ/?‹®&`%Tð´þ.•ð“¦"Œ“‰1ßr •â¡ÂÐáÄùW#£Tûûÿë÷°W1ÂJã„å2-OÓhÂxF%‘Ä&…-Ûß÷Ü ¬9%Ì \ ¬L6{KÃŸRõD:8BËò™ój+BZHé4eéJPr&p>±¤3€@/öŽÛ}Zu@ä½bßtú½[úmë£SÅ‘(ï¾¸üD‘ƒã\&8<*Ó£Ä?w5 SÓMå8SÒ1åÏµ«+×h%¹ûÈ¥dÕ¹ú÷æ›³Æ÷æ[FcÆxÝØÃ[MŽïÊÕ	©Âl‰FxÊ„…+æLùtB*ŠB3öŒÓ2+e²šÈÄAYùÅ	ï©JBº¹©bGi¿Z#qªŠPí{·Óq%4ñÙlm.oÍO
+çƒ™\yí€ëª©0“…;=7ðhDb-ããÉ¨C<špïN)ÍH_Šñòäû“t§•P¾À«.Ç2.ZbH:¢5
+Ë’dÍ£ü¬XõŠB@¥D|m¡/©ìºžÇj——Š=%Dç¬›§¡ß|AzÒÔÄ_å[6<wÔsÏ†° õVõldÂäCÜ³;ôÆÒnØþÀöýëgc‡Of6P¬r×q£(ÆÔö!;Û5(­xÊe^¾sÐo¿HGpóÌ›™üƒÂ¨8I$`BÎ'Ö29”êÃ÷KùbyË·œs—ž¨Ý¤šÒLIïy\äÄÈòM6ÿz,äÍž¨­á¥ùÕÅ­Õ—tÓeÛqa`˜x¤ïú2þ/Û?„³¿„,›»’‰–µÕF43ýõ¼a9V—Ð³¢ÃÎ¾ì+šÍMZÓWm7-¾¢ð6b÷¡9°Œ½¡sŽT|0Ýë]$§žIöÛ‘å¸gÅ£¤d*Ë­4”1jI×è.Ž.lFV½9¥úäê+'Gwe@xt£êøÕn?2„.FULB|/4« +ÚþtkûUª ªÈ _ª;ºôË+IVÐ[RîÒôJÊ›¸+ã÷z¿VTV…œ6èDY)C´‘ÕcgõÇ;Û‡cwocuÇØØ^ÝÙ{Ë¨ŽG#1­áq’ ƒ¿ÍT×XvÜd|–1¡÷<Æ“—$yQXx?NoÍ†•zÖÈõm\uf…ù¼(²ô"¤ ®­Çš§Öá¸Û%YœYÞ*l.sµ;ŒRsÃäÃÔ¡/™I,ÍíNÞ
+‰låF÷Äê>­xM¤´°[d6ÙE	ªAZG#—ßº]m‘«Dæýs<DoÑÛì÷Ñïá¼£±ãšèÔ˜O-|âSøÒžkß¾ÿïÿï«w¬ì‡°û‰ØŠªàs¡Ø½¾Àø H¥aøEø/>‚Ÿ¿Ä÷}Œÿý·ü!þù¹çc$‘+0Dy—) úƒÂICØ„Ã¹ ßÑÍ +ÏÎæÃ·:~º³÷ð­™,xŽ$•Ñ²azóx/OEŠ'àádz³‡w Jrî«ðÉbî 72q{Ü!9Œ@ñï9P66w6;›1ÇXß{¸µ}°»ÚÙÞ{8uÆ*»y¬çù'X¹!Í<ðu*Ìßp˜1Jþ-išLík#Ä)ÒÞÞ‘ÉAyƒ;HiÊÛÔ\oLÎCy[ë¹[°ººS@ÕÓ"ÑJËF%Vl”(SÈHÆkC­„äT¸üäÍÄ¤}tiHSÎ´†6Kn´÷úÖ7dÍ¡é~‰ßâýhÿ|à‘ö2¢­þcM¸µèæšKáx~'òm¡Áá0ììk¡UÒ·½A‘÷~
+å_„JL|ò5zx=ò-/òêP~X@'Ã ²”8ÏXÊe¨©+À‰âÏðÁ¯	Ü2ù1Í ìtr9 ¥²µt@bÔhÍ}€ˆ#Ñð5s¨üb–	m¨,©mÚ#¼»`=Sa•²F
+G ¥¼Ypgfƒ_|h¢…‚„}23ý×P7À~Nž±ÔÔçÈ9l×sGŽÏÆy×³ÄZ$Ø"‘òN‚6®®ílbSIZ¦m˜YIpñíï_(ÿø¬ãUÈ?¯õÇC±Æ“ÒrîG.¨fó&â˜±ß7 OÊ<Hé8‘Tuß¨Ï âÌ£!Õ“ºûóktùPr`4_;.’‹ÖÉÇFwìyh.™Ë<´»Ð*:ìº8z—b~­'~¹*¾Ã±GG.8ÅÌ¡yŒ7yBêûèQÑ¶CF éÒªà-æPÂÐfˆg€„ß1ÄHdØXšlìÍLRÔÜ…AáógfŒùÐ¢:Ãè]	ë:ö™þxH}ä9½I÷$¾ïÍûF\áš„ˆÉ!8¡ÔZŒnË482}ÿñ.Å£Ûr|lûö‘SÐÑŽ'Ú3t¦JN©áŒ,ü«õ—(ÙÎ†¨ÏÑ˜7;!ˆŠbSô®Ls=F­Pk’½3j6j×ö;HçBkmð!Ú1…í'ûHˆÀ¦T˜]àæ8péhËsølþr?D¥K«ø#Ó#ðlŒD‹¿#{nÝ³z€•„‚›‰lG 7s¬@ñ[	Ó@zÊŸmšèßB2™rm„è¢àÄö’×$ì¸þ7SA<{øÃ»Ÿ¸X)fûÖ@Ã êµ“ ÝŸ›CšØä×~ü½?rl$<Ì¡?ñý{ !ÎD¾ÊªÖÐièÁüºKÊ¸ÖoÃO34Õ9d‚ðS²á‹Ô¨ÇüyÅ˜Oü–o\ùã¯,ú|D¤]‚–ü,ãÊÚ9~ªÛÇ¿¾ƒü†XG
+À-9 ´f`ãœ~sÀb#ý:y\û+ž€Ì´FEÕÛkÁÂ¸Æ+ØÎ[,ŸZ!F[fÀÑ[’cÜT0b¡qæ UW5ªÌÈr¼*Ìv”¹yù—Ë­ã“….£8˜ÄÝ{/ÔoaˆÿŒ—tT•éODø¿ãŸß£2G^<±A
+`Û¥vk_N›ñ8æ»è«XyHôû¶IûÑWuÄ]Ñy i¨³á¨êK#=a÷B€T<Æ+´P¦r!Rnb%d3%deBc’á/$ ({Ñ™gŽBíŒD0³žµ¿}žÈ(¬#”ÈÈ©*¢Rd"‹ðÃc©HØ|`™=N§¦¹ªz‘²ˆ”U¥•Ê¤‘b3òšœY¿µÈ"Q­mH:NèB&Ž2¦He‰‚ƒm‰‚ƒ¡Z-'&õ¥–•…Kœ·hdeÑÅ~4¶ÆÖîØ·»ÊqeÅôJ·±Tàš‘j§ø*Ý $ â”°„¥K,"ùA&)6™Õ¯ÎË¬ÕŠÒµ"¤z®¶Ä:¾îJÙ•³(^[Z3–ÝçÙ²¡¸Þå'ÔI†ÿ÷$ROÇ—Ì¬<Ší7ËÂ9CÂ·Î©U´b§©YTÓ¨Ú’o@ÜRx‘Ä¬Qð¥ æúQPó®Š")<q
+VÏá™tO 0>\@§~qÈR…B–pðTBÂ…ùš³ù¥|
+Z¥²mþ"ZRâ‘Vé…¸âpñµ‰bóI-¼LõAAJl´x–Oe°Ù€ñ’y‘Zù.xT´ù¤°nDhLî€ÌëÉñD,n«Bø/éúœÒ²©jyq ’rbÈ‹VSôˆÒÁSPu«‚Ã¾ŠÒ\@ÊBCB<P<ÆCO¤¯Rƒ®VÆŽ½ë	›J‘í`JT#d¾|%uÄ2@úÂÅ=!šWwB4_/Ë	±c%q”&vB4_ÅDOPÕu<Á¨_ÛÃ¡y¹oùzÛá @ÕWÇ{|óFßsÑÉN#sÂ¸:®ð@Êjô¡’•¶äÞYrK¬N2¤/¬É%x†f’u‘ñ½úS^µ7Qx"SZ"#ºJ0ÍJ<@;ïciê¥9”×iÕX_ÖhZÍá¬iâÏ7ïË•«à¼•(¸¤~ÞŠc™‚ép^ŒG93:é«w4Oì¬’mT…„¡¡®a±ÕtÔkãØ
+ðÄÎ¼ÙÀÓÆÄâˆ´åTD–< D&úŽ¶8¡zcšñ.hõý.ÄŽ»üF!¼(·ßÅ¹â5Z6Ù#‚ªç¦ `”X§5Gä‘ )¨ó]p¦cNÊ¬G’Õð÷~ûkâ!z‡õäej½³¾Ýêï@“Ÿ%[SwtV×ŒùûF˜w°¾·±yhlíìVÐ:ßv•_Ž\0[4fGb‹ùåiXr;Šå¯EwˆWIÃ¹?l íIZ(;Æ7Ë‹ð›3@0mÝj7Œ0€spî›§VkÄþ™Z!l°=A+Ÿèô‘œ¶¸HjKí»íåµbp2l´¡?¸Êˆ½uÇ~àð|‡L­€©”ÐÂðíèpÂøWñå%«ò²¦¦¸7hD¹êÖ`"Ñuvâ¯ÿòâòáþóÏ?3êÂfµwÀžß5½±éÖRëÞâ¤Wÿ¾åùîðÕ¸¹€fK¨n &ËBgxè¯¢èXÔ¬ï‡-kï¡ùp÷­ {Ïÿá¤—ÿ­óÉ¬ýÀ3m‡y¸”¹ Ïò<“úµbÜJu1¡ÐEœñ“xT:V^38ßë÷yA‹ñ%ƒk÷méh8àñòBv¤(xX`¬³ý±é`í›áÛr‡þ1çÚÆCwšï÷ãë3—±ÛWŒ:IbÔl6˜2·N§’i±ì<€
+›ƒqm@Œ‰òñó´ùî9¤HÇ 1lð>C´Z'ÍÕÉ¿’inìV	ÓwU7	ÍúÕÛ#ñÎè_´Z±ýŒ—Šußú‹Ëß Züú’=VJÝ…ìFë™99Påd0/Ñ'½I¶!5áÕ&¹›DÇ)¤T¯)öÛ	›`‹ƒôÅ×Ìús<Ý,MÊs@ìv¡,N‡4cªü'¿¥"—8•<Ôeg\;R«‘Ž…ó_â[þ#mà-iÚò¬`ì 1y”äÀãy(	d£JúÃX,”†ƒQ¦|I¾wÊZTóÒ¢EMÀêa,O:MÀRctw&êÊ}ñjôaý…xúŒ‘€w€_Btˆ,­£˜Å}ŸÅW¨Ç<‚Ò«¤U2W­¿/~l¡3ÊÛí.ŒÉiÏ¼íÑØvzäuÉÏúïKŸG­„Ä	Ög˜üLh–ƒÔã­³}xI½H½„‰í<iL›€ÍŒœŸÂ ýôöóÃsU2¨c¬]tÎØèÜVE¤¢’ÅöYñÜ¦f[½™X(ÿ
+ç¦ V½ÝGÂ‘tÿê<é%Ä'æÓ$FP•"P%õX·lõ©‰çxg)7€xñåJ$SRÛÁo ŸR¸o-µæ„X‰?qr%oå+ŒÂ­ÃƒqgE”€0S¸W9lA<tÿû_‰ù¾GÒY-ŒH>Ý7n3G]%QYÝ›âm`!šVý-Þiúúëð=ÒJœ—z“(h®± ‘„€ï8!w´%"Jjq@ÓˆvBF2	„¤çQV¨˜„±czûž{ì¡½=ìÙ]±ªz7Û[Æ1‰lŸ5|VK!_ä‹WÐD)¤BP¾ŽM&¿Óh4jÙ"heQ€”˜Ç ‚óåDö‚	¨h° «YÊìßtôÝ§“g±ÇC¬ "¾í¡}"mÅ¼¥tsÍ¿ÂÇß/b€Ë¯#Ý>”2f2Ùƒ{0˜@:õ’ÀåWjHÎH…æ’úyIÝ¼¤^>-ÕôŠTÒòªèTUP=Õ³¤Ê9QUs**¦¶j©­Rj«’:*¤Ü«He,€ß,Ð%ôÀòL]Uÿ“XI¥µ’ë«“TZ¯¯ÿ¨Bð—Öq˜Pà/¨;âRÎƒ/b6së•Pª j\$ê«Gx‡wAyó¾Á€-¿—E®ÿœW±%Å–àØóµ.Ùë÷í.’*^Å•|W\æ%·‰FlI.ºÒ-’â8U“DU…	2öDwF“xµ9nìæ¸ê «WÁU¯6¡k°ýZuC$uÍ´»_&u?rv|HðéiýÙËÿ¨t¿¬:Ž±†ÞÂ1Ñœ¯O\ÏéU´ûjÑ&©`ÑÊØºUìÜbC!øñF+þ†šyRUs!;tª-¼<C$½Ê’¯ŽTù˜Z”ÆÌs*P#J^™Çxãè0ú¥b“8žõS¯
+cõÏøç/iÇ{å¥T²ÕT€œ¬’%O¶²!t£~¤7C{Ü{4r\³Ç~ÿ?   ÿÿ¢ÎL:5–+@·'S  euŒåÖÄßälŒwd”ø3°ó¨|ÍgˆkDˆ‚›§«‹‚³¿P°‚‡«O€kõ/ñÄÒ$†F»q»DØ»iù@Ý©)AwÜ«€ÀjKó¨†ž?§ƒl²3Áû‹Ð'VTyø^W·%ÀÅ¡ŠK“   ÿÿ  K‹
