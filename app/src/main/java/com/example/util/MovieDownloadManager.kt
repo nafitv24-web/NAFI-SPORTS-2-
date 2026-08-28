@@ -17,18 +17,21 @@ import com.example.MainActivity
 import com.example.R
 import com.example.model.MediaItem
 import com.example.model.MediaType
-import com.example.model.StreamServer
+import com.example.service.MovieDownloadService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
@@ -74,12 +77,14 @@ data class DownloadedMovie(
     val fileExists: Boolean get() = localFilePath.isNotBlank() && File(localFilePath).exists()
 
     fun toMediaItem(): MediaItem {
+        val path = localFilePath.trim()
+        val playUri = if (path.startsWith("/")) "file://$path" else path
         return MediaItem(
             id = "offline_$id",
             title = "🎬 $title (Offline)",
             category = "📥 ডাউনলোডসমূহ",
             type = MediaType.MOVIE,
-            streamUrl = "file://$localFilePath",
+            streamUrl = playUri,
             logoUrl = logoUrl,
             description = "অফলাইন লোকাল ফাইল • সাইজ: $fileSizeFormatted • ডাউনলোডের তারিখ: $downloadDateFormatted",
             quality = quality,
@@ -105,11 +110,15 @@ object MovieDownloadManager {
     private val _downloadedMoviesFlow = MutableStateFlow<List<DownloadedMovie>>(emptyList())
     val downloadedMoviesFlow: StateFlow<List<DownloadedMovie>> = _downloadedMoviesFlow.asStateFlow()
 
+    // Ultra-optimized High-Throughput HTTP Client for maximum download speed
     private val downloadHttpClient = OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
+        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -274,7 +283,8 @@ object MovieDownloadManager {
     }
 
     /**
-     * Start downloading a movie file directly in-app with streaming progress & background notifications
+     * Start downloading a movie file with maximum speed buffers, multi-connection pooling,
+     * background foreground service persistence, and real-time speed monitoring.
      */
     fun startDownload(
         context: Context,
@@ -312,16 +322,18 @@ object MovieDownloadManager {
         activeProgressMap[mediaItem.id] = initialProgress
         _downloadsState.value = HashMap(activeProgressMap)
 
-        Toast.makeText(context, "📥 '${mediaItem.title}' ডাউনলোড শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
+        // Launch Foreground Service to ensure download never dies when user exits app
+        MovieDownloadService.startService(context)
+
+        Toast.makeText(context, "📥 '${mediaItem.title}' দ্রুত ডাউনলোড শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
         onStarted?.invoke()
 
         val job = coroutineScope.launch {
-            var inputStream: InputStream? = null
-            var outputStream: FileOutputStream? = null
+            var inputStream: BufferedInputStream? = null
+            var outputStream: BufferedOutputStream? = null
             var targetFile: File? = null
 
             try {
-                // Determine destination directory and filename
                 val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
                     ?: File(context.filesDir, "movies").apply { mkdirs() }
                 if (!moviesDir.exists()) moviesDir.mkdirs()
@@ -329,8 +341,7 @@ object MovieDownloadManager {
                 val safeTitle = mediaItem.title
                     .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
                     .take(40)
-                
-                // Determine extension
+
                 val ext = when {
                     targetUrl.contains(".mp4", ignoreCase = true) -> ".mp4"
                     targetUrl.contains(".mkv", ignoreCase = true) -> ".mkv"
@@ -349,8 +360,10 @@ object MovieDownloadManager {
 
                 val requestBuilder = Request.Builder()
                     .url(targetUrl)
-                    .addHeader("User-Agent", mediaItem.userAgent ?: "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36")
-                
+                    .addHeader("User-Agent", mediaItem.userAgent ?: "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                    .addHeader("Accept-Encoding", "identity") // Direct raw stream without decompression bottleneck
+                    .addHeader("Connection", "keep-alive")
+
                 mediaItem.referrer?.let { requestBuilder.addHeader("Referer", it) }
                 mediaItem.cookie?.let { requestBuilder.addHeader("Cookie", it) }
                 mediaItem.origin?.let { requestBuilder.addHeader("Origin", it) }
@@ -365,10 +378,12 @@ object MovieDownloadManager {
                 val totalBytes = body.contentLength()
                 val totalFormatted = if (totalBytes > 0) formatBytes(totalBytes) else "অজানা সাইজ"
 
-                inputStream = body.byteStream()
-                outputStream = FileOutputStream(targetFile)
+                // 256 KB high-speed chunk buffer for maximum I/O throughput
+                val bufferSize = 256 * 1024
+                inputStream = BufferedInputStream(body.byteStream(), bufferSize)
+                outputStream = BufferedOutputStream(FileOutputStream(targetFile), bufferSize)
 
-                val buffer = ByteArray(64 * 1024)
+                val buffer = ByteArray(bufferSize)
                 var bytesRead: Int
                 var totalBytesRead = 0L
                 var lastUiUpdate = System.currentTimeMillis()
@@ -387,7 +402,7 @@ object MovieDownloadManager {
                     totalBytesRead += bytesRead
 
                     val now = System.currentTimeMillis()
-                    if (now - lastSpeedCalcTime >= 1000) {
+                    if (now - lastSpeedCalcTime >= 800) {
                         val bytesInPeriod = totalBytesRead - lastBytesForSpeed
                         val timePeriodSec = (now - lastSpeedCalcTime) / 1000.0
                         val speedBytesPerSec = if (timePeriodSec > 0) (bytesInPeriod / timePeriodSec).toLong() else 0L
@@ -422,7 +437,7 @@ object MovieDownloadManager {
                             notifId = notifId,
                             title = mediaItem.title,
                             progress = progressPercent,
-                            statusText = "$downloadedFormatted / $totalFormatted • $currentSpeed ($progressPercent%)"
+                            statusText = "$downloadedFormatted / $totalFormatted • ⚡ $currentSpeed ($progressPercent%)"
                         )
                     }
                 }

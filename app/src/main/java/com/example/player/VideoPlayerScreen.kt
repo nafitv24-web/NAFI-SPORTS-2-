@@ -506,6 +506,12 @@ fun VideoPlayerScreen(
             .setTransferListener(bandwidthMeter)
             .setDefaultRequestProperties(requestHeaders)
 
+        // DefaultDataSource delegates http/https to httpDataSourceFactory, and local file:// / content:// / assets to FileDataSource
+        val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            context,
+            httpDataSourceFactory
+        )
+
         val (finalCleanUrl, drmConfig) = com.example.util.DrmHelper.extractDrmConfig(
             rawUrl = currentUrl,
             itemScheme = currentMedia.drmScheme,
@@ -518,8 +524,7 @@ fun VideoPlayerScreen(
         // Load error handling policy with 5 automatic retries for transient stream packet drops
         val loadErrorHandlingPolicy = androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(5)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(context)
-            .setDataSourceFactory(httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
 
         if (drmConfig != null) {
@@ -578,8 +583,15 @@ fun VideoPlayerScreen(
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
             .build().apply {
+                val finalMediaUri = when {
+                    finalCleanUrl.startsWith("file://") -> android.net.Uri.parse(finalCleanUrl)
+                    finalCleanUrl.startsWith("content://") -> android.net.Uri.parse(finalCleanUrl)
+                    finalCleanUrl.startsWith("/") -> android.net.Uri.fromFile(java.io.File(finalCleanUrl))
+                    else -> android.net.Uri.parse(finalCleanUrl)
+                }
+
                 val mediaItemBuilder = MediaItem.Builder()
-                    .setUri(finalCleanUrl)
+                    .setUri(finalMediaUri)
 
                 val isLiveStream = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
                 if (isLiveStream) {
@@ -617,10 +629,23 @@ fun VideoPlayerScreen(
                         currentMedia.manifestType?.equals("hls", ignoreCase = true) == true ||
                         isToffee
 
+                val isMp4 = finalCleanUrl.contains(".mp4", ignoreCase = true)
+                val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
+                val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
+                val isTs = finalCleanUrl.contains(".ts", ignoreCase = true)
+
                 if (isMpd) {
                     mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
                 } else if (isM3u8) {
                     mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+                } else if (isMp4) {
+                    mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.VIDEO_MP4)
+                } else if (isMkv) {
+                    mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.VIDEO_MATROSKA)
+                } else if (isWebm) {
+                    mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.VIDEO_WEBM)
+                } else if (isTs) {
+                    mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.VIDEO_MP2T)
                 }
 
                 setMediaItem(mediaItemBuilder.build())

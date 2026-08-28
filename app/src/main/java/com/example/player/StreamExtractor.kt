@@ -27,6 +27,9 @@ object StreamExtractor {
      */
     fun isEmbedUrl(url: String): Boolean {
         val clean = url.lowercase().trim()
+        if (clean.startsWith("file:") || clean.startsWith("/") || clean.startsWith("content:")) {
+            return false
+        }
         return clean.contains("2embed") ||
                 clean.contains("vidsrc") ||
                 clean.contains("superstream") ||
