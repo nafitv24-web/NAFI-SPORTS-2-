@@ -76,6 +76,8 @@ import com.example.R
 import com.example.model.MediaItem as AppMediaItem
 import com.example.model.MediaType
 import com.example.model.StreamServer
+import com.example.util.MovieDownloadManager
+import com.example.util.DownloadState
 import kotlinx.coroutines.delay
 
 enum class MxDragType { NONE, VERTICAL_LEFT, VERTICAL_RIGHT, HORIZONTAL }
@@ -3616,6 +3618,35 @@ private fun FullscreenControlsOverlay(
                         label = if (selectedSubtitle?.isOff == false) selectedSubtitle.displayName.take(8) else "CC",
                         accentColor = Color(0xFFA855F7),
                         onClick = onOpenSubtitleDialog
+                    )
+                }
+
+                // Download Movie / Video Button
+                val downloadContext = LocalContext.current
+                val activeDownloadsMap by MovieDownloadManager.downloadsState.collectAsState()
+                val currentProg = activeDownloadsMap[media.id]
+                val isDownloading = currentProg?.state == DownloadState.DOWNLOADING || currentProg?.state == DownloadState.PENDING
+                val isDownloaded = MovieDownloadManager.isMovieDownloaded(downloadContext, media.id)
+
+                if (media.type == MediaType.MOVIE || media.type == MediaType.SERIES || !media.isLive) {
+                    TvPlayerActionChip(
+                        icon = if (isDownloaded) Icons.Rounded.CheckCircle else if (isDownloading) Icons.Rounded.Downloading else Icons.Rounded.FileDownload,
+                        label = if (isDownloaded) "Saved" else if (isDownloading) "${currentProg?.progressPercent ?: 0}%" else "Download",
+                        accentColor = if (isDownloaded) Color(0xFF10B981) else if (isDownloading) Color(0xFF00E5FF) else Color(0xFF10B981),
+                        onClick = {
+                            if (isDownloaded) {
+                                android.widget.Toast.makeText(downloadContext, "মুভিটি ইতিমধ্যে ডিভাইসে সংরক্ষিত আছে!", android.widget.Toast.LENGTH_SHORT).show()
+                            } else if (isDownloading) {
+                                android.widget.Toast.makeText(downloadContext, "মুভিটি ডাউনলোড হচ্ছে (${currentProg?.progressPercent ?: 0}%)...", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                val currentUrl = servers.getOrNull(selectedServerIndex)?.url ?: media.streamUrl
+                                MovieDownloadManager.startDownload(
+                                    context = downloadContext,
+                                    mediaItem = media,
+                                    preferredUrl = currentUrl
+                                )
+                            }
+                        }
                     )
                 }
 
