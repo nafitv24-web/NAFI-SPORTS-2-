@@ -23,6 +23,14 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Create Swap Space
+        run: |
+          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true
 
@@ -45,7 +53,7 @@ jobs:
 
       - name: Build APK with Gradle
         env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC\" -Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.configuration-cache=false"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx5120m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC\" -Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.configuration-cache=false -Dkotlin.compiler.execution.strategy=in-process"
         run: |
           ./gradlew assembleDebug \
             --no-daemon \
