@@ -4,9 +4,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -2255,7 +2257,47 @@ fun VideoPlayerScreen(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
+                                // Download Button in Control Bar (Strictly for Movie / OTT option)
+                                val isPortraitMovie = currentMedia.type == MediaType.MOVIE ||
+                                        currentMedia.type == MediaType.SERIES ||
+                                        currentMedia.tournament == "NAFI_OTT" ||
+                                        (currentMedia.category ?: "").contains("Movie", ignoreCase = true) ||
+                                        (currentMedia.category ?: "").contains("Cinema", ignoreCase = true) ||
+                                        (currentMedia.category ?: "").contains("OTT", ignoreCase = true) ||
+                                        (currentMedia.category ?: "").contains("Film", ignoreCase = true)
+                                if (isPortraitMovie) {
+                                    val ctrlDlContext = LocalContext.current
+                                    val ctrlActiveDlMap by MovieDownloadManager.downloadsState.collectAsState()
+                                    val ctrlDlProg = ctrlActiveDlMap[currentMedia.id]
+                                    val ctrlIsDownloading = ctrlDlProg?.state == DownloadState.DOWNLOADING || ctrlDlProg?.state == DownloadState.PENDING
+                                    val ctrlIsDownloaded = MovieDownloadManager.isMovieDownloaded(ctrlDlContext, currentMedia.id)
 
+                                    IconButton(
+                                        onClick = {
+                                            if (ctrlIsDownloaded) {
+                                                Toast.makeText(ctrlDlContext, "মুভিটি ইতিমধ্যে ডাউনলোড করা আছে!", Toast.LENGTH_SHORT).show()
+                                            } else if (ctrlIsDownloading) {
+                                                Toast.makeText(ctrlDlContext, "মুভি ডাউনলোড হচ্ছে (${ctrlDlProg?.progressPercent ?: 0}%)...", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                val dlUrl = servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl
+                                                MovieDownloadManager.startDownload(
+                                                    context = ctrlDlContext,
+                                                    mediaItem = currentMedia,
+                                                    preferredUrl = dlUrl
+                                                )
+                                                Toast.makeText(ctrlDlContext, "📥 মুভি ডাউনলোড শুরু হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (ctrlIsDownloaded) Icons.Rounded.CheckCircle else if (ctrlIsDownloading) Icons.Rounded.Downloading else Icons.Rounded.FileDownload,
+                                            contentDescription = "Download Movie",
+                                            tint = if (ctrlIsDownloaded) Color(0xFF10B981) else if (ctrlIsDownloading) Color(0xFF00E5FF) else Color(0xFF10B981),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
                                 // Aspect Ratio (Tv/Crop)
                                 IconButton(
                                     onClick = {
@@ -2274,7 +2316,6 @@ fun VideoPlayerScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
-
                                 // Fullscreen Toggle (Auto Rotates to Landscape)
                                 IconButton(
                                     onClick = { toggleFullscreen() },
@@ -2390,6 +2431,211 @@ fun VideoPlayerScreen(
                         Icon(Icons.Rounded.Fullscreen, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("ফুল স্ক্রিন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // =========================================================================
+                // PROMINENT DOWNLOAD OPTION BELOW PLAYER (Strictly for Movie Option)
+                // =========================================================================
+                if (isMovieOrSeries) {
+                    val downloadCtx = LocalContext.current
+                    val activeDlMap by MovieDownloadManager.downloadsState.collectAsState()
+                    val curDlProg = activeDlMap[currentMedia.id]
+                    val isCurDownloading = curDlProg?.state == DownloadState.DOWNLOADING || curDlProg?.state == DownloadState.PENDING
+                    val isCurDownloaded = MovieDownloadManager.isMovieDownloaded(downloadCtx, currentMedia.id)
+                    val downloadedMovieInfo = remember(isCurDownloaded, currentMedia.id) {
+                        if (isCurDownloaded) MovieDownloadManager.getDownloadedMovie(downloadCtx, currentMedia.id) else null
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isCurDownloaded) Color(0xFF064E3B).copy(alpha = 0.55f)
+                                else if (isCurDownloading) Color(0xFF0C4A6E).copy(alpha = 0.65f)
+                                else Color(0xFF1E293B).copy(alpha = 0.85f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isCurDownloaded) Color(0xFF10B981)
+                            else if (isCurDownloading) Color(0xFF00E5FF)
+                            else Color(0xFF38BDF8).copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            if (isCurDownloaded) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981).copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF10B981),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "মুভিটি অফলাইনে সংরক্ষিত আছে",
+                                                color = Color(0xFF10B981),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                            Text(
+                                                text = "ইন্টারনেট ছাড়া চলবে (${downloadedMovieInfo?.fileSizeFormatted ?: "সংরক্ষিত"})",
+                                                color = Color(0xFFCBD5E1),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val offlineFile = MovieDownloadManager.getDownloadedFile(downloadCtx, currentMedia.id)
+                                            if (offlineFile != null && offlineFile.exists()) {
+                                                currentUrl = Uri.fromFile(offlineFile).toString()
+                                                exoPlayer.setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.fromFile(offlineFile)))
+                                                exoPlayer.prepare()
+                                                exoPlayer.play()
+                                                Toast.makeText(downloadCtx, "অফলাইন ফাইল থেকে প্লে হচ্ছে...", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(downloadCtx, "ফাইলটি পাওয়া যায়নি!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("অফলাইন প্লে", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            } else if (isCurDownloading) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            progress = { curDlProg?.progress ?: 0f },
+                                            modifier = Modifier.size(28.dp),
+                                            color = Color(0xFF00E5FF),
+                                            strokeWidth = 3.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "মুভি ডাউনলোড হচ্ছে... ${curDlProg?.progressPercent ?: 0}%",
+                                                color = Color(0xFF00E5FF),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                            Text(
+                                                text = "${curDlProg?.downloadedSizeFormatted ?: "0 MB"} / ${curDlProg?.totalSizeFormatted ?: "0 MB"} • ${curDlProg?.speedFormatted ?: "স্পিড গণনা হচ্ছে..."}",
+                                                color = Color(0xFFCBD5E1),
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            MovieDownloadManager.cancelDownload(currentMedia.id)
+                                            Toast.makeText(downloadCtx, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.85f), contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("বাতিল", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { curDlProg?.progress ?: 0f },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = Color(0xFF00E5FF),
+                                    trackColor = Color(0xFF1E293B)
+                                )
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Rounded.FileDownload,
+                                                contentDescription = null,
+                                                tint = Color(0xFF10B981),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "মুভিটি অফলাইনে ডাউনলোড করুন",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "সর্বোচ্চ স্পিডে ব্যাকগ্রাউন্ডে ডাউনলোড করে পরে দেখুন",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val dlUrl = servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl
+                                            MovieDownloadManager.startDownload(
+                                                context = downloadCtx,
+                                                mediaItem = currentMedia,
+                                                preferredUrl = dlUrl
+                                            )
+                                            Toast.makeText(downloadCtx, "📥 মুভি ডাউনলোড শুরু হয়েছে! নোটিফিকেশন বারে প্রগ্রেস দেখুন।", Toast.LENGTH_LONG).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF10B981),
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "ডাউনলোড করুন",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -3914,6 +4160,43 @@ private fun FullscreenControlsOverlay(
                         size = 40.dp,
                         iconSize = 26.dp
                     )
+
+                    // Download Button on Fullscreen Control Bar (Strictly for Movie / OTT option)
+                    val isFsMovie = media.type == MediaType.MOVIE ||
+                            media.type == MediaType.SERIES ||
+                            media.tournament == "NAFI_OTT" ||
+                            (media.category ?: "").contains("Movie", ignoreCase = true) ||
+                            (media.category ?: "").contains("Cinema", ignoreCase = true) ||
+                            (media.category ?: "").contains("OTT", ignoreCase = true) ||
+                            (media.category ?: "").contains("Film", ignoreCase = true)
+                    if (isFsMovie) {
+                        val fsDlContext = LocalContext.current
+                        val fsActiveDlMap by MovieDownloadManager.downloadsState.collectAsState()
+                        val fsDlProg = fsActiveDlMap[media.id]
+                        val fsIsDownloading = fsDlProg?.state == DownloadState.DOWNLOADING || fsDlProg?.state == DownloadState.PENDING
+                        val fsIsDownloaded = MovieDownloadManager.isMovieDownloaded(fsDlContext, media.id)
+
+                        TvPlayerActionChip(
+                            icon = if (fsIsDownloaded) Icons.Rounded.CheckCircle else if (fsIsDownloading) Icons.Rounded.Downloading else Icons.Rounded.FileDownload,
+                            label = if (fsIsDownloaded) "সংরক্ষিত" else if (fsIsDownloading) "${fsDlProg?.progressPercent ?: 0}%" else "ডাউনলোড করুন",
+                            accentColor = if (fsIsDownloaded) Color(0xFF10B981) else if (fsIsDownloading) Color(0xFF00E5FF) else Color(0xFF10B981),
+                            onClick = {
+                                if (fsIsDownloaded) {
+                                    Toast.makeText(fsDlContext, "মুভিটি ইতিমধ্যে ডাউনলোড করা আছে!", Toast.LENGTH_SHORT).show()
+                                } else if (fsIsDownloading) {
+                                    Toast.makeText(fsDlContext, "মুভি ডাউনলোড হচ্ছে (${fsDlProg?.progressPercent ?: 0}%)...", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val dlUrl = servers.getOrNull(selectedServerIndex)?.url ?: media.streamUrl
+                                    MovieDownloadManager.startDownload(
+                                        context = fsDlContext,
+                                        mediaItem = media,
+                                        preferredUrl = dlUrl
+                                    )
+                                    Toast.makeText(fsDlContext, "📥 মুভি ডাউনলোড শুরু হয়েছে!", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                    }
 
                     // Server switch shortcut button on control bar
                     if (servers.size > 1) {

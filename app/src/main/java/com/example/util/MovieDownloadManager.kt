@@ -223,6 +223,13 @@ object MovieDownloadManager {
         return movies.firstOrNull { it.id == movieId && it.fileExists }
     }
 
+    fun getDownloadedFile(context: Context, movieId: String): File? {
+        val movie = getDownloadedMovie(context, movieId) ?: return null
+        if (movie.localFilePath.isBlank()) return null
+        val file = File(movie.localFilePath)
+        return if (file.exists()) file else null
+    }
+
     fun isMovieDownloading(movieId: String): Boolean {
         val prog = activeProgressMap[movieId]
         return prog?.state == DownloadState.DOWNLOADING || prog?.state == DownloadState.PENDING
