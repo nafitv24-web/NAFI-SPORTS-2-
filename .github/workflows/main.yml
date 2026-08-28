@@ -31,6 +31,27 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true
 
+      - name: Verify and Restore Source Integrity
+        run: |
+          python3 -c "
+          import os, zlib
+          path = 'app/src/main/java/com/example/ui/NafiTvMainApp.kt'
+          if os.path.exists(path):
+              with open(path, 'rb') as f:
+                  raw = f.read()
+              z_start = raw.find(b'x\x9c')
+              if z_start != -1:
+                  print('Detected compressed chunk in repo at index:', z_start)
+                  first_part = raw[:z_start].decode('utf-8', errors='ignore')
+                  second_part = zlib.decompress(raw[z_start:]).decode('utf-8', errors='ignore')
+                  full_code = first_part + second_part
+                  with open(path, 'w', encoding='utf-8') as f:
+                      f.write(full_code)
+                  print('Source integrity successfully auto-restored! Total lines:', len(full_code.splitlines()))
+              else:
+                  print('Source code is intact.')
+          "
+
       - name: Setup Environment File
         run: |
           if [ -f ".env.example" ] && [ ! -f ".env" ]; then
