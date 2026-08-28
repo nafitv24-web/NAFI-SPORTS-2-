@@ -1392,21 +1392,6 @@ fun VideoPlayerScreen(
                 MxDoubleTapRipple(isForward = true, modifier = Modifier.align(Alignment.CenterEnd))
             }
 
-            // TV Channel Switch OSD Banner (Appears when changing channel with Remote Up/Down or Numbers)
-            if (showChannelOsd) {
-                val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
-                val curIdx = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }.coerceAtLeast(0)
-                TvChannelOsdBanner(
-                    media = currentMedia,
-                    currentIndex = curIdx,
-                    totalCount = list.size,
-                    selectedServerIndex = selectedServerIndex,
-                    totalServersCount = servers.size,
-                    selectedServerName = servers.getOrNull(selectedServerIndex)?.name,
-                    modifier = Modifier.align(Alignment.TopStart)
-                )
-            }
-
             // TV Remote Number Dialing Overlay
             if (remoteNumberBuffer.isNotEmpty()) {
                 TvNumberDialOverlay(
@@ -1930,19 +1915,6 @@ fun VideoPlayerScreen(
 
                 if (doubleTapSeekRight) {
                     MxDoubleTapRipple(isForward = true, modifier = Modifier.align(Alignment.CenterEnd))
-                }
-
-                // TV Channel Switch OSD Banner
-                if (showChannelOsd) {
-                    val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
-                    val curIdx = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }.coerceAtLeast(0)
-                    TvChannelOsdBanner(
-                        media = currentMedia,
-                        currentIndex = curIdx,
-                        totalCount = list.size,
-                        selectedServerName = servers.getOrNull(selectedServerIndex)?.name,
-                        modifier = Modifier.align(Alignment.TopStart)
-                    )
                 }
 
                 // TV Remote Number Dialing Overlay
