@@ -23,13 +23,10 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Create Swap Space
-        run: |
-          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+      - name: Set up Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
 
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true
