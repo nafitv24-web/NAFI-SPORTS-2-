@@ -1496,98 +1496,203 @@ fun VideoPlayerScreen(
                 )
             }
 
-            // Quick Channel Drawer in Fullscreen
+            // Quick Channel Drawer in Fullscreen / TV Mode
             if (showQuickChannelDrawer && playlist.isNotEmpty()) {
+                var drawerSearchQuery by remember { mutableStateOf("") }
+                var drawerSelectedCategory by remember { mutableStateOf("All") }
+
+                val drawerCategories = remember(playlist) {
+                    val cats = playlist.map { it.category.trim() }
+                        .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+                        .distinct()
+                        .sorted()
+                    listOf("All") + cats
+                }
+
+                val filteredDrawerPlaylist = remember(playlist, drawerSearchQuery, drawerSelectedCategory) {
+                    playlist.filter { item ->
+                        val matchesSearch = if (drawerSearchQuery.isBlank()) true else {
+                            item.title.contains(drawerSearchQuery, ignoreCase = true) ||
+                            item.category.contains(drawerSearchQuery, ignoreCase = true)
+                        }
+                        val matchesCat = if (drawerSelectedCategory == "All") true else {
+                            item.category.trim().equals(drawerSelectedCategory.trim(), ignoreCase = true)
+                        }
+                        matchesSearch && matchesCat
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(260.dp)
+                        .width(280.dp)
                         .align(Alignment.CenterEnd)
-                        .background(Color(0xFF0F172A).copy(alpha = 0.95f))
-                        .padding(12.dp)
+                        .background(Color(0xFF0F172A).copy(alpha = 0.96f))
+                        .padding(10.dp)
                 ) {
-                    Column {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "চ্যানেল তালিকা (${playlist.size})",
+                                text = "📺 চ্যানেল তালিকা (${filteredDrawerPlaylist.size})",
                                 color = Color(0xFF00E5FF),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 13.5.sp
                             )
-                            IconButton(onClick = { showQuickChannelDrawer = false }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White)
+                            IconButton(
+                                onClick = { showQuickChannelDrawer = false },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
                             }
                         }
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(playlist) { item ->
-                                val isCurrent = item.id == currentMedia.id
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            isBuffering = true
-                                            currentMedia = item
-                                            selectedServerIndex = 0
-                                            val newServers = item.getAllServers()
-                                            currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                            errorMessage = null
-                                            onSelectMedia(item)
-                                            // Drawer stays open as requested
-                                        },
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isCurrent) Color(0xFF00E5FF).copy(alpha = 0.25f) else Color(0xFF1E293B)
-                                    )
-                                ) {
-                                    Row(
+
+                        // Search Box inside Drawer
+                        OutlinedTextField(
+                            value = drawerSearchQuery,
+                            onValueChange = { drawerSearchQuery = it },
+                            placeholder = { Text("চ্যানেল খুঁজুন...", color = Color(0xFF94A3B8), fontSize = 11.sp) },
+                            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp)) },
+                            trailingIcon = {
+                                if (drawerSearchQuery.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { drawerSearchQuery = "" },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White, modifier = Modifier.size(13.dp))
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF00E5FF),
+                                unfocusedBorderColor = Color(0xFF334155),
+                                focusedContainerColor = Color(0xFF1E293B),
+                                unfocusedContainerColor = Color(0xFF1E293B),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color(0xFF00E5FF)
+                            ),
+                            singleLine = true
+                        )
+
+                        // Categories Horizontal Scroll inside Drawer
+                        if (drawerCategories.size > 1) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                items(drawerCategories) { cat ->
+                                    val isSelected = drawerSelectedCategory == cat
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.clickable { drawerSelectedCategory = cat }
+                                    ) {
+                                        Text(
+                                            text = cat,
+                                            color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Channels List
+                        if (filteredDrawerPlaylist.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "কোনো চ্যানেল পাওয়া যায়নি",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.5.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(filteredDrawerPlaylist) { item ->
+                                    val isCurrent = item.id == currentMedia.id
+                                    Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        AsyncImage(
-                                            model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
-                                            contentDescription = item.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.White)
+                                            .clickable {
+                                                isBuffering = true
+                                                currentMedia = item
+                                                selectedServerIndex = 0
+                                                val newServers = item.getAllServers()
+                                                currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                errorMessage = null
+                                                onSelectMedia(item)
+                                            },
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isCurrent) Color(0xFF00E5FF).copy(alpha = 0.25f) else Color(0xFF1E293B)
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = item.title,
-                                                    color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    maxLines = 1,
-                                                    modifier = Modifier.weight(1f, fill = false)
-                                                )
-                                                if (isCurrent) {
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "▶ PLAYING",
-                                                        color = Color(0xFF00E5FF),
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = 9.sp
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = item.category,
-                                                color = Color(0xFF94A3B8),
-                                                fontSize = 10.sp
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            AsyncImage(
+                                                model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
+                                                contentDescription = item.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White)
                                             )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = item.title,
+                                                        color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.5.sp,
+                                                        maxLines = 1,
+                                                        modifier = Modifier.weight(1f, fill = false)
+                                                    )
+                                                    if (isCurrent) {
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            text = "▶ PLAYING",
+                                                            color = Color(0xFF00E5FF),
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            fontSize = 8.5.sp
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = item.category,
+                                                    color = Color(0xFF94A3B8),
+                                                    fontSize = 9.5.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2751,105 +2856,269 @@ fun VideoPlayerScreen(
                         }
                     }
                 } else {
-                    // Live TV Channels Grid (Clean, symmetrical, and uniform)
-                    Text(
-                        text = "📺 অন্যান্য টিভি চ্যানেলসমূহ (${playlist.size}):",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Live TV Channels Grid with In-Player Search Bar & Dynamic Category Chips
+                    var playerSearchQuery by remember { mutableStateOf("") }
+                    var playerSelectedCategory by remember { mutableStateOf("All") }
 
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(playlist) { item ->
-                            val isCurrent = item.id == currentMedia.id || item.streamUrl == currentMedia.streamUrl
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(130.dp)
-                                    .clickable {
-                                        isBuffering = true
-                                        currentMedia = item
-                                        selectedServerIndex = 0
-                                        val newServers = item.getAllServers()
-                                        currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                        errorMessage = null
-                                        onSelectMedia(item)
-                                    },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isCurrent) Color(0xFF1E3A8A) else Color(0xFF1E293B)
-                                ),
-                                border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                    val liveTvPlaylist = remember(playlist, currentMedia) {
+                        if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+                    }
+
+                    // Dynamically extract distinct categories from active playlist
+                    val playerCategories = remember(liveTvPlaylist) {
+                        val dynamicCats = liveTvPlaylist.map { it.category.trim() }
+                            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+                            .distinct()
+                            .sorted()
+                        listOf("All") + dynamicCats
+                    }
+
+                    // Filter channels by in-player search and category
+                    val filteredPlayerChannels = remember(liveTvPlaylist, playerSearchQuery, playerSelectedCategory) {
+                        liveTvPlaylist.filter { item ->
+                            val matchesSearch = if (playerSearchQuery.isBlank()) true else {
+                                item.title.contains(playerSearchQuery, ignoreCase = true) ||
+                                item.category.contains(playerSearchQuery, ignoreCase = true) ||
+                                (item.country != null && item.country.contains(playerSearchQuery, ignoreCase = true))
+                            }
+                            val matchesCategory = when (playerSelectedCategory) {
+                                "All" -> true
+                                else -> item.category.trim().equals(playerSelectedCategory.trim(), ignoreCase = true)
+                            }
+                            matchesSearch && matchesCategory
+                        }
+                    }
+
+                    // 1. Sleek In-Player Search Bar
+                    OutlinedTextField(
+                        value = playerSearchQuery,
+                        onValueChange = { playerSearchQuery = it },
+                        placeholder = {
+                            Text(
+                                text = "টিভি চ্যানেল খুঁজুন (যেমন: DBC, Somoy, T Sports)...",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = "Search",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (playerSearchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { playerSearchQuery = "" },
+                                    modifier = Modifier.size(28.dp)
                                 ) {
-                                    Box(
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Clear",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E293B),
+                            unfocusedContainerColor = Color(0xFF0F172A),
+                            focusedBorderColor = Color(0xFF00E5FF),
+                            unfocusedBorderColor = Color(0xFF334155),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFF00E5FF)
+                        ),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+
+                    // 2. Dynamic Category Filter Chips
+                    if (playerCategories.size > 1) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                        ) {
+                            items(playerCategories) { category ->
+                                val isSelected = playerSelectedCategory == category
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                    modifier = Modifier.clickable { playerSelectedCategory = category }
+                                ) {
+                                    Text(
+                                        text = category,
+                                        color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Category & Count Header with Reset Option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📺 ${if (playerSelectedCategory != "All") playerSelectedCategory else "অন্যান্য"} টিভি চ্যানেলসমূহ (${filteredPlayerChannels.size}):",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        if (playerSearchQuery.isNotBlank() || playerSelectedCategory != "All") {
+                            Text(
+                                text = "সব দেখুন (Reset)",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable {
+                                    playerSearchQuery = ""
+                                    playerSelectedCategory = "All"
+                                }
+                            )
+                        }
+                    }
+
+                    // 4. Channels Grid or Empty State
+                    if (filteredPlayerChannels.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.TvOff,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(40.dp)
+                                )
+                                Text(
+                                    text = "কোনো চ্যানেল পাওয়া যায়নি",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "অন্য কি-ওয়ার্ড দিয়ে সার্চ করুন অথবা ক্যাটাগরি রিসেট করুন",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(filteredPlayerChannels) { item ->
+                                val isCurrent = item.id == currentMedia.id || item.streamUrl == currentMedia.streamUrl
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(130.dp)
+                                        .clickable {
+                                            isBuffering = true
+                                            currentMedia = item
+                                            selectedServerIndex = 0
+                                            val newServers = item.getAllServers()
+                                            currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                            errorMessage = null
+                                            onSelectMedia(item)
+                                        },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isCurrent) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                    ),
+                                    border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
+                                ) {
+                                    Column(
                                         modifier = Modifier
-                                            .size(46.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White),
-                                        contentAlignment = Alignment.Center
+                                            .fillMaxSize()
+                                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
                                     ) {
-                                        if (!item.logoUrl.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = item.logoUrl,
-                                                contentDescription = item.title,
-                                                contentScale = ContentScale.Fit,
-                                                modifier = Modifier.size(38.dp).clip(CircleShape)
-                                            )
-                                        } else {
-                                            val initials = item.title.take(3).uppercase()
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (!item.logoUrl.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = item.logoUrl,
+                                                    contentDescription = item.title,
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.size(38.dp).clip(CircleShape)
+                                                )
+                                            } else {
+                                                val initials = item.title.take(3).uppercase()
+                                                Text(
+                                                    text = initials,
+                                                    color = Color(0xFF0F172A),
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(24.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             Text(
-                                                text = initials,
-                                                color = Color(0xFF0F172A),
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = 11.sp
+                                                text = item.title,
+                                                color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center
                                             )
                                         }
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(24.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = item.title,
-                                            color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF0F172A),
-                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
-                                    ) {
-                                        Text(
-                                            text = item.country ?: item.category.take(8).ifBlank { "Live" },
-                                            color = if (isCurrent) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF0F172A),
+                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
+                                        ) {
+                                            Text(
+                                                text = item.country ?: item.category.take(8).ifBlank { "Live" },
+                                                color = if (isCurrent) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }
