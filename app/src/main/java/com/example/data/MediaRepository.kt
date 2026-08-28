@@ -945,10 +945,18 @@ class MediaRepository(private val context: Context) {
             return if (v.has("integerValue")) v.optLong("integerValue") else null
         }
 
-        val typeStr = s("type").uppercase()
+        val typeStr = s("type").trim().uppercase()
         val mediaType = when {
-            typeStr.contains("EVENT") || col == "sports" || col == "events" || col == "matches" -> MediaType.LIVE_EVENT
-            typeStr.contains("MOVIE") || typeStr.contains("SERIES") || col == "movies" -> MediaType.MOVIE
+            typeStr == "LIVE_TV" -> MediaType.LIVE_TV
+            typeStr == "LIVE_EVENT" -> MediaType.LIVE_EVENT
+            typeStr == "MOVIE" || typeStr == "SERIES" -> MediaType.MOVIE
+            col == "channels" -> MediaType.LIVE_TV
+            col == "movies" -> MediaType.MOVIE
+            col == "sports" || col == "events" || col == "matches" -> MediaType.LIVE_EVENT
+            docId.startsWith("tv_") || docId.startsWith("channel_") || docId.startsWith("ch_") -> MediaType.LIVE_TV
+            docId.startsWith("mov_") || docId.startsWith("movie_") || docId.startsWith("ser_") -> MediaType.MOVIE
+            docId.startsWith("sport_") || docId.startsWith("match_") || docId.startsWith("event_") -> MediaType.LIVE_EVENT
+            fields.has("team1") || fields.has("team2") || fields.has("tournament") -> MediaType.LIVE_EVENT
             else -> MediaType.LIVE_TV
         }
 
@@ -1055,7 +1063,13 @@ class MediaRepository(private val context: Context) {
                                             if (!deleted.contains(k) && !k.startsWith("pl_")) {
                                                 val itemObj = subObj.optJSONObject(k)
                                                 if (itemObj != null && !itemObj.has("channelCount")) {
-                                                    val item = parseMediaFromJsonObj(k, itemObj)
+                                                    val rawItem = parseMediaFromJsonObj(k, itemObj)
+                                                    val item = when (sub) {
+                                                        "channels" -> if (rawItem.type != MediaType.LIVE_TV && !rawItem.id.startsWith("sport_") && !rawItem.id.startsWith("match_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_TV) else rawItem
+                                                        "sports", "events", "matches" -> if (rawItem.type != MediaType.LIVE_EVENT && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_EVENT) else rawItem
+                                                        "movies" -> if (rawItem.type != MediaType.MOVIE && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("sport_")) rawItem.copy(type = MediaType.MOVIE) else rawItem
+                                                        else -> rawItem
+                                                    }
                                                     if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
                                                         items.add(item)
                                                     }
@@ -1327,11 +1341,18 @@ class MediaRepository(private val context: Context) {
     }
 
     fun parseMediaFromJsonObj(id: String, obj: JSONObject): MediaItem {
-        val typeStr = obj.optString("type", "")
-        val categoryStr = obj.optString("category", obj.optString("sport", "General"))
+        val typeStr = obj.optString("type", "").trim().uppercase()
+        val categoryStr = obj.optString("category", obj.optString("sport", "General")).trim()
         val mediaType = when {
-            typeStr.equals("LIVE_EVENT", ignoreCase = true) || categoryStr.contains("Cricket", ignoreCase = true) || categoryStr.contains("Football", ignoreCase = true) || categoryStr.contains("Sport", ignoreCase = true) -> MediaType.LIVE_EVENT
-            typeStr.equals("MOVIE", ignoreCase = true) || typeStr.equals("SERIES", ignoreCase = true) || obj.has("poster") || obj.has("year") -> MediaType.MOVIE
+            typeStr == "LIVE_TV" -> MediaType.LIVE_TV
+            typeStr == "LIVE_EVENT" -> MediaType.LIVE_EVENT
+            typeStr == "MOVIE" || typeStr == "SERIES" -> MediaType.MOVIE
+            id.startsWith("tv_") || id.startsWith("channel_") || id.startsWith("ch_") -> MediaType.LIVE_TV
+            id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("tapmad_") -> MediaType.LIVE_EVENT
+            id.startsWith("mov_") || id.startsWith("movie_") || id.startsWith("ser_") -> MediaType.MOVIE
+            obj.has("poster") || obj.has("year") -> MediaType.MOVIE
+            obj.has("team1") || obj.has("team2") || obj.has("tournament") -> MediaType.LIVE_EVENT
+            categoryStr.contains("Cricket", ignoreCase = true) || categoryStr.contains("Football", ignoreCase = true) -> MediaType.LIVE_EVENT
             else -> MediaType.LIVE_TV
         }
 

@@ -408,6 +408,25 @@ fun NafiTvMainApp(
         refreshAllData()
     }
 
+    val handleAddCustomMedia: (MediaItem) -> Unit = { item ->
+        repository.saveCustomStream(item)
+        customList = repository.getCustomStreams()
+        coroutineScope.launch {
+            repository.pushToFirebase(item)
+            val notif = AppNotification(
+                title = if (item.type == MediaType.MOVIE) "ğŸ¬ à¦¨à¦¤à§à¦¨ à¦®à§à¦­à¦¿: ${item.title}" else "ğŸ“º à¦¨à¦¤à§à¦¨ à¦Ÿà¦¿à¦­à¦¿ à¦šà§à¦¯à¦¾à¦¨à§‡à¦²: ${item.title}",
+                message = "${item.category} à¦•à§à¦¯à¦¾à¦Ÿà¦¾à¦—à¦°à¦¿à¦¤à§‡ à¦¯à§à¦•à§à¦¤ à¦¹à§Ÿà§‡à¦›à§‡à¥¤ à¦‰à¦ªà¦­à§‹à¦— à¦•à¦°à§à¦¨!",
+                type = if (item.type == MediaType.MOVIE) NotificationType.MOVIE else NotificationType.LIVE_TV,
+                targetId = item.id,
+                imageUrl = item.logoUrl
+            )
+            repository.broadcastNotification(notif)
+            NotificationHelper.showSystemNotification(context, notif)
+        }
+        refreshAllData()
+        Toast.makeText(context, if (item.type == MediaType.MOVIE) "à¦®à§à¦­à¦¿ à¦¤à¦¾à¦²à¦¿à¦•à¦¾à§Ÿ à¦¯à§à¦•à§à¦¤ à¦¹à§Ÿà§‡à¦›à§‡!" else "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¾à¦‡à¦­ à¦¤à¦¾à¦²à¦¿à¦•à¦¾à§Ÿ à¦¯à§à¦•à§à¦¤ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+    }
+
     if (activeUserMode == null) {
         ModeSelectionScreen(
             repository = repository,
@@ -797,7 +816,8 @@ fun NafiTvMainApp(
                                 onToggleFavorite = { id ->
                                     repository.toggleFavorite(id)
                                     favoriteIds = repository.getFavoriteIds()
-                                }
+                                },
+                                onAddChannel = handleAddCustomMedia
                             )
                         }
 
@@ -851,14 +871,7 @@ fun NafiTvMainApp(
                                     m3uList = list
                                     currentTab = AppTab.PLAYLIST
                                 },
-                                onCustomAdded = { item ->
-                                    repository.saveCustomStream(item)
-                                    customList = repository.getCustomStreams()
-                                    coroutineScope.launch {
-                                        repository.pushToFirebase(item)
-                                    }
-                                    Toast.makeText(context, "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¾à¦‡à¦­ à¦¤à¦¾à¦²à¦¿à¦•à¦¾à§Ÿ à¦¯à§à¦•à§à¦¤ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
-                                },
+                                onCustomAdded = handleAddCustomMedia,
                                 onResetDefaults = {
                                     repository.resetToDefaults()
                                     sportsList = repository.getInitialSports()
@@ -1083,7 +1096,8 @@ fun NafiTvMainApp(
                                 onToggleFavorite = { id ->
                                     repository.toggleFavorite(id)
                                     favoriteIds = repository.getFavoriteIds()
-                                }
+                                },
+                                onAddChannel = handleAddCustomMedia
                             )
                         }
 
@@ -1137,11 +1151,7 @@ fun NafiTvMainApp(
                                 m3uList = list
                                 currentTab = AppTab.PLAYLIST
                             },
-                            onCustomAdded = { item ->
-                                repository.saveCustomStream(item)
-                                customList = repository.getCustomStreams()
-                                Toast.makeText(context, "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¾à¦‡à¦­ à¦¤à¦¾à¦²à¦¿à¦•à¦¾à§Ÿ à¦¯à§à¦•à§à¦¤ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
-                            },
+                            onCustomAdded = handleAddCustomMedia,
                             onResetDefaults = {
                                 repository.resetToDefaults()
                                 sportsList = repository.getInitialSports()
@@ -1472,8 +1482,9 @@ fun AdminControlAppScreen(
 
     // Channel Form State
     var channelName by remember { mutableStateOf("") }
-    var channelCategory by remember { mutableStateOf("Sports TV") }
+    var channelCategory by remember { mutableStateOf("Bangla") }
     var channelLogoUrl by remember { mutableStateOf("") }
+    var addChannelCatDropdownExpanded by remember { mutableStateOf(false) }
 
     // Channel (Live TV) Edit Dialog State
     var editingChannelItem by remember { mutableStateOf<MediaItem?>(null) }
@@ -3215,12 +3226,45 @@ fun AdminControlAppScreen(
                             OutlinedTextField(
                                 value = channelName,
                                 onValueChange = { channelName = it },
-                                placeholder = { Text("Channel Name (e.g. T Sports HD)", color = Color(0xFF64748B)) },
+                                placeholder = { Text("Channel Name (e.g. T Sports HD, Somoy TV)", color = Color(0xFF64748B)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = customFieldColors(),
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = true
                             )
+
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = channelCategory,
+                                    onValueChange = { channelCategory = it },
+                                    label = { Text("Channel Category (à¦•à§à¦¯à¦¾à¦Ÿà¦¾à¦—à¦°à¦¿)", color = Color(0xFF94A3B8), fontSize = 12.sp) },
+                                    placeholder = { Text("à¦¯à§‡à¦®à¦¨: Bangla, Sports TV, News, Entertainment", color = Color(0xFF64748B)) },
+                                    trailingIcon = {
+                                        IconButton(onClick = { addChannelCatDropdownExpanded = !addChannelCatDropdownExpanded }) {
+                                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, tint = Color.White)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = customFieldColors(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    singleLine = true
+                                )
+                                DropdownMenu(
+                                    expanded = addChannelCatDropdownExpanded,
+                                    onDismissRequest = { addChannelCatDropdownExpanded = false },
+                                    modifier = Modifier.background(Color(0xFF1E293B))
+                                ) {
+                                    channelCategoryOptions.forEach { opt ->
+                                        DropdownMenuItem(
+                                            text = { Text(opt, color = Color.White) },
+                                            onClick = {
+                                                channelCategory = opt
+                                                addChannelCatDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
 
                             OutlinedTextField(
                                 value = server1Url,
@@ -6996,15 +7040,16 @@ fun MenuScreen(
                     Button(
                         onClick = {
                             if (channelName.isNotBlank() && channelStreamUrl.isNotBlank()) {
+                                val isMovie = channelCategory.equals("Movie", true) || channelCategory.equals("Cinema", true)
                                 val item = MediaItem(
-                                    id = "channel_${System.currentTimeMillis()}",
+                                    id = if (isMovie) "mov_${System.currentTimeMillis()}" else "tv_${System.currentTimeMillis()}",
                                     title = channelName.trim(),
-                                    category = channelCategory,
-                                    type = if (channelCategory.equals("Movie", true)) MediaType.MOVIE else MediaType.LIVE_TV,
+                                    category = channelCategory.trim().ifBlank { if (isMovie) "Movie" else "Live TV" },
+                                    type = if (isMovie) MediaType.MOVIE else MediaType.LIVE_TV,
                                     streamUrl = channelStreamUrl.trim(),
                                     servers = listOf(StreamServer("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§§", channelStreamUrl.trim())),
                                     logoUrl = channelLogoUrl.trim().ifBlank { null },
-                                    isLive = !channelCategory.equals("Movie", true)
+                                    isLive = !isMovie
                                 )
                                 onCustomAdded(item)
                                 channelName = ""
@@ -8732,10 +8777,12 @@ fun LiveTvTabScreen(
     favoriteIds: Set<String>,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
-    onToggleFavorite: (String) -> Unit
+    onToggleFavorite: (String) -> Unit,
+    onAddChannel: ((MediaItem) -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    var showAddDialog by remember { mutableStateOf(false) }
 
     // Dynamic Playlist Categories directly extracted from loaded M3U / Channels
     val playlistCategories = remember(channels) {
@@ -8850,18 +8897,175 @@ fun LiveTvTabScreen(
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp
             )
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = Color(0xFF00E5FF).copy(alpha = 0.15f)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Auto-Sync",
-                    color = Color(0xFF00E5FF),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+                if (onAddChannel != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF2563EB),
+                        modifier = Modifier.clickable { showAddDialog = true }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Rounded.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "â• à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦¯à§‹à¦—",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF00E5FF).copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = "Auto-Sync",
+                        color = Color(0xFF00E5FF),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
+        }
+
+        if (showAddDialog && onAddChannel != null) {
+            var newChName by remember { mutableStateOf("") }
+            var newChServer1 by remember { mutableStateOf("") }
+            var newChServer2 by remember { mutableStateOf("") }
+            var newChCategory by remember { mutableStateOf("Bangla") }
+            var newChLogo by remember { mutableStateOf("") }
+            var catDropdownExpanded by remember { mutableStateOf(false) }
+            val defaultCats = listOf("Bangla", "News", "Sports TV", "Entertainment", "Indian", "Kids", "Music", "Infotainment", "Religious")
+
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.LiveTv, contentDescription = null, tint = Color(0xFF00E5FF))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("à¦²à¦¾à¦‡à¦­ à¦Ÿà¦¿à¦­à¦¿ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦¯à§‹à¦— à¦•à¦°à§à¦¨", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newChName,
+                            onValueChange = { newChName = it },
+                            placeholder = { Text("à¦šà§à¦¯à¦¾à¦¨à§‡à¦²à§‡à¦° à¦¨à¦¾à¦® (à¦¯à§‡à¦®à¦¨: T Sports, Somoy TV)", color = Color(0xFF64748B), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = customFieldColors(),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = newChServer1,
+                            onValueChange = { newChServer1 = it },
+                            placeholder = { Text("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§§ à¦²à¦¿à¦‚à¦• (.m3u8 à¦¬à¦¾ à¦­à¦¿à¦¡à¦¿à¦“ à¦²à¦¿à¦‚à¦•)", color = Color(0xFF64748B), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = customFieldColors(),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = newChServer2,
+                            onValueChange = { newChServer2 = it },
+                            placeholder = { Text("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§¨ à¦¬à§à¦¯à¦¾à¦•à¦†à¦ª à¦²à¦¿à¦‚à¦• (à¦à¦šà§à¦›à¦¿à¦•)", color = Color(0xFF64748B), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = customFieldColors(),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true
+                        )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = newChCategory,
+                                onValueChange = { newChCategory = it },
+                                label = { Text("à¦•à§à¦¯à¦¾à¦Ÿà¦¾à¦—à¦°à¦¿", color = Color(0xFF94A3B8), fontSize = 11.sp) },
+                                placeholder = { Text("Bangla, Sports TV, News...", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                trailingIcon = {
+                                    IconButton(onClick = { catDropdownExpanded = !catDropdownExpanded }) {
+                                        Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, tint = Color.White)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true
+                            )
+                            DropdownMenu(
+                                expanded = catDropdownExpanded,
+                                onDismissRequest = { catDropdownExpanded = false },
+                                modifier = Modifier.background(Color(0xFF1E293B))
+                            ) {
+                                defaultCats.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = { Text(cat, color = Color.White) },
+                                        onClick = {
+                                            newChCategory = cat
+                                            catDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = newChLogo,
+                            onValueChange = { newChLogo = it },
+                            placeholder = { Text("à¦²à§‹à¦—à§‹ à¦‡à¦®à§‡à¦œ à¦²à¦¿à¦‚à¦• (à¦à¦šà§à¦›à¦¿à¦•)", color = Color(0xFF64748B), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = customFieldColors(),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newChName.isNotBlank() && newChServer1.isNotBlank()) {
+                                val sList = mutableListOf<StreamServer>()
+                                sList.add(StreamServer("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§§ (Main)", newChServer1.trim()))
+                                if (newChServer2.isNotBlank()) sList.add(StreamServer("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§¨ (Backup)", newChServer2.trim()))
+                                val item = MediaItem(
+                                    id = "tv_${System.currentTimeMillis()}",
+                                    title = newChName.trim(),
+                                    category = newChCategory.trim().ifBlank { "Bangla" },
+                                    type = MediaType.LIVE_TV,
+                                    streamUrl = newChServer1.trim(),
+                                    backupUrl = newChServer2.trim().takeIf { it.isNotBlank() },
+                                    servers = sList,
+                                    logoUrl = newChLogo.trim().takeIf { it.isNotBlank() },
+                                    isLive = true
+                                )
+                                onAddChannel(item)
+                                showAddDialog = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        Text("à¦¯à§à¦•à§à¦¤ à¦•à¦°à§à¦¨", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddDialog = false }) {
+                        Text("à¦¬à¦¾à¦¤à¦¿à¦²", color = Color(0xFF94A3B8))
+                    }
+                },
+                containerColor = Color(0xFF1E293B)
+            )
         }
 
         // Channels Grid (Adaptive & Spacious for TV Mode, shows full details, categories and servers)
@@ -8936,260 +9140,40 @@ fun LiveTvTabScreen(
                             } else if (availableServers.size > 1) {
                                 Surface(
                                     shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
-                                    color = Color(0xFF10B981).copy(alpha = 0.9f),
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                ) {
-                                    Text(
-                                        text = "âš¡ ${availableServers.size} à¦¸à¦¾à¦°à§à¦­à¦¾à¦°",
-                                        color = Color.White,
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
-                            // If Live and also has multiple servers, show multi-server chip next to live badge
-                            if (channel.isLive && availableServers.size > 1) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFF10B981).copy(alpha = 0.9f),
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(start = 48.dp, top = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "âš¡ ${availableServers.size}",
-                                        color = Color.White,
-                                        fontSize = 7.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-
-                            // Favorite toggle button at top right
-                            IconButton(
-                                onClick = { onToggleFavorite(channel.id) },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(28.dp)
-                                    .padding(2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                    contentDescription = "Favorite",
-                                    tint = if (isFav) Color(0xFFEF4444) else Color(0xFF64748B),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                // Channel Logo in White Circle
-                                Box(
-                                    modifier = Modifier
-                                        .size(if (isTvMode) 52.dp else 46.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                        .border(1.dp, Color(0xFF334155).copy(alpha = 0.5f), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!channel.logoUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = channel.logoUrl,
-                                            contentDescription = channel.title,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier
-                                                .size(if (isTvMode) 44.dp else 38.dp)
-                                                .clip(CircleShape)
-                                        )
-                                    } else {
-                                        // Channel Initials
-                                        val initials = channel.title.take(3).uppercase()
-                                        Text(
-                                            text = initials,
-                                            color = Color(0xFF0F172A),
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = if (isTvMode) 14.sp else 12.sp
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Channel Title Container
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(if (isTvMode) 34.dp else 28.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = channel.title,
-                                        color = if (isCardFocused) Color(0xFF00E5FF) else Color.White,
-                                        fontSize = if (isTvMode) 12.5.sp else 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = if (isTvMode) 15.sp else 13.sp
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                // Category & Country Badges Row
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF0F172A),
-                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF334155))
-                                    ) {
-                                        Text(
-                                            text = channel.category.ifBlank { "Live TV" },
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = if (isTvMode) 9.5.sp else 9.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    if (!channel.country.isNullOrBlank()) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = Color(0xFF1E293B),
-                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF475569))
-                                        ) {
-                                            Text(
-                                                text = channel.country,
-                                                color = Color(0xFFCBD5E1),
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-// TAB 3: MOVIES SCREEN (Direct JSON & M3U Movies & Web Series Catalog)
-// -------------------------------------------------------------
-@Composable
-fun MoviesTabScreen(
-    movies: List<MediaItem>,
-    favoriteIds: Set<String>,
-    isTvMode: Boolean = false,
-    onSelectMedia: (MediaItem) -> Unit,
-    onToggleFavorite: (String) -> Unit,
-    onOpenOfflineDownloads: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("All") }
-    var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
-
-    val downloadedMovies by MovieDownloadManager.downloadedMoviesFlow.collectAsState()
-    val activeDownloadsMap by MovieDownloadManager.downloadsState.collectAsState()
-
-    val playMovieDirectly: (MediaItem) -> Unit = { movie ->
-        val isDown = downloadedMovies.any { it.id == movie.id && it.fileExists }
-        val offlineFile = MovieDownloadManager.getDownloadedFile(context, movie.id)
-        val playItem = if (isDown && offlineFile != null && offlineFile.exists()) {
-            movie.copy(streamUrl = android.net.Uri.fromFile(offlineFile).toString())
-        } else {
-            movie
-        }
-        onSelectMedia(playItem)
-    }
-
-    // Dynamically derive categories from loaded movies preserving natural order
-    val dynamicCategories = remember(movies, downloadedMovies) {
-        val extracted = mutableListOf<String>()
-        movies.forEach { m ->
-            val cat = m.category.trim()
-            if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true) && !cat.equals("General", ignoreCase = true)) {
-                if (!extracted.contains(cat)) {
-                    extracted.add(cat)
-                }
-            }
-        }
-        val prefix = if (downloadedMovies.isNotEmpty()) listOf("All", "ğŸ“¥ à¦¡à¦¾à¦‰à¦¨à¦²à§‹à¦¡à¦¸à¦®à§‚à¦¹ (${downloadedMovies.size})") else listOf("All", "ğŸ“¥ à¦¡à¦¾à¦‰à¦¨à¦²à§‹à¦¡à¦¸à¦®à§‚à¦¹")
-        prefix + extracted + listOf("â¤ï¸ Favorites")
-    }
-
-    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds, downloadedMovies) {
-        if (selectedCategory.startsWith("ğŸ“¥ à¦¡à¦¾à¦‰à¦¨à¦²à§‹à¦¡à¦¸à¦®à§‚à¦¹")) {
-            val offlineItems = downloadedMovies.map { it.toMediaItem() }
-            if (searchQuery.isBlank()) offlineItems else offlineItems.filter {
-                it.title.contains(searchQuery, ignoreCase = true) || it.category.contains(searchQuery, ignoreCase = true)
-            }
-        } else {
-            movies.filter { item ->
-                val matchesSearch = searchQuery.isBlank() ||
-                        item.title.contains(searchQuery, ignoreCase = true) ||
-                        item.category.contains(searchQuery, ignoreCase = true) ||
-                        (item.description != null && item.description.contains(searchQuery, ignoreCase = true)) ||
-                        (item.year != null && item.year.contains(searchQuery, ignoreCase = true))
-
-                val matchesCategory = when (selectedCategory) {
-                    "All" -> true
-                    "â¤ï¸ Favorites" -> favoriteIds.contains(item.id)
-                    else -> item.category.equals(selectedCategory, ignoreCase = true) ||
-                            item.category.contains(selectedCategory, ignoreCase = true) ||
-                 xœì=koÇ‘ßı+ZEY©å._¢ˆ£>-¤¨p)9Ã0†»³â@³;ë™Y‘´"à 0‚C.‡Ëå$9¹shãÎqŒ|‰óÅù+DşÀå'\W?æÙÏÙ!%ãT°©İÙ~MwuUuu=J éÅî°Õw£^èc/¡kh4ñ}të*şÖê£ØñFQ3r}·»ıM'váù,ò‚Ğİt"­¡8œ¸33¯¡<­ôhèÄ½7êºNØ;>ÙŞğkùúùO¬½§®OB·¿<õÜ!t‡îğØ›Còd=K*CùS/>yD±â²´HkàùğıºáÅ-?x<ı–İÇ³qnøÎèIs&3o€ši3P0ˆ·‡ãø¼93“i¿;OÜfgi¹>Ö˜}ÍÀŸGÍ¤ƒaĞ÷á>û˜›°¿ïœu½Üf~¶[ÇNïÉã0˜ŒúMÜl6Ûg;;íùörç[˜ìŒÌÍ!¶Nˆn¡ƒÁÀ÷F.Ú˜Äq0JŠ§Í\7ºfGù¶×Oše¤h~ß=n¡÷ ˜›ë,¶úãYôÔc¯G,ã3³¹êü×ucßĞÅ¸Xò¹µ‰ÿ¸á#VÆ?Ï×M{[CgôØåõÓo­hìôÜşÆysúNªggà`ÃlõÜ³xÇsı~³ô’å&°1"2ËßŸ¸aa8 ÁèÛ<àÂÏ²Åñw/FÏËµÆ>äIà÷É2<+ı #+ŠCãòâ‹ËOtyñûË‹¿ Ë‹_Àÿ—Ÿ~|ùé‡—Ÿã/_áç—_’¿¿Áßÿ”Æÿı†|ø5//ş@J¿­¢ï9§ÎhÁ şİsƒ™Fyàz€Ÿxè)Ş]\_ØX™‘Wà…¬D™ÇË$,( ?å}×äÛÅ”Ì8|hÂŸ¨u»Çí·èÎ˜E@ü0Vleh%%•³(öîdvZ{{igÓA—qèx~¦Oáà¸dV¿@]Äu  Qºk›ÁhÓ÷zOˆÔh çªFxC…‰ØôƒÈ•ÌCcÏdØÈOEëíÌBÊë¬‡ğ—òSÁ$
-(OëÔõŸÄÍÎ@€9Ñ‰3taï²„#7ìÂÃ&Æ e x	¬¤7‰â`Hv6y­¨)ê ¯¨ïîÕ¤ü/Wb&Ïù0½å$vÏ;¼*]LâŞ$.Ò\€î$àM^ŞÁUß*‡«íù»‚¢ÇAH‰Š3ê‡×?Ãü8Æ8Ğ@	6H¡nÀĞÑ.m\o|Ştüñ‰ƒ[k·–3‚îL˜	@ë„®óÒ|*çŠô ócßÅ¸ŒÆîˆÍ÷Vp:ò§åX9Y"Á†(1<ÓpÅûJxa[ø¢²Lv®tÏyCç±ûoòœOÎN²éRQmH¦WAïeÄR^C4S=óâ™!³#%«}6F.,ÓÖ.ˆ P
-Hn@fˆ½Ô\˜L.ÓxóYiğ¾Ï³
-PŞÛÚ© nú6ÙS¸îNòom¿¯¯©åÃ âIPz©¼Ÿ•Uw¨ ÎÎ ïßK÷K·¾Ÿßs>8/mc†¼ènÃ£gŸˆü	$Ñ™i…Ç|}ÕÖ?0ırW*tÂÙ,jöÏGÎĞë¥3‹¡;;¡ÛoˆQäáã=¾‰4’CkkI‚Ú!®‹î˜)âúÇçÉAw<œÄ@s»1®0h|à)’Y>ÜGGšpF˜*ÅîFøx="ÕÅû$vÂÇnüˆ	Ó°™³£™AVg~@ÏYôGş¢ğS{‘ı„?ÄxM‚iYwìö`rÆ!,Ißñ¿‡ğe`óƒYÅŞ`0r#º¤`«Ëí»}o2ÜN%[Ïw]@®9n²¹h”i|é‰T PÈ”TŠGÃéÆé‰;RĞ¿ÜÊß~£Lf5ŒËÕ›_Z^ØŞ×ãˆØŠğÊÇÑÛøPİlüíã_ü®1SÀÎüöÂº¼!²î¹LêÓ%ñ4%òå<‹Oñiggk¹İVp”ü¼÷3/Ó*¯CİòáÒ@1¾”•;]XXì,-Iz,=ŞX˜#oûîS‡‰:âÓJ‡{ÍXè“¾i+¢Ğä”R>%­`DFA5}L‰s(š,äğ¯âSig E€„ô4I¡¬l]æ)÷)÷#®Ô‚Šx»zEByièitÃwğqXÈ2ÇÕ´€ëgÊHLë¥·ç·WvÚJuÉD@+¾úáQöU²\úÂ™§”7ÙIÛ†:º;â¸¨¯J•²Y]"¨oge2>RÊ5©I>óy€É”ª¡ö¼YÔ g!#s*ºHaÙ±39ºÚª=U°9wRõVv·™î€J±;_Š 
-=#X_‰6Ïüàº¼xgqE¤9á =¸.Š§–Loui<«Ë‹_^~úO—Ÿá¿èòâ'—ÿsyñÇË‹¯//>…nA#üßä¢¾ø²‡/ŸáßtŠmZ4`¨¦ôÙLŸc³dxÉ\—|%‹B•èòiü%™Æ//?ıÙåÅoqYüècò…ÌçÅÓ"_Â/ßğğ§d’ÿHÚümR ÔößÁß>'eÈBæ~E">`}úçïñ§?CøËï>IÑà'¤ŒŠv÷—ÛÉÒ'ƒg]“éĞ"Ñ»Äš¾ø5íô3rÿğtu¥—	
-€W”\‘Ntâµàw¼´ç¾Û:âEE¤_UR¦˜J%¢{cİ÷p{š¿2`w–E‚=7‡½Ş	ºïÆ˜†Ía9Ùâ“mFîC=òÜÓ\P£È¸“ˆÊåª”YÊ0‰DÆl-˜Xg¹DjEÔJÛëG··P÷ÁÁÑŞî[÷ĞæúáÁÃîö^©8MrwÎFjDĞÚ(N _éMÂ¿Àk|³´3±eã-Sµ´Ej{ÎdÔ;qûÛƒÆœâ°é.ƒNO<ŒMr­¯)
-ğ$€QØa0Á\÷Òw}ç¼¹¼„³Úêç¶Â‰\Ãb½èùë¨3ƒ¾s£íK>ñê_å¿ıØ$ÜÉ<?¸wDï§Ü{3šíYÑË Ûø=ßUâŸİsÃÀNÁ'mP(•gÁæ<ÌAgQP*oxzY”Êd :´ÛtBÁÅª¼/yËw&uØEÙ¼äIXG JÈâƒ±.!?x½B®BVÇ0Æ”ƒ ğ–búåŸ7‹{CxÍ^Õ]©À¶D‰Á3ó2c£ä[’¨ß(WŸA8¸U`Ş–;p&~µzøK¢§jöéã²â*7vòş´wõ 0!¿°íµR)_ÎG½]8>ê·Ü9Ñ¯1…›u¡7WQã$ÇÑêÜ9šF­É(Â¨À
-ÎO‚8¸İYZX^\lw–—çWn¯,ŞíuîÜqï,;7O×VÚí[ïã¿šK¹,¥1Æ^ì+9’Fém
-H¾é×Öf(äYÁ¬©—Ì¨%³RZÎ ˜q]€
-o‘TÍXÒYUØ'Ÿ8‹y+tú^ûv |/Š1Ï¥'á#,èb	ø’P¿¢>ı®R¡.»uâ†J&‚©ÑÃ“Z3Õ¥móGé–ØÂEÁ©C¦t@j"«›jC6˜;Cã¦mæ@y+ª…TPa6 ÊˆíNgkqÅr;YN €Ş¾DòÑ×‚«eÁJa§©2î4ª7É=w[KJM
-ŒïGîrƒ5ØÕPÆDğRoœöÖİÅ•kØ8ÖT•Cf€:0F·åšĞ­Â†w<?1¸4¶ŸfDC~wÒé¨ÍìT 5á[¨ŞvuòĞéë¿byøN•çW¤Í µÑg€ê†ƒºVsdºRKökh¦Ë°/m^RL•£±0-‚=Jrc‹)Ï¤ S£š½¶ÏâĞ±Ç±ì=Ïkî?tÎÀ¸Œı:v5L’~pŠkÂz°¯­mß÷Æ‘™ÅÆ%AÇs£´†YO¾‚[›-Ñ¯FëdÈ•XbÃæÆÖÒv§‚’ÅNE	1ƒ'óöµkÃ s|1#QúRõ^…ˆÌÃE÷vÜúù·¢\„šë=‚Kh+t†Î,êº`=‹Ü¸×*O
-³FfÔGA÷„ÌÉ´:õõbğ’M.]Á]T`IhIÁ¿şÇ'ÿûÕÏÑó7»QCğjÔ»8fÎ-²äÎ=qz-:²â%FlîûÇ'=ˆœu‰Y¦tâé++/^2f6gykÇô=
-õ#»öĞ‘)#AşZ¯`l®ôäÂD›C„ˆ7>u]jZ£şÆ„‡˜óî
-ó·ÿùstã”¡Ğ[Yê˜^˜Í²E¹UCöóEŸ£æÍgé>$¾C*Ü,Tt"âç¡¦T6ù]wè™/€ˆ€è­•øšz¡Ôõ…H"˜Ö)IVê_ƒkb“=p²}yò%+uQ½pá¢œ3:§ŒÍëƒåi>n$Úİ>ó¢82”iÒÎ :ï–¦¢ûÎøŞÍ»o§]èš Ö­­ƒ·ïï¬oíŞË¸ãqèûƒB¡EÀ°/Ş›«¨mÔÃ>u-
-û»xAl.S¨µ	ù×\‚õ¢£§xÓ¿,öÑ¦2—ÀÌ…}ÜíG©Â'ÄBªO—•Ú-¯UªS¬È}7o†#ğ¶Œ¸%XQó‚µíGkB[ˆ¡±DÚàQğø±ïâ)'mf¾“yOçÚpéÙØÕŸÄß˜ÙdÉüñ­S<•Á$¦Î\‰ÓŠ¡ŞIáG˜	RkJ¼Ü¹ú@Ğ%WºàZ¸GäYXjø}Óõı¨µã¹ı&5¾ Ûc-Ñá-ØHÊ¼û+ĞûéŒ+%MØYˆ¸
-å"yï-+¹RÖqm¬¢~Ö`È
-I¿©¯…´[’òŠ¤ÛšTOMš§&Å6nUô/ù“@jTºåâ5ğ#t+AQ´å9>Æ½9ÄŒ N\7&•²ÆçÔÅ&y}4¬e‹úksûUIå7’:tşèc> :bÜ)Úb¦ıü$ë±.SµŒ{Åu/N¡‰âB£%F>	óŒ´Y4	}™c> ìPf¥%3ÑØ&4Y':[ŸØúDqè:C0l[ƒrÌ”~/uÄ‘Ü &ï²ŒH²¥¦Êc™ğÅ™ƒ™:ú™¼›àİóCÊ®wT[^4ôÈ¶~¦i'³ox„6¼s¾»IL;á0ùÚ`2QU‚˜«ˆ¼<¥CàTrï©ÀwAJ¼BügRÒ)ùÓÁ$NR¦HßVÑ.áìmú3_…UÔ$^İG^ÌI0?ûãk|»S³qû˜€ó‘QQà‡LÔ‡ö²0´ƒq8‡¥
-áò!2ñX¬§¼=¸6–½~ÎË‡Åvb˜Ûé,•NçÌA<*{‡‹Ì¸L¸¥¦Ú…JUš9¢g*‰­U²]f¶vÃÍr¼ª…ÎÖÂB6‚TÁ.ÛŞ&{^j“]æºÿñtWZôUGĞioÜ]éH{ª'ÌA–1WÖ¶'R?ı As#8CÍ£ €µxd«”íüR¼°iî,¥›f±¼i’Ú¡ÇM®ÆÁ˜X~¢5Òaá'Û£>ÿ.¹‡ÜdaF®È_\gÏÍà‡uÛ¾/ªmß…¦>C!A5Cv{£õá-â÷'ïÅçXğ=8:BNÿ1Ş|1ÂhöÜA\ªR5õm¤ø$•NFÌ‚Í\0	GEÌvî¯ïì¾‡‡Ú€«;V$QcÀ7fRi·…Az³vªKí»ÅR ¤Ç|ö‹ÖÔGlC™‡0v¬VÏÌ"ï	¼ÛzŸ®rË)ó²Æ½­†êŒv½.èw•W&Æ¶€Kæ¶€FašñşHˆ šM¢ü9„·,ëpJ\R¼ÜZ#Tívâ[±¡ Á/)÷µ›r‚ãı,™^Å‰öZ¨NûÒ«ÀİˆÉ¸½'›^Øóeád«˜…¶õ¶qZóOç`v%Ë¯cvvövïoÜ½Vº¸ÒJ>CxîèM-kä+’1¾„„¡RPÒºƒE¤Ğâ¡şÛ61BMğd
-Ë ×ŠÖàÊè“)n§â£Ïˆ¯èJL]0×ÓƒPs²€Ò¹Û]waIuò#°ˆ¢Qıddæ `CŒ	{CÒf/>™šlêÍw­M/±9µöÛşÂìøè|6SÉ6±Ç+Ùë)Å[^~½N€éãs×	M ¿şã¢›ÏÒ2ÏyŸr$R-°ñ`€>,¡§Ö•/jùúÓLnOĞ (ÈÁ¡9ÇŒV¬¢08… ûCg„å³˜Ê€ví/<Ä‡ÒR1š~Eu6o‰ˆ.÷˜÷¸Šöğ?Ï‹íÁtÖC·ãÅïVñJ[î™3ãC{ß‰nĞ9LJiÄs«˜¬&út:†äû%Mu2ALõ)UXgS"(UÖø è«Ãäâ YAUİÜd½ùF“Ş‘¥ñ¹…±ğÎS7Vxõ7š.˜ÖÂSØÍi«^´GÅ*£f‹*ùõhµîtÄ9$Ö­nL©sœ§ëıd’Ù¤İÍB}¨ÛˆÈënæ~`,”Ö1b¶`¹I¿¶X L²!f•àZ¦ñf²_f³(–e¬åÜ	IN*‹W’ïò‰;¦|8›©)Í8#¶û.5ÒÄ­H3BÉòA){vc=›UC™É?×›B))jhå},£Cª¬•/Ô0Ñ_«
-Å†:-´¿¾{=Ø[ÿ‡½İîQ=Úİ~[,ÃÎÏ\Í0Š­Şs¸É9NWÑîƒ£G)¿ÃÍ;øâ	ù3Ä%ü‰F^‘$¬$xI~”‹rˆŞ¥Tª^®DObÙÉl¥¦7êŸÂˆ_–õÄ®IÙYVäÅÖƒªyä‘S“‚äf‡ê—ˆ.@S\¸Ñ™Ö»Je^˜º†ƒí]F'µ.@•Òe‡$Ó©¬CáØçqçr©ç Uó©t…”…Ô¢œÉS0+ÅŒş¯´-wìÓ¶ Øä²)‰KÔ!…¯eÑå$ı«Ë‹“x°4NìŸÈÏª° ¢Àç¥£Ö‡šk•JXz6ñy5›³M(SaH‘§@j‚¡K R,[bqL¾êM2±”¶náØÒÖ+© êO~…§ZKØ«F×mgù¥†<Œ”øé49ªŒn]öØËß[±©õ–´EY•id6|"BëvÑ›CbÒ”×ø
-#ƒ^±°i˜Ï–È¨Œ41Â¶^Ró™é“
-óÀXe´Jæbè=œF“¸x Léµ{âú¢Ş§°q]’I¨³ôM“×Á
-ë@ã¦öÿP`W\Ì+ìÓŒ°õÜ¶–Hş-¢¯¤é‰ûUÄZ óIâ³Açá÷ô3zx¸7‹H‰ŸBŞhúæš¦ÉA¾&‰¸ ù‚¤¢N2@|A?‘¿&I1>ã©3˜ b$~ ÔrV¨á¤ `/½®Oâ`ßÃ Ÿ¯RQ?İ	ÂSğM¢+k§ÌŞj%Üê¤±4}î——*7;İD	º˜\½Õj5fXZÊ_"ô8»Ú<ç*³,¢¯{•]c¼¶¬6<«7Szíç»sÂÉ·^$çïæ<“¢ü›fSÎ¥ú*iÖ9 ©Ô\åx ‰P®ÍBPEª•í](îº²ÒL™Nõ" ¢¥„8vtg~ÓexÓÈSÅœi)_¸]fšjB‰R-5–"U´•]Vè#% ˜FKX¤İÌK°¾–Ğ 6ágô
-~)Š¤Q‘€*±ÌMÈ#ŒÑu¨o1˜ØÛx‡ÔÕ%s“é2~sĞ'É¹–„@ïÈì;Z'¹±Jp“Õ¿i”ğjÕ,[	x¥òö3-Ÿd³ˆcË.ª(±ÁIGšš•µnÜ;yP°–j}»(¿%s«µ¤;ãvƒ¡#‡¦»Š¶Ïz.a¶áSÉØrYŒeà€§Zv/B²uÍ{6*i0T}È® mÎB½^Æ"(xgˆÈy‹ F?ahŸfkÑ;[Å³37•Mšì[|v 7âîQË¤wşöñ¿}š¿wÉÇÅÂØÏIøö/hŠÒw>´£w¾ÕîÈ9+ãÜÓ$¹©º”Ô¶­¯hÍÕÁ æ,4¦äÖÎJì¤—¯ÔºRzÕ4™…²æ‰İö·r­ÁÅ}bYJœpt¸½¾®ÀıÕoû–º¡e‹~¯{p
-’³äó†àÛ½BŞ…Zò-äü¨ª…%¯7UÃUùj‰ î(æ lå½h½?ô¬¥·«È™Sac¼¸œ9Õ³¤‘ËœóeÈ:5åNãÍÔ›å:w€mÒ©zK&±²Şˆõm@ÁÆÛéÜ™_¯?å_å.oİ|†e~d5Â¡7ßnÏ÷!H’òú¹å†«xYZã€²Êõl®ëÚTf%MÒk˜œV¨¸‹N&Ãã‘ãùhí¸§ĞV7ÎÊúBN#Ì‰vEÔIXÍìc·¤ÒèQ&a(rY†AU3¦,˜’$âUŒe'LjšDBU;ğ¨Vé(l‰˜à¢Ur\Õ•{™½Xù—)ìâFVI›¦ÍÌÀîÓô™É…•íŒ…MÔhp(‚:v/[I^o¬(•ãÑÓ*§˜JöŒ"¨fã(¹İ£=&¾ˆL\&¢ñÌ‚š€ ©­dŸææ³DÜ|ŞB7ŸqBk*z¾$	}æ-ƒö¹uq*ÌZ)'¤ƒ5C>3b8rS‰¸$>éİ2ª&Ò¹ªDµ9SÏ·Pw{o{óh{+q¨F›÷ÖïßßŞC‡ow·‰õÕŒ€ÜœÒ0|´Vº2¾q£dE/5ÂUü§÷„9~áMJiÁëˆ]âm7ÁõutèB7:yI|©%á¼jv„ÎØ
-Ç•1,”b®àò¾©<¯†1;ÖDa| $—®R†·PÁOgH'³ „ß„”:«` ­+Ä.k*/#Ï¹dê×ì·¬9jÄË*å-ÆäˆüF):ÿŠÎı!ãğG”Í«ıgêVpyñkü×ÔEÑLåU“Ë!@$ÈÚ
-¨Šå™µ­…O²gô¢EUãÊ=SñØîT3Ö±¥®'p6À
-`?7äNö>"»£Û	æòÍô~#eÖkâ>"dØv^$?§şORgê4%¦ƒ¯¼Lr@ò—VdZg‰PöÊç„C­ÂÿKçr²E3ˆ§±bY(¼Í,•oIêo$ˆ&Ç‰¿sXm’¯¬(1FaPÑçÓ¿ÙŠ'îî °Â#ör©¥0ƒzŞêãv¼QOÄËXšïb†oè9æ÷:9xç~QQiÖ2O¹ˆŠŞ@ó¢×V&Öµ2ËR‡V)D
-‘½Œ™a1Õ»&É; Í=ØegÉÌ¿eqÄa•6cta®ÚG–~ÙÄégÊöcÅ<ìÎËĞàÖÒŞU>šåöúÒÎzi4Ü,ÖŞ9^•qš/“&ï´?XÅ Ç]é•ÊU£¬¤8CÆ7ÿö)Ás‡Úâ
-‡\:¬ÌÃû`ì`pu`¬ëdY€´1‰²P[U‘ÉlÒÍìyJÂ6fERª;EÈWâ+<)nW•ŒuG+7â²PÄâ<G"4½“bhSÑ+™E8Ín&Í›“	ušylÛ¥xñ3ó‘I@/'ä„YBrŸì ×d5ÄÜ+;ıø
-İÛáİ‡…Ã¨Ì!V{•=krï©ñJµ÷PV¸$øNÈ3)ìúx»Ç˜ÚI³CÈw¹>¼*¤	€I¬€ßñ òƒ^VáÅŠ€ÂËş¼Wl¥–ÖEr¥wª¾Z:àŠçĞÊóV>Âi|!¾´ŠÌã uIÏ¶İ×ëI›Ó;Ò2€ÖJXçLû’8¿&ôGš‹”%ş¤™zÙTÌ–fB™ô ÂY=WR.W^.WèW§­PÁ´,‘=¾êŒÁAOSl¦Lôû×c[Å¸m
-£¶’1»Y}IM…y¬MC©Áä”·X³İégpŞ/¼¡ê’g
-l»"3ÔÊ.¹'ĞæÂLk2»aŸßL<³ u©É¡Á,‰_±)£¨tE¨ÏEAWB2ÒÜKp°6E¬°ß^ãC3­ÀËhz¨g	Ú9f OŠfFBìÈGyxçÓ¸ŠYûLUö—²G€zP`*´ Ğ£†šâ\¡Iékô/ùgCÎÄ˜7²ĞBë[Ò9æ±6¶¶»$äìÖîúŞÁ[õõJ,Š¢€g·S6±ı×)cAµá°½Jbäb4|2‹:«¹°é¹ö½Ñxßw†®i¶±\Åı…	ä¶¯Rµë†Ã«Ö~¹$ùx¥Êœ(:Å§H“ÊImº y
-Œ¶¼hèEÑ¡ûşÄ%f¦òàîÄ|¨xD‡ÁV„XĞ¢’GÍIäâfbp$eçm¢oà¥Û´H„ë~ßnİÈƒÚıñ¨–£æ°ôLÌ{±aéUú«L_ÆO’¢@ÆÅ“ì`Â_•at¦‰<T_Àš‚Ôè’É×“µ‹ƒÀ
-	SË¼í†\ó™×«švgkı?»¼ø„å‡Ó&4ù+şI!®ø´!7—¥÷* rÑEÛXCîı¶I`"{«4ü£È€“É¿öwä2Â@²èñ$WÑ;Dàxx¸‡ŞÅŸK1ûÅ
-z[¢œ)üTäjïquUNÎ5‘/ì\Y“.#³¤Jw#©ë†İ=GYÖ]Cí).5“CÖGĞ=î_mCÕ:Âë‚¤ª•uR«aQq²ùcLÜ:+iU¦Ó¨¯³õ5¦s¦TYyMªˆä7|Cu^ğ†ê¼tŠ„¨£ü
-sªW;	àZv’ø©LÜ vâ:v :4–u8v!|jÖ1ğ&áÀ½JmˆÂé®äT’ªPd¾$|ç˜Üjä$!O¾¤éw¾¾¼ø5//ş%µ%‚’¿œQYÁ(­dÎ- İ~{]EûçùdĞÂÎXH~egÓí|8TLÈIª*İ8Ìˆ±T%EÈ)–äp•*àÔûY‚±Lw§ÃY€"Ş‚ô12È
-øÿNˆÜZO×¸Oâx¼:7ç9Ã11?ÎqsØÖpaR¦‰\)¦@LRİ9$†ƒº;ßiP1QèVÂÆT\!¥ÙÏPó^Åèz„ñÌ5aêêJ{¥ı
-C«`(À4HÈï*á`r©PsYö¸%+fÜ¼Ù«A¿	kı¾½|ãWI•ğ-¹‡ª†oòMŞòÕ Ü˜µş
-åÊ©‹?õ¢‰ã“S-Kõ´|…	~Vè.eÂÇz£–—\väêN‡3Ñ‡8¨¢d ˜DÊ ¨&9s ñ	RÉ¶‡ŞĞÀÄº+G[‹–ÀaÔyâ’mAÔñgñ,äbı	!ÿ?º¼øˆìHÌşœÜb|˜(ÊùñïK’qõkz-’»ê ]ìmßëèŞ{İ{‡G3-¸p0´İx¾«X¿,è­È`Gî)	vÅ…»£A`f×ã¡kŒı÷€e½wóY÷<Šİa‹E9ò†î>ŞÿŞ¿¦QêˆMYöØÎÖ¼åÈZbŠÕØ$ä!.JcØ0Gg‘×ĞQ+Ë&¦–¨4Ëj˜§1`Ññù’i¥C×éŒüsdšSH@™01‘óÔ)†Ob“ ¾‰`”ä<cY¿Wy¡¦­­Ø”6¹8E7ªïDc+[ØZQø´t˜2¥b„F4+RV–µ©|½(ØØPQ<şœg)Pş	tQ+¥œûJ¯SY\Ÿú#ÉI•ÿúĞâ!WádöêñÄóûTMù ,Ë,YŠY2ıf¸ğM#óLO4–uø¡bC”Ñ]Àd›u“6ÉÚU§'øhÇ„XW|è…ò¡œeÄbJò;™+Ñ©'G5Jü³¿còUoøÇn	í²İ+gÀÊT„Ÿ•ª™Yˆ¢qa466åÒG”Ò`i¸4+åŒ!ÿTd‘¨	ï•0ŒÒå”½¥–ØuÀŞ`‘ÿ  ÿÿ ¥:
+                                    colxœì}ënÉuğÿ}ŠÒd­Ìd©Ño¢ˆp7¼W4(QáPR>,Fs¦‡ÓPÏô¸»G­ˆ‹ H$q8	Nlî"Ÿ½6òÇë?ö«~øR§.İÕİU]U=MJ›ìÁ.5ÓS·®:uêÔ¹!ÚB»„ÍÎËııngçşF·Õ³‹¦ãÏÆş¹Ó¾?j-½ƒ`½‘çB£ÙÇ¶ã{gÓæ6ü¸Ó¸}Ìú±Æ-m‹-ôÊ¨×÷eÜ4*	ãÒx|ßÿø'èİWÎÇóSßí»á7ŒÚ‘÷÷5ººüòêò·W—¿ºúìo¯.A?7Ì&` SÊ§¶ılìÅ®yåQ0ûx¸şF{­Íìª>s½³1¼â~ò¥½øCóVdË8s†CozÖ¡÷Ü°ãã_×ÚÃÙÂó{ò`?Ğ/,€¾ÔëÒ¯ß)ıùî]t0B‡Ş9Ó!rü(@c'B“¹{3ßE]ï%ƒsúø}†co†¦€&q€|hâÔ¹¥ıy#ÔŒéÔõÛ^Dú½}I±½º&¨İŸ‡#gàšav4vf€0ÇÁ|:t‡»A8uÃ><lnÀš˜-~m¯‹"£á¤#i‚£mõğ V7ÊÆÁÌ[ßzçŞÛMpVó§ûœ}çkìbì:;Ã$ætÇÁ91A·æ¥´‰ƒA0İ!uôhLw}oğÏÀ+üù„tÈûO	Ñ°…^ëW¡ê•íÏŞth¶Ã›ËÆë— „~×šìX˜l³İêMœ3÷©;ˆÉBïExª[¤‰¨Í(n;Y}×\Åo;A8tCSZ<ñ¤î¹Ñ ôf±‡1	“Ş’!iˆ½iœtJÚ{û«Zt¼éãõÕ{«;0|da»ëf´u‘-‡Ç<Ÿ,beüy¾ÿĞy	¤±i‰¤ªµ‘§Z†GrÚH²Çpåt¿íâ?nø )å_èÛä£ØCgzæò6Óo¬Õ…7&ˆ»”¡Ãà,@Ş‘c	ízáÀ/ç¦ v‚—fûs!ƒ +İ'/pu·…Ö€ÀĞ]±j†ÅIkß›5éûŞË¢ê©3x~½h
+g¸M„¶4»×Òí¼²²Ú][+0pk˜CâH­ˆR:ÖÆOÁªÜâG™QèI¼õ£¹ï…;¾3}Şl™¶°]L@ÌÍ¹4 Œ_.lÚÜPÌ¹ )5ç-Æ^ì[°kB{}¼“]Âö¥_Ûû^l×Ø";ˆƒl'­®&;iÅü Ï´Z}G™•|M‡gEY;˜z±‡o–Æu_`âï±JùåoÇÎs·¹ÒjÏg378‘é‘`wõ `×>[äË_;ûİ{ËÛ†D„ƒòîàcZhß»ÁdQ°»Š¯3t»Ëøcİècp©Ğ_ôgøš6e¼Ô˜ÌH“C-}Kr RºàxSƒı|3Ç-ã¨yÃxlß|²k»’’—e+!ÇÍa•d¾+é$í:áp?Ì#w(2ıNom_dúä¶Ú2‘°ÍÖ}3‚çå!Fw ®ËæµÌüà×‚;b_Û=Ÿ>‘gAa	2±¦Èg†Tæ­øøğ¹ÈM²0Å+¦ôÌDôQ•Zµ RNìáº‘p>ñ§±Fè88×6€Ë˜m*á¥¼îDğ^Ã:|³EJ.Q%4ä)+ã_ÔFM¬$Â %Ráuó·¨áÈ§Ü†3†7|‰ï$“Y¹íÏ¦¸M%$ı807„¯)òÛŒ¡ÄÏ‚­«ÌAqb=`İöFän‚^¡Qœ<m˜áDL6%Û51E÷B}ßŠJófe”ºïN<;j`,ú]—êš,;K‡®]Mİqã|%@æ†< tt‘²5}¨Æ H4P½åû+¦òHuĞšÕ{kkë÷i€ÍTØÓ€<İ¡Ën7= Å™ŞİÙ[ëu-g@ 4öä„7 #)İ¡7ŸØ·W]ŸT¨ÂbUÙ»ÌH‚É…´Ú¯ò_ŠO³OÒoôÓëw^¿ƒù¿“í´²‰==èõQ÷¸×{„š{^èbôÍşÑ#Ì>\y‚Wï…‡gõ6zæ¢¾ÂÌ;:~pÖ‚vî,ïüÙ.!
+ w}g4Ÿ²ŞNœÓş t]¦Y˜‡›èĞ‹â?„tbwò>Å‘SÇq‰¾ÿ)¦&ÉØ¯üÄİÄ·ëÀw¸Œ|êÒŸƒißõñ“F7Q3i¼…î¼L¹/¯ßÃEi7…rG3wz4Áıa/8Ÿúãj&å@]øúN§@E.Ã„ xìÒ¯íÁ<1ËŠ…(rp0şó¹‹õÓbÖyrŠ÷×+4™ÇDocşçhÔl4Zl¥i5x?|(pv¿¼î¶ïK«“uÙÂ=7v<?*m%]¢ŞoNñIØâ—xİ!›Ö&iŠ|âÓõĞ™:g˜ZäîÃaI&h;"}1ù4ëbÌê%SşĞ™i¦m›LÚœùÎmì
+ÿBŠ!DLP?Iö4FĞ5ş=ÿ*mgz+yqÛ¢­-Z>ß¾Gïö^bd„Í±ö="q–¾Ü™ï%½AÁ&Ã¯¥¤—V¦MxIxŸ„E%cÆ;»µ…`!sÛ.d‘Ã¡=}G‡®3yú)'ĞºqûIèµGa0!CÚlµã€n­¦pîKeÄ¤—q+lê&¿#~äL·ö.¦Î„ŞæAàÀ.€”04D'‘‘4]°NÂ#CS'‡°À½¤˜M[ÜM[ÙJ6I“6²T@qê ¼R¡;WfÛ
+ÈŞUŒ®	2;Ú&æ§Â3Š˜ĞPt’^p;“œäØN91p®AÌØVXì[ğĞıöSÌfãÉôù¾±„ğ5;İ]'4ŒÃ¹[,ü¡‹yPÇ—–qi„‘N^¾= RÓF¥d Óâ˜± %-B>ExiGŞK¶
+›•LJo2‹/ Ó}²”R.¡Æ>ıÇŸ¡«ËŸûÄ¿¾ºüüêò¿®>ûòäË«Ë/®>ûŞÕåoPóİW…v‰Q«Á$•Úm¤oÌŞá=ƒŞKıı¿ıô¿¿üAb52»¦ ÓœØ¢,Á\á Z*+Kâ9\å0Çùêmb=óâqÓøÕóh!PHØğ‘ŒğNğ¹@o$”¼ÙÊ¡	aò¶’›\¦}²nâ“6EzÇLÇ” vf:%ê/ÿ*%›Ö´
+ß•44îÏ-P>±'Œİ¨OzÇIçZÉ¼BãösPŞœõì”µØ$Mõ°pêå3îÑ ËÜB¡/xhŞIQâ+¬YÂúm¡ó±;-î>}%´ØèD^¢@X ¸@
+ÒW oå)LÓrâšÙUegI‘ÖØ-,€]oº2Şè»–g…GÙ‰ûÌ-»æ2˜ .p5ê Ï©œcbı8ˆbrÇÏ“’[˜v)F„1 ¡M›É´ÂD1ß]c'%ë‹?ß#o¦Ó”–Ø—Ì¨x¹³Ş½ÇFœÌQ²ØÁ»ù6bw@D­I“b½‰‰.W§³•VºÉŠDh§FÉÖµRídOòçhÃlA·ï¹ş°(”Ã(7w³OQHLŸB1ĞÀŸ¹äb&^›1ËøŠ0pÇOå•rZX.)l¶ä»ÄOåw˜wùGøÿê³O¯>ûäêòçÔ—åwàËÿÿgRÿ÷¯äÃç¨yuùKRúüm}Ó9w¦Kè$Fğï¡´JìM‹‚Äû«Û+;%b4A`¨¶ÊĞŸb‹¾ë ò¹-™qbÖ›5¾¥;cIn‚¤r‰›Éô-RóiÌàz¾Ğ§tğE.N¤.j9±`.šxg©Ñ@¯uÂfÉDìúAä*æ¡±‹g2ld§Bgƒh,,N¢LB{NÕÈ]™oI‰–¡«Ù¼$vVó(†»>ŞÙäµ¢¦¬¼¢pÛòó/S"Çã`zËIì¡w:xUú˜ Åƒyœ§¹ J½JÕ·2SØ+AòÆ£läG×G-Iw¦†AÜ\`MmÈfƒç ~ î2±fáŞ$ÛJCEN’÷Uœ…é‹ªvp¹gBÖ!»Áùäì!›®2ª-£Éô–Ğ{±T×Pz	,Ëg†Ì’¬jD$j²XbÁrN˜fÀ¢ª¯××q§.•¼EãµQQï_İtÊèOŠòGäU÷)£.È*SÔ„ï'Åï\¶1CŞÇt·áÑ³O„ÿŠ$œhkQæ1[¿lëŸ˜şO8Ã«d:án5R[\ŒK‚/TÒ/ê³ëáHs*–­­¤Iíi`Ì,Ëõ1DU•'³|¸j|›p¦˜*Åî>FøD“!E˜Ø	ÏÜø)c¦¹¡bœØ)vÛİå½gÑù‹ÂOUöş8’ã5¦eı™;€É™YşĞ™Ìğ¿Çğ=À–GK(Š½ÑhêFÀ"ôIÁvŸ?¢ŠçÃà\±õ|ç”ø4Èup—ÍE£HãOJm,JøJ*å£átƒXÔô/³òwŞ/’™’š	Æeê-¯­¯ôvÔõ*	k£•Àşroe[İÑ¸9]’OSÂYÎ“1û´’cŸö÷÷Ö;’%;¯Æı,ËÙ´ÊëP7¸6*_ÊÊ–Ú *–o,|"÷|÷…ÃX	ñIı¾`¯3}Ê7mG@šœRª§¤LÉ(¨ä`Âp·ˆ®6â_Õ&x
+q á%¶õŞºxz¤§O±sUÎqƒ%.jÔ
+ŠKCo£Ä/D~:×Õ´@	Ö—›ÄS÷ØåŞÆ~ÇBˆQ^òYÖ[X^Ğµ¯’w„¡ã²0Š2¿—dt÷,ØqV^5«ÚÃh¬`Ô¥ş'ÆWJ½§nê>®°ó¶u‘m†2äºœyõ¼
+±gÙÀlîFjTØfºªÌ[šû¼±¼¿iùÅUëê®¼¸®ªİåOH¤ñ¬6®.H”ÒŸã¿èêòûW—ÿôÔ ³şº9‰ğ’_ˆLøò·„½ø;|ùÿŞ koÓ¢CÙ°ÎÓ¨Ú=V$Ãkæ²äkY*DWOã… R?Áeñ£OÉ2Ÿ—ÿI‹ü
+~ùc©BR ÄöŒ¿ıœ”!Ašû1mˆTøD‚ôé—dœ¿ÀŸ~Mà/?ûiŠß'å`T´»ßİI–><ëšH_€ùÕ5 Öôå¿ĞN?'ú‡Ï¡«kU&” Á;«À~Î½61}Œâßmç·=S®Dva§ºîÛ·å†y‚}÷.:öcôÈ1}yóÉîßlû0rô ˜¸è©çfİ¨@Œ¢:dT.s *K• &‘¨[‹CLIDv‚X©·}òä¸·‡úN>|p‚v·ô{‡…â„5ÉèœÄˆÄHE}sù
+3İgà#í¥\Îr€ñ–‰Z:21‡Cg>Œİao4Â˜“6œG:eĞùì(›Ô¢@ï¤ğ< …(l0˜Ç`×Şº¾sÑ\_Ã×YmõŠs›éDna¶^öü=ˆ©ö$™m_õÄùØ<Ü¦ß™Á}${<ån8À˜Ñì,É^İÁïùq)şyÑ7ì|Êµ^áU¼Ám½ÀMo/«¥!&thÓ×KÈÆó+Ê–
+$i‰(AÄcYBvğr…LQÆP0doæ÷†Q”²2]©¡£Y" ¤wpa^Z6B¾¼£Xb,@Îøò;WEæí¹#gîÇQ{€¿$rªæ>.
+®2c'ïÏ"Õ¶½–+0¥ãUâî$1wr˜ÂÍºĞ›¨1ãY´y÷.¹šFíù4Â¨aïÎÆAÜé®­¬¯®vº+ëëËw6Vïº÷î¹÷Öîç[Îíoã¿VQeQ|òc´Û å³îtÚ%3jÉ¬”q¼ÅÀŒëTx‹¤ª`IgU`'œc|âGÌ‡¡3ôğÒØ·À¬áéMø3º˜Ã…ó?CI¨_!Új©@]v5êÄÓÀ|F| Êrÿ°ŒKZâ¬†aüB ·_ãÈ¬4Õü­kdÁÁÖº’ç9@½Şç E	D¯Ûİ[İ°ÜN– PÍ Q¼úZœj",GX„ƒ{‰M&nævÑ…D0ÖÜ«İ\»‘xDx«7NgïşêÆlkªÊ¡3@,àÄİ*L €Ä`\b¹ÊÆØ~š’ĞÀİr3»2Ğšğ­To»:ùh¨äõ_2‰<|§ÂóO+Òf€Úè3@=1×d­fÈt¥–ì×ĞL–a_Ú¼¤qˆ4Ó«G¥ZğN
+°0ª©Ğ«>Âö8&êyîYŸş_™ĞO 4°S~EO¾¢<,z¨d`oK"ëø“ªEäP® üoŒ$ÓÛqëçï¸C`å"ÔÜ\B{¡3q–XàŸ%äÆƒvqR˜523 >	úc2ÿÓjÑÕ¼d¥+¸‹J#‰-)Xô3.¾µçÎƒ™sË,¹…¡'N¯EŸø‚?2şnå±¯*/_2f6g©µcòñ#S{èÈ”#£*Õ“UB¥4‡0;n|îºÔ´FùÉb~npW˜?|úw?Gïbœ2dz+s‹3³âñ±jÂ·êqÈ~¾È…áç²%İ‡,VKÕ^VÁC³g¨é	ZOLPÑ[+œkº43e¿Jd°¨S’¬Ä¿jb“=œdIôœb€±2¨=ø˜YgĞ÷b4¶x7 '}ìB×¼ Ä¶wôìÑáÑöŞÁ£;…¾?(ºQô;ğâ}°‰:F=<¤®Eá„	²P¦Pkò¯9Ëc‚†™}´©œd¿Ú’`IÂ¿Ù4šÆ’#£‚¯UªS¬È|7o†#ğc¶Œ¸%XQ‹àò, Ú’ÚBLŒ Ò“pHšş-™kÃ=´xf<»_,ÜFe£ğáÃS<•Á<¦Î\‰ÓŠ¡Á8ˆğ£€G­ÄË©ıi¢Òõ$jáága©á÷]×÷£ö¾÷Òæ3E±Ü6ö’*ïş
+ô~1ãJEv–ÒzäÉzh’k=:nì¨¨ÿh0<
+I¿©¯…´[’òŠ¤ÛšT/Lš&Å¶1#Ó¢Ô¨”GÄ½ (Úó :2º‹˜ÄØui_Ñø<Q—ËGÙ¢şÚÜ~UQùÖ­¤?ú˜ˆ'wŠ¶(´Ÿd=Ö	U‹¸—_ùâäšÈ/t0}ŒQâhêÓ˜04Báš‡¾Ê1?ÍJ
+ÑØæ4Yâ´ÅâÂåÕârÌ”~/tT`VÕRÓe±LúâÌA‹L]fRöîÙ!	…ëÕM<²­_iÚöĞ†w4Üw–ªÄÜDItN£8Ş)²*¤äO[“8E™<}ÛDädïdÃ‰‹¿ÄÅ…@à`6np>2
+!ü D}è¬KC;‡sX«Î!ÂAˆßÀb=eíÁµ±ü¨ú9Ÿ|®“æv»k…Û9sŠŞá23n#n¥©v.¤E•f†èYD£Jbkl—Y„­O<·[ŒWµÒİ[Y#Håì²ím²—•6ÙÅSWğOw¥E_ùpİÎÎı®²§zÂˆsei{Â5ğÛb4w‚—¨yä°³ì2a»<«_÷ŞZºiV‹›&©MRƒJp5fÄòmÑK~½7òï
+ı»<ä&3rMşâ:Óxn?©Ûö}µÜö]jê3ÑT3d·7Z—Æ¨ıçsÇ÷âÌøœĞlrÈ‰FktèâB•ªx¨o#Å§’¬“b06sÁ<œ:Uğ±óh{ÿà[x¨Pİ±"‰–¸ÑJ¹İ”GxìT×:÷»Å„î,Hùìç­©OØ†2%`ìX]>3-DŞ[¼Ûş6]e1ËÚƒ½Òk7ë‚^ÿÈØpÍÜĞ(L3¤œàD`ÍæQv‡Ã[e8…SR¾ÜZ#Tívâ[“ÆUü’¾vS.Ap¼ŸÓ[¢1Ñª…ê´/½ÜÑ½ €,ìØ<§I¹k4íèmã´æŸ%ç;3•,WÇíï<êè^+)®´’Ï=½©e|eÜ3IDõÖ†JAIë"‘Bó—úoØÄ5Á“PL@¯­)ÀµÑ'SÜÌ	NåWšıvš€øÔs½½5Bö:Ópæ¤Q7;‹(ÕoFff‘1ÔÈÈĞ€±7$möì“©É¦Ş|×ÚôR›Sk¿­8_˜ß	ÏfÊÙ¦Yóöº„ËEyö–—o¡÷¨0}Lò±›@¿ÿ«Gï¾JË¼æA|Š‘HµXÀÆo€ú°<†Z×¾¨²ì“‹§Ä€€zÑ‰sÊhÅ&Ú	ƒs°?!Ùğ–0•é<Écyı‘ğ'£ú³Wò¦sù+g¼G–Â’;˜–§2tq;^Œñn¯ô¤í¾t&3|i:±CÂ:ÇI	#‰¸2³åR>fARL}*Ö¦¤LV°4™¤8YB>IŞŸÛ]šŒW“™2÷êï7]0­…§°›ÓV½è²UFÍæEò!OÜ¯'g'Öm™¹sœo“If:I;ÍB}¨?“Èëîf~Òpj’™&å¸UB‚kBãÍd¿d’ÎsÈIu%•e†+Éõfj+4ÒÄ­(3BÕ—GÆz13ª†2“n6…RRÔĞÊ;ú¨J)˜P•­¢B ı­ªo¨ÛF·¡Ç‡Ûÿïğ ÒGOzÏä<ìrëz†‘oõë€&ç88ßDO¦çfh>ÂÿOÈ¿¥á	I\Âß‘h„àIÂJ‚—ä2QÑÇ²”*RÑËµ°àI,;•­ÔâFıñ«²Ø5©ºË–y±õÃ buäÔ¤ ÑìPù‘hŠK7:“zçC©,KS×p°ÕépĞet*—”¥tÙ'‰Át"ëP¸ öy\ Ô¹\ê¹ÆhÅ|e²Bz„Ô"œÉR0+ÁŒü¯´-÷ìÓ¶ Øä²)°KÔ!…¯eÑÕ$ıË«Ëï‘x°4Nì¯ÉÏe`*DÍÏK·\j.U*<béÙä÷U1g›”¦ÌPI¥	†.p±tl‰AÆ)ùª7É`ÄRÙº…cKG/¤¨?ùj-a¯-\·ÕJu)ùÓErTi]öØÛß»dSë-ió¼*“ÈìøF„¶ ¸6‡Ä¤)+ñ•F½ffÓ09-‘)#0ÊÄØz)ÍgON(Íc•Ğ*™‹¡÷pANáâ° ×î²ë«zŸÂZØuE&¡îÚW_+¬#›ÚÿA†½D1_bÏ˜f„­GÛZ ù·‰t¾J¦7Äî¯TakÌ'‰Ï‡_ĞÏèÉñá"9$şòFÓ‡4×4Mò¥4IÄ%ğ$u’âÂxüšüı$IŠñ9OÁ#ö –»B7 {îu{½0ğı*eeñ÷óı <ß„ º6¶vÁì­VÌ­Kó×g~y«r³ÓM¤á óÉÕÛívc©KùK¤g×›ç¼Ì,‹Èë¾N„®1^[/7<«7Szí÷»{ÂÉ·*ˆóws™ñQöMÅ”s©¼J™u@É5W¹h"”k³ĞTájU»@Š»®¬t g¦+{ YˆRBœF#;ºÇ3¿é2¼iø©|Î´ô\¸S<49Ô¤e9×XˆXTÑVN¦¬ĞGJ 0–°J»YV`}-¡ lÂ”ÜÑ+ø¥”$Š$T‰enBÉ`T]‡úƒ‰M¾H]]B 07Y,ã7}’œI$ñßÑ:ÉU‚Qş¦-P4À«iT³h	$9+UµŸiû$‹˜EœĞ³XvQE‰N:ÒÔ¬¬=rãÁøqÎZª9óí¢üÌ­¶’îŒÛy†xšî&ê½¸ä °Ÿ*ˆ`Ëe1–‘7…3Õ²{Z­kŞ³QIƒ€¡å—ì
+Òfêõ2–AÎóX "×ä},ƒı„e M|f˜­EïplÏÎİ,mÒdßâ»x¸w·ˆZ&}ô‡OÿéG ùû˜|üÌŒı€„oÿ‚¦(ıáK;úè:]õÉÊÁ8÷À"Inª„.%õ¤†mR­Y ²ú#˜Ôœ…Æ”œÃÚY±TùjA­+¥ç(¡š†a#E(J˜¶ß¸•.„xæËRâü'Ç½í‡à
+üûÿ±o©šXô›ı£GP„œ%_˜7ßîò.Ô’o!ãGU-,y½©®ËWKuG1`+ïEÛÃ‰gÍ½]GÎœ
+àÍåÌ©í$ì\<9ß†¬Sî4ŞL½‰QnrÇØ&ª·¤a+ëXß”l¼ıî½åíúSşUÎáÒø£w_aY‚pâÄÍÆ7:ËC’¤¼~m¹á**Kó`ğBU¹ÍuS›Ê¬¤Iz“Û
+ewÑÉx>9:î¢Ãà, =…¶ºqVÖ7raN´ê NÒjf—»%UF2	C‘iÈ2l”ªš1‰`J’ˆW1æX0©E	UIìÀ£Z¥£°%bE\ªä¸ª+÷2{±ò/R•âFVI›ÍÌÀôiúÌäÒÊvÆ…Ò&j48”A»—ƒ-'¯7V”A™ãÉ‹*·˜JöŒ2¨fã(µİ£=&¾‰L\&¬ñÌ‚š £©­dŸæİW	»ùºŞ}Å	­)ëù–$ôY¶¸Úç
+ÔÅ©0k¦œÖùÌHˆáÈM9âû¤wË¨šHçºAÔæL½ÜFıŞao÷¤·—8T£İÛõÑÎñÑ³~ï˜øW_Ïˆæ”†)xì£­‚ÊøÖ­‚AUj„›øÏà9süÂ›”Ò‚÷Sâm7Çõ=tìB7¿%¾ÔŠp^5;B6„Òq	†…JÌ•(ï‘ÊE¨¨–ÄìØ’…ñP(]•ŞJ<u2 Ê‚~“Pê¬‚´®
+»¬…¼Œ<ç’ı©»hÜ°SÜzyÈQ£³¬RŞÒE¼Èn”¼Sñ‰áÜ/ç€ÿBb^íßP·‚«ËÁM]ÍD^5¹ÔA‚¬­€ªXş˜YûØZø${FÏZT5î©lĞ³€áN5ckVêÆÎ~0†Bu°Ÿj§{‘ƒéäæüÍâ~#Å£×Ä}Dz`Ûy‘ü€ú?)I¨Ó”œ~íe’’·¸°"‹:›(˜²¯}N8ÔÊü¿u.'{4ƒx+–…ÂÛc¨x}KR#I49Nüe˜Ãj“|ey¦hâÌ0
+ƒˆ>›üƒvì<wF€¥qI-…¨×í!nÇ›dgKóÏğ=§ÑüŞ£ƒ"ïÌ/eTšµÌS®¢¢÷Ñ²ìµKëZ™e•‡.ˆä"{†ùTïš$ï 4÷`Ÿİ%…~.Êâ‰ÃªlÆHa^¶,ıÄÄé[Eû±|	¦ó24¸µ´wUf½³½¶¿]7‹µw/Ë8Í—I“wZw>XÅ Ç]é…¥«F’ükşíS‚g.µù!å.¹tXÂÃG`ì` :0–u²,@Ú˜D"Ôp¬–‘I1
+é®xŸRK2.U2ä+œ+<)n·,ë®VnÄy)‹ÅÏIˆPã|hSÙ+™E87“æÍB
+m»”/¾0Bz5!'‡%$÷¸¥ª!?½ÄéÇï”ëŞçè>Ì]FU±ZUö’‰ŞSã•jïPFXAI<÷gR8˜ñv1µSf‡Pïr}(ø²& &±~Æƒ^¨/z¢À‹—ı}¯ÙJ-­óäJïT}½8$uÀ•Ï¡•ç­zW¤ÓøF|iK2ÔÅ=Ûztß¬'mFrlìHË ´U8€uÎ´o‰ókBô¡¹HyYâOš©—MÅRa&J“^T¸«‹p=!åD¸¦ğr"\£_¶@Ó²„?6ôøª3:=M1°™2‘ïßŒ-lã¶ŒÚ
+ÆlL³ú–š2
+ó6X›æ†RƒÉ)o±f»Ó}Ïà¾Ÿ{Ã2%ÏØvMf¨•]"23N$ Í•V{>›¹á ßßL<EP:ÔäĞ`–Ä/ß”QTº<Ôç¢ +¡¿iô¬M+ì··ÄøĞLjğ6šêm‰Ìa NŠfFBìÈGyxç‹¸ŠYûLUö—²G€zP`!´ Ğ£F9Å¹F“Òwè_òÏ"†œ‰1'nd¥¶÷Ò»Ìcííõú$äìŞÁöáÑ‡õõJ,Ê¢€‹ÛILìE…Äu¥± : EÄ#ìl’¹Ÿ/¡îf&lz¦}o:›Çœ‰kšm,SñáÊrÛW©ÚwCŒáUk?‰\’|¼RåÇNã[¤Iå¤6]€,¦{^4ñ¢èØıöÜ%f¦êàîÄ|(EŸ…Á®V„XĞ¢“GÍyäâfbp$e÷m"oà¥Û4O„ë~ßiß_©ƒÚKıñ¨”£æ°ôŒÍ{³aéËä×™¾‰Ÿ"EêO²ƒI-£³Hä¡úÖÔ¤F—L¾¬]$VH˜šXæm74àZ6È¼^Õ´[.õÿüêò§,?œ6¡Éwy\ñŸæâŠ/rs]©WP³.ªØÆr_rÑï˜&²·JÃ?Ê8ÿk¯#W’E—°'A¸‰>"Ç“ãCô1ş\ˆÙ/ĞÛÒ™²‘É/äI^î=^^•“sMäû WÖ¤ËÈ,©’n$uİ°Ósyİ-ÔY@©Qrbr-p$İãşËm¨Ú'x=ğBTµªNj5,Jâb!N6¿‡é£[g%©Êb•¼:[_c1gÊ2ã"+¯É2"ùßPİ7¼¡ºoİ†"!êèy…Oª¯wÀì$ùS»AìÄ#tê@thÌëpìBøÖ.­càMÂ{•$Ò§»‚SI*BQù’pğS¢Õ2ÈIBüŠ¦ßùíÕå¨yuù÷©-”üa«Ì
+¦Ô@åÜòKÒí¸×Môğ"›ZÚÉ_ÚÙ"A;_r’ª¥îZr,-ã"ÔËO2¸JpåûY±Lv§ÃY€<Ş÷qxÂğÿ‰5¸µ®q9.ãx¶y÷®ûÒ™Ìˆùéä.7‡mOVæ•‘`Ñ˜ÈÕ`Ä$Õ@a8¨Óù.‚Š‰@·6¦âà*©Ì~†š‚(F·Ñã Œ[7„©›Î×ZCAB®¨„ƒ‰R¡
+f²ìqKV|póf¯ıæ¬õ¯ñíMàW%UÂ·DUßÔ›¼åëA¹kık”#(W^ü…ÍŸÜji@X*§å+ôTòs‰ìRå }¬7úayÉUW®şüt‚1S}ˆCY” “H Õ8g`!>§¬CÊÙ¶ãĞ›˜ØB×sbåhkÑ8ÀŒ:Ï]²-ˆ8şe¼¹X¿OÈÿw¯.Dv$>~“h1>Iåüú÷+’qõ·T-’QuĞ.{><yğ­şƒ£ã“V†–Ã¡ÏÃéŸ•¬Ÿz+2˜ç©{N‚]ñkáÁt˜Ùõx@è3ÿ[pd}ëİWı‹(v'mmäÄ›¸ñş÷ğş5RGlÊÄk;[ó¶7"k‰)Vc—‡d¸(aÃ!D^CG­8P,››Z¢Ò,¨aÆ€EÇç
+$ÓJÇ®3<šúÈ4§„01‘óÂ.†Ob“ ¾‰`šä<cY¿·T¡¦­]²)m™8E·ªïDc+[ØZQø¢p™2¥b„F4+’ÈËÚÔ‡s=ÏØØPQ<şŒg)Pö	tQ+¥•Üû
+¯S^\Ÿú#É÷H•ÿø
+Ğâ	á{õtîùC*Î¦ç ,ËYŠ%2ıf¸ğU#óL€O$–uø‰`C$È.`²ÍºI/›dmŒ*ÍÒ|´;„X¯Ï¡7ze,#ŞĞ¡¤ÖÉ\‹L=¹ªQâ—˜ı’¯zÃ?¦%´Ëv_:V¦"ü®TÍÌB£±±)—>¢”Æ KkÀ¥ñü$¬ôd¤ùëü‰šğ^ÉQPNÙ[jÉ]·ìÆñù   ÿÿ Ój­
