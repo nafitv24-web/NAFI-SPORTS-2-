@@ -4290,12 +4290,106 @@ class MediaRepository(private val context: Context) {
     }
 
     fun deleteNotification(id: String) {
+        addDeletedNotificationId(id)
         val current = getStoredNotifications().filterNot { it.id == id }
         saveNotificationList(current)
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            deleteNotificationFromCloud(id)
+        }
+    }
+
+    suspend fun deleteNotificationAsync(id: String): Boolean = withContext(Dispatchers.IO) {
+        addDeletedNotificationId(id)
+        val current = getStoredNotifications().filterNot { it.id == id }
+        saveNotificationList(current)
+        deleteNotificationFromCloud(id)
+    }
+
+    suspend fun deleteNotificationFromCloud(id: String): Boolean = withContext(Dispatchers.IO) {
+        var anySuccess = false
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+        for (dbId in databases) {
+            try {
+                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/notifications/$id?key=$FIREBASE_API_KEY"
+                val req = Request.Builder().url(fsUrl).delete().build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) anySuccess = true
+            } catch (_: Exception) {}
+        }
+
+        try {
+            val rtdbUrl = getSavedFirebaseUrl()
+            if (rtdbUrl.isNotBlank()) {
+                val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+                val targetUrl = "$cleanUrl/notifications/$id.json"
+                val req = Request.Builder().url(targetUrl).delete().build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) anySuccess = true
+            }
+        } catch (_: Exception) {}
+
+        anySuccess
     }
 
     fun clearAllNotifications() {
+        val allStored = getStoredNotifications()
+        val allIds = allStored.map { it.id }.toSet()
+        val deletedSet = getDeletedNotificationIds().toMutableSet()
+        deletedSet.addAll(allIds)
+        prefs.edit().putStringSet("deleted_notif_ids", deletedSet).apply()
         prefs.edit().remove("stored_notifications").apply()
+
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            clearAllNotificationsFromCloud(allStored)
+        }
+    }
+
+    suspend fun clearAllNotificationsAsync(): Boolean = withContext(Dispatchers.IO) {
+        val allStored = getStoredNotifications()
+        val allIds = allStored.map { it.id }.toSet()
+        val deletedSet = getDeletedNotificationIds().toMutableSet()
+        deletedSet.addAll(allIds)
+        prefs.edit().putStringSet("deleted_notif_ids", deletedSet).apply()
+        prefs.edit().remove("stored_notifications").apply()
+        clearAllNotificationsFromCloud(allStored)
+    }
+
+    suspend fun clearAllNotificationsFromCloud(allStored: List<AppNotification>): Boolean = withContext(Dispatchers.IO) {
+        var anySuccess = false
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+        for (notif in allStored) {
+            for (dbId in databases) {
+                try {
+                    val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/notifications/${notif.id}?key=$FIREBASE_API_KEY"
+                    val req = Request.Builder().url(fsUrl).delete().build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) anySuccess = true
+                } catch (_: Exception) {}
+            }
+        }
+
+        try {
+            val rtdbUrl = getSavedFirebaseUrl()
+            if (rtdbUrl.isNotBlank()) {
+                val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+                val targetUrl = "$cleanUrl/notifications.json"
+                val req = Request.Builder().url(targetUrl).delete().build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) anySuccess = true
+            }
+        } catch (_: Exception) {}
+
+        anySuccess
+    }
+
+    fun getDeletedNotificationIds(): Set<String> {
+        return prefs.getStringSet("deleted_notif_ids", emptySet()) ?: emptySet()
+    }
+
+    fun addDeletedNotificationId(id: String) {
+        val current = getDeletedNotificationIds().toMutableSet()
+        current.add(id)
+        prefs.edit().putStringSet("deleted_notif_ids", current).apply()
     }
 
     fun getUnreadNotificationCount(): Int {
@@ -4525,7 +4619,11 @@ class MediaRepository(private val context: Context) {
             }
         } catch (_: Exception) {}
 
-        val distinctList = remoteList.distinctBy { it.id }.sortedByDescending { it.timestamp }
+        val deletedNotifIds = getDeletedNotificationIds()
+        val distinctList = remoteList
+            .filterNot { deletedNotifIds.contains(it.id) }
+            .distinctBy { it.id }
+            .sortedByDescending { it.timestamp }
 
         // Process newly received notifications for system push popup
         for (notif in distinctList) {

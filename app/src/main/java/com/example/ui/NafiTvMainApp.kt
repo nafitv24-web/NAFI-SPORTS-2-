@@ -5016,9 +5016,11 @@ fun AdminControlAppScreen(
                                 if (adminNotificationHistory.isNotEmpty()) {
                                     TextButton(
                                         onClick = {
-                                            repository.clearAllNotifications()
-                                            adminNotificationHistory = emptyList()
-                                            Toast.makeText(context, "à¦¸à¦•à¦² à¦¨à§‹à¦Ÿà¦¿à¦«à¦¿à¦•à§‡à¦¶à¦¨ à¦®à§à¦›à§‡ à¦«à§‡à¦²à¦¾ à¦¹à§Ÿà§‡à¦›à§‡", Toast.LENGTH_SHORT).show()
+                                            coroutineScope.launch {
+                                                repository.clearAllNotifications()
+                                                adminNotificationHistory = emptyList()
+                                                Toast.makeText(context, "à¦¸à¦•à¦² à¦¨à§‹à¦Ÿà¦¿à¦«à¦¿à¦•à§‡à¦¶à¦¨ à¦®à§à¦›à§‡ à¦«à§‡à¦²à¦¾ à¦¹à§Ÿà§‡à¦›à§‡", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     ) {
                                         Icon(Icons.Rounded.DeleteSweep, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
@@ -5072,8 +5074,11 @@ fun AdminControlAppScreen(
                                             }
                                             IconButton(
                                                 onClick = {
-                                                    repository.deleteNotification(notif.id)
-                                                    adminNotificationHistory = repository.getStoredNotifications()
+                                                    coroutineScope.launch {
+                                                        repository.deleteNotification(notif.id)
+                                                        adminNotificationHistory = repository.getStoredNotifications()
+                                                        Toast.makeText(context, "à¦¨à§‹à¦Ÿà¦¿à¦«à¦¿à¦•à§‡à¦¶à¦¨ à¦®à§à¦›à§‡ à¦«à§‡à¦²à¦¾ à¦¹à§Ÿà§‡à¦›à§‡", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 }
                                             ) {
                                                 Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
@@ -7399,17 +7404,43 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
     var clean = timeStr.trim()
     if (clean.equals("Live", ignoreCase = true) || clean.equals("Live Now", ignoreCase = true) || clean.equals("UPCOMING", ignoreCase = true)) return null
 
+    // Check direct numeric timestamp (epoch seconds or millis)
+    val directEpoch = clean.toLongOrNull()
+    if (directEpoch != null) {
+        return if (directEpoch > 1_000_000_000_000L) directEpoch else directEpoch * 1000L
+    }
+
     // Convert Bangla numerals to English numerals
     val banglaDigits = charArrayOf('à§¦', 'à§§', 'à§¨', 'à§©', 'à§ª', 'à§«', 'à§¬', 'à§­', 'à§®', 'à§¯')
     for (i in banglaDigits.indices) {
         clean = clean.replace(banglaDigits[i], ('0'.code + i).toChar())
     }
 
-    // Clean common prefixes
+    // Clean common prefixes and timezone tags
     clean = clean.replace("à¦¸à¦®à¦¯à¦¼:", "", ignoreCase = true)
         .replace("Time:", "", ignoreCase = true)
         .replace("Date:", "", ignoreCase = true)
+        .replace("(BST)", "", ignoreCase = true)
+        .replace("(BDT)", "", ignoreCase = true)
+        .replace("(UTC)", "", ignoreCase = true)
+        .replace("GMT+6", "", ignoreCase = true)
+        .replace("à¦Ÿà¦¾", "", ignoreCase = true)
         .trim()
+
+    // Normalize Bengali am/pm keywords
+    clean = clean.replace("à¦¸à¦•à¦¾à¦²", "AM ")
+        .replace("à¦­à§‹à¦°", "AM ")
+        .replace("à¦°à¦¾à¦¤", "PM ")
+        .replace("à¦¸à¦¨à§à¦§à§à¦¯à¦¾", "PM ")
+        .replace("à¦¬à¦¿à¦•à¦¾à¦²", "PM ")
+        .replace("à¦¦à§à¦ªà§à¦°", "PM ")
+        .replace("à¦à¦à¦®", "AM")
+        .replace("à¦ªà¦¿à¦à¦®", "PM")
+        .trim()
+
+    // Normalize "8:30pm" -> "8:30 PM", "08:30am" -> "08:30 AM"
+    clean = clean.replace(Regex("(?i)(\\d+:\\d+(?::\\d+)?)\\s*(am|pm)"), "$1 $2").uppercase()
+    clean = clean.replace(Regex("\\s+"), " ").trim()
 
     val nowGmt6Cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("GMT+6"))
     val currentYear = nowGmt6Cal.get(java.util.Calendar.YEAR)
@@ -7421,23 +7452,37 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
         "yyyy-MM-dd HH:mm",
         "yyyy-MM-dd'T'HH:mm:ss",
         "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd hh:mm a",
         "yyyy-MM-dd",
+        "dd-MM-yyyy HH:mm:ss",
+        "dd-MM-yyyy HH:mm",
+        "dd-MM-yyyy hh:mm a",
+        "dd/MM/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm",
+        "dd/MM/yyyy hh:mm a",
         "hh:mm a, dd MMM yyyy",
         "hh:mm a, MMM dd yyyy",
         "dd MMM yyyy, hh:mm a",
+        "dd MMM yyyy hh:mm a",
         "MMM dd yyyy, hh:mm a",
+        "MMM dd yyyy hh:mm a",
         "hh:mm a, dd MMM",
         "hh:mm a, MMM dd",
         "dd MMM, hh:mm a",
+        "dd MMM hh:mm a",
         "MMM dd, hh:mm a",
-        "dd/MM/yyyy HH:mm",
-        "dd-MM-yyyy HH:mm",
-        "yyyy/MM/dd HH:mm",
+        "MMM dd hh:mm a",
+        "d MMM yyyy, h:mm a",
+        "d MMM, h:mm a",
+        "hh:mm:ss a",
         "hh:mm a",
-        "HH:mm"
+        "h:mm a",
+        "HH:mm:ss",
+        "HH:mm",
+        "a hh:mm",
+        "a h:mm"
     )
 
-    // Check in GMT+6 first (Bangladesh standard time used in match playlists & BD live streaming), then system local, then UTC
     val timeZonesToCheck = listOf("GMT+6", java.util.TimeZone.getDefault().id, "UTC").distinct()
 
     for (timeZoneId in timeZonesToCheck) {
@@ -7453,7 +7498,7 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
                     if (!pattern.contains("yyyy") && !pattern.contains("yyyy-")) {
                         targetCal.set(java.util.Calendar.YEAR, currentYear)
                     }
-                    if (!pattern.contains("dd") && !pattern.contains("MMM") && !pattern.contains("MM")) {
+                    if (!pattern.contains("dd") && !pattern.contains("MMM") && !pattern.contains("MM") && !pattern.contains("d")) {
                         targetCal.set(java.util.Calendar.YEAR, currentYear)
                         targetCal.set(java.util.Calendar.MONTH, currentMonth)
                         targetCal.set(java.util.Calendar.DAY_OF_MONTH, currentDay)
@@ -8456,12 +8501,12 @@ fun JsonPosterEventCard(
                             val mins = (remainingSecs % 3600L) / 60L
                             val secs = remainingSecs % 60L
                             val countdownText = if (days > 0) {
-                                "d h m s"
+                                String.format("%dd %02dh %02dm %02ds", days, hours, mins, secs)
                             } else {
-                                "h m s"
+                                String.format("%02dh %02dm %02ds", hours, mins, secs)
                             }
                             Text(
-                                text = "âŒ› à¦¬à¦¾à¦•à¦¿: ",
+                                text = "âŒ› à¦¬à¦¾à¦•à¦¿: $countdownText",
                                 color = Color(0xFFFBBF24),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -8469,9 +8514,9 @@ fun JsonPosterEventCard(
                                 modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
                             )
                         } else {
-                            val timeDisplay = sport.matchTimeFormatted ?: sport.eventTime ?: "à¦¶à§€à¦˜à§à¦°à¦‡ à¦¶à§à¦°à§ à¦¹à¦¬à§‡"
+                            val timeDisplay = sport.matchTimeFormatted?.takeIf { it.isNotBlank() } ?: sport.eventTime?.takeIf { it.isNotBlank() } ?: "à¦¶à§€à¦˜à§à¦°à¦‡ à¦¶à§à¦°à§ à¦¹à¦¬à§‡"
                             Text(
-                                text = "ğŸ•’ ",
+                                text = "ğŸ•’ $timeDisplay",
                                 color = Color(0xFF60A5FA),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -9118,47 +9163,15 @@ fun MoviesTabScreen(
                         var activeHeroIndex by remember { mutableStateOf(0) }
                         
                         LaunchedEffect(featuredMovies.size) {
-                            if (featuredMovies.size > 1) {
-                                while (true) {
-                                    kotlinx.coroutines.delay(6000L)
-                                    activeHeroIndex = (activeHeroIndex + 1).mod(featuredMovies.size)
-                                }
-                            }
-                        }
-
-                        val safeIndex = activeHeroIndex.coerceIn(0, featuredMovies.size - 1)
-                        val curFeaturedMovie = featuredMovies[safeIndex]
-                        var isHeroFocused by remember { mutableStateOf(false) }
-                        val heroScale by animateFloatAsState(
-                            targetValue = if (isHeroFocused) 1.03f else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
-                            label = "heroScale"
-                        )
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp)
-                        ) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(215.dp)
-                                    .scale(heroScale)
-                                    .onFocusChanged { isHeroFocused = it.isFocused }
-                                    .focusable()
-                                    .clickable { onSelectMedia(curFeaturedMovie) },
-                                shape = RoundedCornerShape(16.dp),
-                                border = if (isHeroFocused) androidx.compose.foundation.BorderStroke(3.5.dp, Color(0xFF00E5FF)) else null,
-                                elevation = CardDefaults.cardElevation(defaultElevation = if (isHeroFocused) 16.dp else 4.dp)
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-      xœÔ\MoãÆ¾ûW0B° /×’å5º»µd+1à­7+ï¦=É‘E,E*CÊ¶âì¡¹äP´9í¡h‘KáŠ zJ/É_úšŸĞ÷~ˆCrFÒz·/Yg†óñ~?3Ô´*:ğ§®y<"T_«,˜¢‘gQG{¤™Ö£$˜0j=õ.mj8Ş…÷‚9Ú“}­1‚±¿ÿàmûÆÄõÇñ‡†éŒ‡^àİonoí´Û›Í­ÖŞı½öC³¹»KwwHóÉÕ£½ÍÍ{ŸÁgcCº[¦çÔ©o2{Ø+êc`Un´o‡BsİÔ¥ÑeŞX¾%˜5{`S­<¾Ûq’ë¾ı9Õ×¥Z’+Õñ®•–3ß1éºHŒ"©zNÌWÌ›¸–|cê°	ğÓ%eËñ#–K£Ş’cûÁé@ïzÇŒ3F€[	ƒÖ64ş“¾yİëm¶6wš»ëÀÁã©NœñÀŒm·ëj£FR«±JŞ€MFî²qìW?ÀÏL©Ññ‚ÀõÂEnË²İ½¹cXcÉ9Ñn¤ŸÑŸ°1!’?$cÔÏ‘‰©Õõ˜KYÔy/å’‰ÜÆõLÌuGÍæa{O~¢TŒtF¯™FïèàìÅó£C­ÿìôìäø£Ï4uL™ÑŸí@A3Ç4 •ü)µ/†´ÔK.Œºe±æP“AcmÃWĞğ1‰4}ÌºCÙŸÃ#Ğ]`-Ö`ğCKš¯c’/ıZ^Æ LcÈçVoc?å­ÎcÔXõFZšÉÊìè:`¤ã9–zsƒ5w•ùkD®Ol—úX[­¦|6p¼+¨‰ëq]Gc}Û—×0Ò%í¦PXCkî ¶ÿ«‰ãœ2V÷•¾~7Ê«Œ¹R[R—qÍİín5 RšCš‹ê 9Ÿ´Ôk¯ŒWV­¢êKU—(¿+¾SüõõZá§´.	èªwj7påkúÉyI;ddD6´>e6õ74˜FqR.Á˜QÔ?óúC>ÿÖÔ%#Ûì&wĞİ@+ßhv }ğHk8NC»w/¾üÏ_ÿöß¾ÖzäŠÔo ¿|=ÿ4>ìvÿ±p¢rYA¾ñ/éîQ‹Sƒ~6!Â†~ŸÇh—øÈĞ›Ğuí‹/2¥1È"¶[^^¼0¨^’¡*ñ‚£Ñ8˜Vë‘Èÿ­Ç>µ­`X¯Œ`ëuÏ¢Şs®/ru„NF³÷2Úr~é¼•ÑEïª§®î*thpE©„ÎŒûÄØZtáƒ²—QgZÙœŒ¥·‘Ehüüí¾×>’tfö-JViw"m$Ú`"j+Õóú|Ín˜İ~¯éŞÌåĞ‡N½^_dÃ({óh»×“´šYK)k'Ë&¿OG¶üˆˆéØæ+rîPP‡>u¨@Di9ô8@¹Ö[¯ê…ª®B>ŸJé¥(¯õ,ÔĞ·èÛKâL¨/Ğ +R>*«3Õ››µ±ŒŒ'–,ä>4aÜ.•±<ñj]Â¬chH%)‚Ïˆl ¼eûg—À,X3şªR9¶éP}}=¶ü¹ùä½1lKÁçôÜ>çShò&¹xJ-›„­íUiìÌ»¸p(ô3j/¹æwPÒÕ«×YoßÕ_½Ö¨J–AÁ	üˆÙ–æ©7	´«!uc—n
-Ë§™CÏ‡Ÿ@ãù”0sò–©Òû2ÉgÚ‚œ¨Éô¾ğ~—:oôìkjéèÅ<µ®m‡İÛpBä7[ba_@¸‹$ÀâM¨¥ÑE*$T¡Û…~õzCROHê%=°¹_JÎ—–ë¢—ÊÕZø	!Ö/»ŞhìùhN×W´ü¹ûş!Ò}­ãy%.Ÿ7‡øvÜï’ñôìkú:ğƒöÂµƒøN2ğôÍµ˜Í.	Ãæ=sâCx>Õpõèœ‡G£I€Cé N:^<_Zùb‚:ÄµGP¦çx$8ğyù9Ã„]Ğ€Ë*2úèyëZÓØÜ„’_ó›„X´?¦&ÔóÇã‹ŒÆğÿ9ŞâXÆÎö`Có{0p©Z¦Ïıø'œéÉèbÅyã9çp`ƒ¯‡Ækáªó¸dóÔDÆx²ê¬ÙFm¬¹]ğâ¼d¶V«™ªµ+¨Å§\çŸ¹;Ë'µ;DÅdap›¬ê#]ç—YF6ø3®sNe\Ã˜ÁôŒÔU 	y¥Ìİf\œÛC: ' } Ü‘‡(T”uvó¨õp«³jíÜc_;×bm]#f‚HapĞ3ÎG¨`~À¼WTßâfÁ‡_§^º™f®™­­vs{;Ê3§59Â›µv ¯ú«îÑ­Æn—ÃØB¸zT•åVÇ¢eæJˆ!Ë¦3$0a)ìwŒw,·
-Êß©šBğ?™Ç¦Úí7àòib]€DÚ™7ÖNè È”/ +TCà9”ŠqZ‹Ğ9ÇW\TU{b'ªv·¶w¶:’şVÑ=‹úPï{•§¢”B( Ÿ…³fØ€Êl||Ø(sQ¤³0êY—X–_Æûväğ¾ì/¹d3ğÔªí^ÈQÀK! )UòKË¯2hŸŒ¸ˆÍ/Áxßİ¬zEZ©bQ†QŠSË!´p.¦°Ü²€Yu*/3ÅØl¹ë_ÔÛ[½ŠP£€ ¯.$ æ¿¿aÏ :G¡‘s­o2J]ˆ˜wî?¬©v~„ÌüT{ºõ4÷¯FÉ(©è/ß|h7]
-{®İ8~â¾vÿ~;vŞãp…vìÀcÓ}X«‘A¯Á§ ü+bğ¸èyRB*:ÊÄ†äÌc«°ÉõãBl”LPä6—†Haöã“	eÓê ©Ñ˜GH,É¨&+XU73YOë.ˆMº±xn±¯.ø©Õå†şX§4á¯(ƒóVmÿÄ#¨¥š-¦Q Z¥	JP\·›¹¡G¡V‰Éì§jé	m¤'=­5PÁ¤n‚ITKRY”ëJn&   Ñêïy¢"õ \°Ğˆ­¤€y„8q)CÀ3³—@ö)ÂÇ`_§cù®Öèª0ğÍáÚĞ·ÜiN;Ë/6WTÜKìt‘rrö(œó¼±I)SŸ+í¥M¯2E„X„jQ…&£½Şr—wy4s	ôr!¨ñó·ß|©Ínÿ>{óûÙí¿fo¾ºÿnBÔú–Ãoÿ˜½ùrvûoá
-ª Œ»#jGäTú¸§“ÀUgáõlêÄË(–ÓB!Ïå‰²ĞñÌeÚò`"GR€f3é†Æ9ô&\¨FzrË kô§Ù›ßÎnáï/üËw†a46*œ§Ìµ`‚„ùW°ÎÈÛÇ&ÏÜhøEÇßˆ"A£Ï´!Î& Ğnh`5!Ä*\cô&"aŸFl'Õ)áòŠÜŞl´3AvuÏíbÆL°jë AÁLu=<áD5º0Õ¬‘«H"*fi§z¤4Æ$u¯PE–a+
-È˜’L¤9ñ¡q.­QRô è†C1jŠìh.y’¹D&*j4Û¯à£Òs*Ûp$Ï3$ÓÚª€Ç#n«2EÕXÂÛu÷S®âq'¥ÆŒI¨Û+Åñë$=' =®rO5m¶ÓŞmïuª´Y{¯ZNcÿÇÙ›ßî†ÏJ«ËoŞş8»ıföLğpıO¼Æ‹ï `^ñÇz¤ÒŠöóˆ»[P‹\u$„–«hÈ,’ú!§2&É¢´‰ü#P;vªvw„a†iê8œˆ²ğ•ä +Ë#©îï!Ré1V¢Râ” UÂÂ)ôª¶0R1„€U“ªYŒ –¢Œ²á³á‰kö”à`¨í@çAû¼§ótŒ1 9|–Ë2@@®v¾£¦x”<Nº×¸	æA§ûÚÑµI¹BUİj/èH*¢Ğ—í¢íQ|¼ˆ-¸èÊ?Yª¤ÄæòêıPU>”Ä>ºÕ"»"Ê¡½)%¢€ø¶î ñÑÿïlÙM”w¼GZú¤ğ2Ç@#7¬­tºmÎXïÚÌcò£PU˜-‹ Î<æÛÔILL‹8óy’U»ÿ8¶%øÕKòD_½z¬8<îì	#ÉúGUœÓ¸
-wû4ÒÆÔŠE	¸±£ş¶€%Î.& nEé\ ’œhÕŸ•\Z$ÔÔJ{JÃdË;<Î-©ÀÓ$8ŞĞkî¶Ş·ãÜ)†Ÿ8ƒ½ä14¥ùws¡£«‘£˜V½¹£ŠŞÆanôò`]mÿÀÙÊ^ÿB2„´Z9B¼¡×tµYWœ¤ÅÄ)wør,ğÎ¤Ò©X¬¹åE.neub‡t—¢‡¤VC^ïæX3RÊk<˜ŞS›1ë»`X½«Ç®p½ç¯:ÑZˆTâmÉéG¹¨ùÎŸ(‡íúÉ:íï ±®=-³À9®	;–BÜJ×H×Cn)-¿@Ö¨$¿RÊt[%›(KF!%"|uL	Tˆ÷„Haİ6¤Úè¨ªX*’Ú˜_Ù'aìÃ7ÁÇ¿U˜+¥Èg1S‘6SÕ/Å{IÊB/¹ó¬Ô7>¼É‹C¸?Cã[9~‚æG“‡Â²s®¼7“ïl•c^åf.Ã<b.=[†ÎÖD2i–RˆÔfæÄ!ìó.õıc×åÀì”F(µƒ­JèFçV¯‹~»£qË¯g·_Uïzƒ÷3ğ¦€ÓTqÍò-[BüR©¬>‹´‚ƒ°HJˆ’eHªxùİ §y†å/x‰|Ÿ
-õ=A<£œR³Uÿ¦ ^^tÂ.<áy£àÔn_`GLšîÍyw˜‹ì%—…]Ş/š=Œ¢ôæŠ¥·ÎÄT¯$ ƒ÷ÂQ¬W	áD>öû‡Ô„/¹J|tt™÷Ú-òFf¤ä­ÌÙ®¨&¬EïPZ\èå‹åGV{ñÉ…–„€<¥¸·É•,uYÊhñ÷^¦gÜ±^7&ã1e&ñ©hke•Â«yæoZ•ŠCD$¹R+È¥Õ£]Ù.$å×j- oïÉ‹ÈäßÁ¥şÓºp]®œbn
-¢føwi“ğ®2›káçëµÿ  ÿÿ A@—B
+                            if (featuredMovixœÔ\_oÛÈÏ§`…C@¡#ÉòŸMRK±.œ&9¹Ehre¡Hİ’²­Ëå¡÷rE{‡ö¡hq/…}(-Ğ§ëËİW1úz¡3Ë?"©år—Rœt8"¹;Ü?3³3óÛ%	ŒÀù”h´vS{}K« ó±ãMéŒÈGzå‡®ã]–OıYèx$0lâšs}»Õj5¥x˜Vèœ‘Ç„ú‡M.´ûš^¼õSè€1ñm}DÌpF‰ıÄ?sHÔ»ê—¼–(úæVé£3ÓÕsD’ãA¨OõÖ†Æi³v:$dnÍè [Ş‘çóëôõ¿0¢š`«¾5ˆ­Ì5J&drB¨öZ›ÌBóÄ%ÃĞÉÓ‘>2İ f¾|@°acà6´LàezÎê\ß÷ÆGvhÒS¾4İöÈiz®}M­m´6G†àÏÑ†[ôzÇ÷†Sb¿`JïT·ÍÉşànËØŞmhAèŒF  Ü²‚Æ0¹õ„ØÎlräŸ7Å/tÍâBıF:
+ÒòÍrééûîlâ‰G
+¤İ90M÷µ'ñÏJA7Fë>1/>vìp¬W+†15mGlìSçSßMì\»cØÓòÊU¦¡oR[Ü5¤:İcMVì"«3&Îé8Ô;í-aÏruœ]=gÉZ¾Ç$¹?6½SP·×õ‘'H.Å†)e:Ââ¨¨²ıµ\Çz…  Ä%Vˆ"nêE³Ú.–x¤`lNQ]Ÿû3°7vß§¡C¼©··qD«YœøÔf“ÍQyÓ³©ïØh4'S? Ğ_xÓk£ÇêCê¿"ú¦ó·êãS½u1´Z[ƒA³oæºÕMÑ8cÌ¡5(«ÈÈœ¹a`Xpq<ÔíèöA¦4Ï\aÿ£·w+eKfQíù:G7±Ââ¡7eWçı`îY‡ó´Â*g	^ÎL\QR×?õ_PW{¸æ/§ÁŞİ»òŒ™L]3ãŞıĞ¿ÓŞÚÜîv[íÍííÎîİî=«½³Cv¶ÍöÃóû»­ÖíOào£z¶²À:/|D‹:ÓxB–Ú:¡K”™FËHCæÒèS*Ï©rÊ¤8É•BY¥aÒu‘jô"­zbZ¯N)*³|{êÑÈÓ¡¡Óñ!5m¦F’ë!¸7ÌlÇÔi5)pËY’Nk»½Ó	ÎuÓMæ9ÜÛ5Õz¤Vc²!ãYdieñ0]çÔÓ÷ñï†vúği¨(-‰/-)rc"i‘†3:2-Cˆ$Xù$¾,Y(mÌÎ$RwĞn?êîÊ”J‡‘ÉEiö_<?x¤Ÿ==>:üğñ±‚¥N(×[ãã±*Xæ„F`’?fŞp¤FÏÛRZ2`vœ‰@ÁÂ'Ä³ô\7z‡ù*‰ƒb·šGò¥å<I¤á´€r}ŒØMfŒü«Õe,„kX½‘V²2;¸©Ùó][],`íeùš˜G˜CÁÚj5}³‘ëŸCMœ§ñ¥qàºÎ4py#]½áŸ,Í¡½pĞ ĞùxäO)(«÷JŞkM¨ñ*®LÃV´eÌr÷{¶ÚŠ RVBÚumĞBN:êµ×&+Hë6QÕ¥êgóäîr²~wïB¤’S4ï¶?÷ÏMß·˜,i¨917´!¡	64ZÆò °”^Ì‚ÇşpÌÆß{æÄ±úét·C–›sBí'÷µÆ¾ë6´Û·“ËÿüõoÿıîKm`AñNàş$Ğ‹oíÃhwpÇ!n`”[„–M¢de¦9FÌqnOf¦ËŞ°¡ßçSÒ7è(süÙg¹Òd™W^?1h^Ò¡)ñÃƒÉ4œ‹íHìÿ
+Â±8qTeŒ`ß³$?W×-z]9¿tÁeŸRLV¡÷Õ3Wsz$<'DÂf&mHcä–Æ}øCèË¸Œ;_9Q"¿:Ä+BãÇ¯ÿğ­öÈ”¤3[Û·(uZ¥İ‰ì"Ñ…%¢²Rµ©×õåw×—ßjú¯zˆàÅ›fÌæëÔ¡-½N–şLù	àlV5`9Uˆc+‡×êÕK<QâúGæ§s)»çµEÚÿb¸KÀ± k2»7×Û­µ$CÓ•,’>\ÂØºT¶ˆ‰UÃï!0RIŠD€û_Ş¿r‚ã3lÅ?U*'k:"}ñÏC;X,Ÿ¬5†c+øœIîX€‰töÁìØ?=u	´3æ—^³Æ.(éê½MàVînşÎâêM”ÑÏ(8RÇÖ\sîÏBí|L¼Ä¥›ÃôiÖØàX¼€˜Ôƒ¾åê£ö¾Ló™''j1ç½/|Ş'®ç‚Øz„<D2ÕÔ¶¢æmr$¡Bó#ho¹Zå^f’: õY¨¥Ñy&$2‘Ûš@å•vCÒNHÚ%;°½_IÏWÖëe=.Õ«[Ñ_±~Şg`.§·F37ì½{ëŞºéÖó}—˜7Ğ‡äqÒî’ÉğìizäA{á9aò$íxöá­DÌ¢İê;)Ø^©¼İÙ»ÜouDºãÍFfËC¼½!öWDÆ9‹xòæ¬İm¥ j›Ñ'yÉ|­N;Sk‡S+ğƒeğÒKô¥@<p×sZ'ÂĞF™¹Íf48D‘i ´¿ä`·:÷6{Í·ò^uaîÒlÚ6››İöÖVœgÎZòZ¸éNíÉºaìn9ŒÍ…«'¢,·:­¸Xæ®¸²l:C–Â~ë`¼«`¹"(—ÿD4„à~43]'œkwµ_Ë§õLû4"Ôı©vDFa®|) )0¡?ePj²+kÔñÕMÕ.ß‰Z»;[Û›=I«ˆèÇm¨ö½ÊSqJ!R€O¢Q3œÀd6?j”¹(ÒYõ¬K,Ë/Hã}Ûrx_şN!Ù2uŒæA»IÈR¨çJ•üÒú«Ú§=^ÆæWŞw3³.H+UC,Ê0ÊòĞ2-‹9L·,`&Nåå†Ù–»şË–â^w³·+5–ôõ… üwV!dğ¢s\"´cóDZ”â êŸƒûsêÁ:¿ÊËü\{²ù,÷/CJÌIZ1X½ÅĞ&aMŠZÍİ4yãvÿı,)vèüÑP|œĞ§ó=˜«‰A.À§ ü+Ó`qÑó´„Tt”‹!ÈYÄVQÒëK±Q:@±Û\"EÙf„ÎÅAR£±ˆhšQMgPT77Xè¸ó3Ë,[l«~ª˜Y¡ët‚@ŞE\pu‚#ßD3(Åv9LIÁ3AJêösô8´Â*I"#ıL-=• ì g­˜Ì#00©iI+ór]éÃ ä$Z"û½HTd^T‚.1ÑK˜Gˆ§2<s{	dßÂ}¶u>•oj…­ŠßÂ"\ú–;ÍYgyÉ‹-•DwÓuzY
+zv?óâb“1¦3ÚK‡œçŠp±Õ B„¦½¼Şr—wu4sô²–Ôøñë¯>×®/ÿ~}õûëË]_}qÿ»üQ7¼õ5ƒßşq}õùõå¿„[2b0î†<¨m ôqŸÎğÈ±qˆq9âYœËªéR!ßc‰²h9b™ËìÊƒ‰^H–Í"cè“Ğ×ÑD5²óP˜˜£?]_ıöúşı…ıøÆ0ŒÆ†ÀyÊPˆ›…ÕeûĞb¹×şĞñO`Ä‘ 1dÚàgØiV±r”½Í”ˆÛ¦š›iwú—¹½È´7EötßëcÆŒ3k« AÎHõ]=<î@5ú0Ô´‘«X#£´-Ş)1IEİk4‘eØŠB2¡4iÍ`Î´5ÎAò^ Íp	FMñ:ZHä.Qˆ–-šä¨ôÜƒÊ6Éóé°vğx,m¢%cÙ4–ÈvÕÆıÌ
+'xİã´”Ë±˜	) u»¥8~•¦tÀLîÓÑHÍšmwwº»=‘5ëîŠõ41ğ¼¾úØnø+\uÙÃËï¯/¿º¾‚%ø{¸ş'^ãÅ7P°hø;"\E—öóğ›[	Pó\u$„–E´dIıS™äQÚTÿ¨º¢İQ†aÚzN4WV½‘s¸D*ÛGåc£JGF³èUea¤åfMªærÍY)Ê(>®9ó¬±Âòµè,h_´t‘1F$´ÆÏ
+YÈÕÎw,¥)î§¯“æó7¡À8èdO;¸°3¨ª[í9Éä@Ú2r<\{_Ï¦ºòo–*)±¹\¼JäCIì£[/²Ë£Ú›1"
+ˆoç_ıÿîÉ–İDyÃ{¤¥O
+¯r4vÃª¿ç*Áš3Õûµ`±FıQ¨ÊÍ–ÅgóíŒª4&¡:Î|‘dÍ.Ç?NÖüİGòD_µyŒvöD‘dõ«ç4Î£İ>í‘ô1µƒbqnêª-`…³†«Ÿ	H¸(@’S­ês¡’S‹„–ZiOi”ly‡Ç¹%x–8ÇíÎşûvœ;#ğói3Ø+ãÈRV~[µ>®GZ÷æ½ÃÜèåÁ¼:Á¾=q”½şZ:„´^=Bâ|aĞâ-èj£®8&HõÔ)wØtÔøfRéPÔc·ºÊ%\Ö§vH7©zHj5äUğf5#e¼ÆıYè?q(õ)¸‰	«>ğé9î¢÷ƒu'Z« q'ŞÖ‘œaœ‹Zìü‰sñ®Ÿ¼ÓşëÊÓ2ëœ3à·aÄ­t8y=”–Òò5²F%ù•R¡Û,ÙDYÒ)éá§cJ B|ÆE
+«v´!UFG%PÅJÁÔfÀâÌ>Œb¶	>¹'X®”"ŸzKEv™Cî#)µ>rÁ—Y©n|ğº¨Ñşmåøşû3C˜š„8n4så½™lg«d‹&7wåéÙ2t¶ ÚI³”B¤µf®IŸQÿ”’ 8ôl0!ŒNi„RÙÙhU‰ÜèÂìUbÑo··	nùåõåâ}BWø<or$M×,ßĞ²ÉÅ/Jñ!X¤5„ERÊ@”ì,CRÅËo=-
+,ûÀKìûÔ÷ñŒsJíNõ—XyÁ'm£>o,¹#•§ÛkìˆÉÒ¢9ïs‘ı äª°‹Â÷Eó‡Q”¾\±òÖ™„ªM‚dğ¾A8jõ:!œØÇ~ÿšè#w‘AI®ò]»:_dFJ¿ÊœoŠjÂš÷å˜c­/–Y$'GzX²”â
+Ò&W²Ôe)£úß½Ì¸šxÆºiÌ¦SB-3 ¼­•"*…!Öó!Ì_Z•ŠCx$9SkÈ¥U£]Ù.$åÏjÕĞ·÷äCdòßàRÿiU¸.Ç‡˜-1ö[zIxW™Í[Ñß7·ş  ÿÿ ‰ËwQ
