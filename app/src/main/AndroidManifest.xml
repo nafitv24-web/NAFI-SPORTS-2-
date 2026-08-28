@@ -90,6 +90,17 @@
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-5646338291126580~5553278765" />
+
+        <!-- Disable Firebase Analytics Auto Collection to prevent Missing google_app_id logcat errors -->
+        <meta-data
+            android:name="firebase_analytics_collection_deactivated"
+            android:value="true" />
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
     </application>
 
 </manifest>
