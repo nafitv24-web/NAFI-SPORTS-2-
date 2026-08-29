@@ -96,7 +96,9 @@ data class AudioTrackOption(
     val language: String = "",
     val displayName: String = "",
     val groupIndex: Int = -1,
-    val trackIndex: Int = -1
+    val trackIndex: Int = -1,
+    val isSelected: Boolean = false,
+    val mimeType: String = ""
 )
 
 data class SubtitleTrackOption(
@@ -526,7 +528,53 @@ fun VideoPlayerScreen(
         // Load error handling policy with 5 automatic retries for transient stream packet drops
         val loadErrorHandlingPolicy = androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(5)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory)
+        // Custom MediaCodecSelector with MP2 / MP1 / AC3 / AAC fallback decoders
+        // Ensures broadcast streams using MPEG-1/2 Audio Layer II (MP2) or other formats play audio perfectly across all Android TV & Mobile devices
+        val customMediaCodecSelector = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+            val decoders = try {
+                androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos(
+                    mimeType, requiresSecureDecoder, requiresTunnelingDecoder
+                )
+            } catch (e: Exception) {
+                emptyList<androidx.media3.exoplayer.mediacodec.MediaCodecInfo>()
+            }
+            if (decoders.isEmpty()) {
+                when {
+                    mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L2, ignoreCase = true) ||
+                    mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L1, ignoreCase = true) -> {
+                        try {
+                            androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos(
+                                androidx.media3.common.MimeTypes.AUDIO_MPEG, requiresSecureDecoder, requiresTunnelingDecoder
+                            )
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                    mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_AC3, ignoreCase = true) -> {
+                        try {
+                            androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos(
+                                androidx.media3.common.MimeTypes.AUDIO_E_AC3, requiresSecureDecoder, requiresTunnelingDecoder
+                            )
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                    else -> decoders
+                }
+            } else {
+                decoders
+            }
+        }
+
+        val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+            .setTsExtractorFlags(
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
+            )
+            .setConstantBitrateSeekingEnabled(true)
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
 
         if (drmConfig != null) {
@@ -536,9 +584,38 @@ fun VideoPlayerScreen(
             }
         }
 
-        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
-            .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-            .setEnableDecoderFallback(true)
+        val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(context) {
+            override fun buildAudioRenderers(
+                context: Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                audioSink: androidx.media3.exoplayer.audio.AudioSink,
+                eventHandler: android.os.Handler,
+                eventListener: androidx.media3.exoplayer.audio.AudioRendererEventListener,
+                out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
+            ) {
+                val customSink = androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(context))
+                    .setEnableFloatOutput(false)
+                    .setEnableAudioTrackPlaybackParams(true)
+                    .build()
+                super.buildAudioRenderers(
+                    context,
+                    extensionRendererMode,
+                    customMediaCodecSelector,
+                    true,
+                    customSink,
+                    eventHandler,
+                    eventListener,
+                    out
+                )
+            }
+        }.apply {
+            setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            setEnableDecoderFallback(true)
+            setMediaCodecSelector(customMediaCodecSelector)
+        }
 
         // High-responsiveness Adaptive Bitrate Track Selection:
         // Automatically steps down resolution in 300ms if bandwidth drops to prevent any buffering stalls,
@@ -554,12 +631,16 @@ fun VideoPlayerScreen(
             setParameters(
                 buildUponParameters()
                     .setExceedRendererCapabilitiesIfNecessary(true)
-                    .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                                        .setAllowVideoMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
+                    .setAllowAudioMixedChannelCountAdaptiveness(true)
+                    .setAllowAudioMixedSampleRateAdaptiveness(true)
+                    .setAllowAudioNonSeamlessAdaptiveness(true)
                     .setAllowMultipleAdaptiveSelections(true)
                     .setTunnelingEnabled(false)
                     .setForceLowestBitrate(false)
                     .setForceHighestSupportedBitrate(false)
+                    .setSelectUndeterminedTextLanguage(true)
             )
         }
 
@@ -576,6 +657,11 @@ fun VideoPlayerScreen(
             .setTargetBufferBytes(androidx.media3.common.C.LENGTH_UNSET)
             .build()
 
+        val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
@@ -583,6 +669,7 @@ fun VideoPlayerScreen(
             .setBandwidthMeter(bandwidthMeter)
             .setSeekParameters(androidx.media3.exoplayer.SeekParameters.EXACT)
             .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(audioAttributes, true)
             .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
             .build().apply {
                 val finalMediaUri = when {
@@ -724,9 +811,19 @@ fun VideoPlayerScreen(
                                 }
                                 C.TRACK_TYPE_AUDIO -> {
                                     for (trackIndex in 0 until group.length) {
+                                        val isSelected = group.isTrackSelected(trackIndex)
                                         val format = group.getTrackFormat(trackIndex)
                                         val lang = format.language ?: ""
-                                        val langName = when (lang.lowercase()) {
+                                        val codecTag = when {
+                                            format.sampleMimeType?.contains("mp2", ignoreCase = true) == true || format.sampleMimeType?.contains("mpeg-L2", ignoreCase = true) == true -> "MP2"
+                                            format.sampleMimeType?.contains("mp3", ignoreCase = true) == true || format.sampleMimeType?.contains("mpeg", ignoreCase = true) == true -> "MP3"
+                                            format.sampleMimeType?.contains("aac", ignoreCase = true) == true -> "AAC"
+                                            format.sampleMimeType?.contains("ac3", ignoreCase = true) == true -> "AC3"
+                                            format.sampleMimeType?.contains("eac3", ignoreCase = true) == true -> "E-AC3"
+                                            format.sampleMimeType?.contains("opus", ignoreCase = true) == true -> "Opus"
+                                            else -> format.sampleMimeType?.substringAfterLast("/")?.uppercase() ?: ""
+                                        }
+                                        val langBase = when (lang.lowercase()) {
                                             "hi", "hin", "hindi" -> "Hindi (হিন্দি)"
                                             "bn", "ben", "bangla", "bengali" -> "Bengali (বাংলা)"
                                             "en", "eng", "english" -> "English (ইংরেজি)"
@@ -735,7 +832,20 @@ fun VideoPlayerScreen(
                                             "ur", "urd", "urdu" -> "Urdu (উর্দু)"
                                             else -> format.label?.ifBlank { null } ?: if (lang.isNotBlank()) lang.uppercase() else "Audio Track ${audios.size + 1}"
                                         }
-                                        audios.add(AudioTrackOption(id = "$groupIndex-$trackIndex", language = lang, displayName = langName, groupIndex = groupIndex, trackIndex = trackIndex))
+                                        val langName = if (codecTag.isNotBlank() && !langBase.contains(codecTag, ignoreCase = true)) {
+                                            "$langBase ($codecTag)"
+                                        } else {
+                                            langBase
+                                        }
+                                        audios.add(AudioTrackOption(
+                                            id = "$groupIndex-$trackIndex",
+                                            language = lang,
+                                            displayName = langName,
+                                            groupIndex = groupIndex,
+                                            trackIndex = trackIndex,
+                                            isSelected = isSelected,
+                                            mimeType = format.sampleMimeType ?: ""
+                                        ))
                                     }
                                 }
                                 C.TRACK_TYPE_TEXT -> {
@@ -1207,11 +1317,24 @@ fun VideoPlayerScreen(
 
     fun selectAudioTrack(audio: AudioTrackOption) {
         selectedAudioTrack = audio
-        if (audio.language.isNotBlank()) {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .setPreferredAudioLanguage(audio.language)
-                .build()
+        try {
+            val tracks = exoPlayer.currentTracks
+            if (audio.groupIndex >= 0 && audio.groupIndex < tracks.groups.size) {
+                val group = tracks.groups[audio.groupIndex]
+                if (audio.trackIndex >= 0 && audio.trackIndex < group.length) {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, listOf(audio.trackIndex)))
+                        .build()
+                }
+            } else if (audio.language.isNotBlank()) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setPreferredAudioLanguage(audio.language)
+                    .build()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
         android.widget.Toast.makeText(context, "অডিও ভাষা: ${audio.displayName}", android.widget.Toast.LENGTH_SHORT).show()
     }
