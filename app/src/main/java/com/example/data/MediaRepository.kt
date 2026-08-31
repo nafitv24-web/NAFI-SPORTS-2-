@@ -4796,7 +4796,7 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * Accurately detects network connection type (WiFi, 4G/5G Cellular, Ethernet)
+     * Accurately detects network connection type (WiFi, 4G/5G Cellular, Ethernet, VPN)
      */
     fun detectNetworkType(): String {
         return try {
@@ -4808,16 +4808,17 @@ class MediaRepository(private val context: Context) {
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile Data (4G/5G)"
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet / Broadband"
-                else -> "Online"
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
+                else -> "WiFi"
             }
         } catch (_: Exception) {
-            "Online"
+            "WiFi"
         }
     }
 
     /**
-     * Detects real device location (City, Country, ISP) without prompting runtime GPS permissions
-     * Uses fast network IP geo-detection with intelligent locale/timezone fallback.
+     * Detects real device location (City, Country, ISP) without prompting runtime GPS permissions.
+     * Uses fast, reliable HTTPS GeoIP lookup services with locale fallback.
      */
     fun detectDeviceLocation(): Map<String, String> {
         val now = System.currentTimeMillis()
@@ -4828,7 +4829,7 @@ class MediaRepository(private val context: Context) {
         val cachedIsp = prefs.getString("cached_user_isp", null)
         val cachedIp = prefs.getString("cached_user_ip", null)
 
-        if (!cachedCity.isNullOrBlank() && !cachedCountry.isNullOrBlank() && (now - lastGeoCheck < 6 * 3600 * 1000L)) {
+        if (!cachedCity.isNullOrBlank() && !cachedCountry.isNullOrBlank() && (now - lastGeoCheck < 2 * 3600 * 1000L)) {
             val locName = "$cachedCity, $cachedCountry"
             return mapOf(
                 "location" to locName,
@@ -4840,60 +4841,110 @@ class MediaRepository(private val context: Context) {
             )
         }
 
-        // Fast background IP Geo-lookup (or locale fallback)
-        var city = cachedCity ?: "ঢাকা"
-        var country = cachedCountry ?: "বাংলাদেশ"
-        var countryCode = cachedCountryCode ?: "BD"
+        var city = cachedCity ?: ""
+        var country = cachedCountry ?: ""
+        var countryCode = cachedCountryCode ?: ""
         var isp = cachedIsp ?: ""
         var ip = cachedIp ?: ""
 
-        try {
-            val geoReq = Request.Builder()
-                .url("http://ip-api.com/json/?fields=status,country,countryCode,city,isp,query")
-                .header("User-Agent", "NAFITV24/2.5.6")
-                .build()
-            val resp = client.newCall(geoReq).execute()
-            if (resp.isSuccessful) {
-                val bodyStr = resp.body?.string()?.trim() ?: ""
-                if (bodyStr.startsWith("{")) {
-                    val root = JSONObject(bodyStr)
-                    if (root.optString("status") == "success") {
-                        city = root.optString("city", city)
-                        country = root.optString("country", country)
-                        countryCode = root.optString("countryCode", countryCode)
-                        isp = root.optString("isp", isp)
-                        ip = root.optString("query", ip)
+        val endpoints = listOf(
+            "https://freeipapi.com/api/json",
+            "https://ipapi.co/json/",
+            "https://ipwho.is/"
+        )
 
-                        prefs.edit()
-                            .putString("cached_user_city", city)
-                            .putString("cached_user_country", country)
-                            .putString("cached_user_country_code", countryCode)
-                            .putString("cached_user_isp", isp)
-                            .putString("cached_user_ip", ip)
-                            .putLong("last_geo_check_timestamp", now)
-                            .apply()
+        for (endpoint in endpoints) {
+            try {
+                val geoReq = Request.Builder()
+                    .url(endpoint)
+                    .header("User-Agent", "NAFITV24/2.5.6 (Android)")
+                    .build()
+                val resp = client.newCall(geoReq).execute()
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string()?.trim() ?: ""
+                    if (bodyStr.startsWith("{")) {
+                        val root = JSONObject(bodyStr)
+                        if (endpoint.contains("freeipapi")) {
+                            val c = root.optString("cityName", "").trim()
+                            val cn = root.optString("countryName", "").trim()
+                            val cc = root.optString("countryCode", "").trim()
+                            val qIp = root.optString("ipAddress", "").trim()
+                            if (cn.isNotBlank() && cn != "-") {
+                                city = if (c.isNotBlank() && c != "-") c else "ঢাকা"
+                                country = cn
+                                countryCode = cc.ifBlank { "BD" }
+                                ip = qIp
+                                break
+                            }
+                        } else if (endpoint.contains("ipapi.co")) {
+                            val c = root.optString("city", "").trim()
+                            val cn = root.optString("country_name", "").trim()
+                            val cc = root.optString("country_code", "").trim()
+                            val org = root.optString("org", "").trim()
+                            val qIp = root.optString("ip", "").trim()
+                            if (cn.isNotBlank()) {
+                                city = if (c.isNotBlank()) c else "ঢাকা"
+                                country = cn
+                                countryCode = cc.ifBlank { "BD" }
+                                isp = org
+                                ip = qIp
+                                break
+                            }
+                        } else if (endpoint.contains("ipwho.is")) {
+                            if (root.optBoolean("success", true)) {
+                                val c = root.optString("city", "").trim()
+                                val cn = root.optString("country", "").trim()
+                                val cc = root.optString("country_code", "").trim()
+                                val connObj = root.optJSONObject("connection")
+                                val connIsp = connObj?.optString("isp", "") ?: ""
+                                val qIp = root.optString("ip", "").trim()
+                                if (cn.isNotBlank()) {
+                                    city = if (c.isNotBlank()) c else "ঢাকা"
+                                    country = cn
+                                    countryCode = cc.ifBlank { "BD" }
+                                    isp = connIsp
+                                    ip = qIp
+                                    break
+                                }
+                            }
+                        }
                     }
                 }
-            }
-        } catch (_: Exception) {
-            // Locale fallback
+            } catch (_: Exception) {}
+        }
+
+        if (country.isBlank()) {
             val loc = Locale.getDefault()
             val tz = TimeZone.getDefault().id.lowercase()
-            if (country.isBlank() || country == "Bangladesh" || country == "বাংলাদেশ") {
-                if (tz.contains("dhaka")) {
-                    city = "ঢাকা"
-                    country = "বাংলাদেশ"
-                    countryCode = "BD"
-                } else if (tz.contains("kolkata") || tz.contains("calcutta") || tz.contains("delhi")) {
-                    city = "কলকাতা"
-                    country = "ভারত"
-                    countryCode = "IN"
-                } else if (loc.displayCountry.isNotBlank()) {
-                    country = loc.displayCountry
-                    countryCode = loc.country.ifBlank { "BD" }
-                }
+            if (tz.contains("dhaka")) {
+                city = "ঢাকা"
+                country = "বাংলাদেশ"
+                countryCode = "BD"
+            } else if (tz.contains("kolkata") || tz.contains("calcutta") || tz.contains("delhi")) {
+                city = "কলকাতা"
+                country = "ভারত"
+                countryCode = "IN"
+            } else if (loc.displayCountry.isNotBlank()) {
+                country = loc.displayCountry
+                city = loc.displayCountry
+                countryCode = loc.country.ifBlank { "BD" }
+            } else {
+                city = "ঢাকা"
+                country = "বাংলাদেশ"
+                countryCode = "BD"
             }
         }
+
+        if (city.isBlank()) city = "ঢাকা"
+
+        prefs.edit()
+            .putString("cached_user_city", city)
+            .putString("cached_user_country", country)
+            .putString("cached_user_country_code", countryCode)
+            .putString("cached_user_isp", isp)
+            .putString("cached_user_ip", ip)
+            .putLong("last_geo_check_timestamp", now)
+            .apply()
 
         val locationLabel = "$city, $country"
         return mapOf(
@@ -4988,7 +5039,7 @@ class MediaRepository(private val context: Context) {
                             .build()
                         client.newCall(userReq).execute()
                     }
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     // Ignore transient network errors
                 }
             }
@@ -4998,9 +5049,9 @@ class MediaRepository(private val context: Context) {
     suspend fun fetchUserAnalytics(): AppUserAnalytics = withContext(Dispatchers.IO) {
         val rtdbUrl = getSavedFirebaseUrl()
         val now = System.currentTimeMillis()
-        val activeThresholdMillis = 10 * 60 * 1000L // Active in the last 10 minutes
+        val activeThresholdMillis = 5 * 60 * 1000L // Active in the last 5 minutes
 
-        val activeList = mutableListOf<ActiveUserInfo>()
+        val allList = mutableListOf<ActiveUserInfo>()
         var totalLifetimeCount = 0
 
         if (rtdbUrl.isNotBlank()) {
@@ -5037,7 +5088,7 @@ class MediaRepository(private val context: Context) {
                             val curAct = uObj.optString("current_activity", "ব্রাউজিং")
 
                             val isCurrentlyOnline = (now - lastSeen) <= activeThresholdMillis
-                            activeList.add(
+                            allList.add(
                                 ActiveUserInfo(
                                     id = k,
                                     deviceModel = deviceModel,
@@ -5082,86 +5133,151 @@ class MediaRepository(private val context: Context) {
             }
         }
 
-        // Add current device to list if empty or not included
+        // Add / refresh current device in list
         val currentDevId = getOrCreateDeviceId()
-        if (activeList.none { it.id == currentDevId }) {
-            val manufacturer = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
-            val model = android.os.Build.MODEL.orEmpty()
-            val deviceName = if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
-            val myCity = prefs.getString("cached_user_city", "ঢাকা") ?: "ঢাকা"
-            val myCountry = prefs.getString("cached_user_country", "বাংলাদেশ") ?: "বাংলাদেশ"
-            val myCountryCode = prefs.getString("cached_user_country_code", "BD") ?: "BD"
-            val myIsp = prefs.getString("cached_user_isp", "") ?: ""
-            val myIp = prefs.getString("cached_user_ip", "") ?: ""
+        val existingIndex = allList.indexOfFirst { it.id == currentDevId }
+        val manufacturer = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+        val model = android.os.Build.MODEL.orEmpty()
+        val deviceName = if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
+        val myCity = prefs.getString("cached_user_city", "ঢাকা") ?: "ঢাকা"
+        val myCountry = prefs.getString("cached_user_country", "বাংলাদেশ") ?: "বাংলাদেশ"
+        val myCountryCode = prefs.getString("cached_user_country_code", "BD") ?: "BD"
+        val myIsp = prefs.getString("cached_user_isp", "") ?: ""
+        val myIp = prefs.getString("cached_user_ip", "") ?: ""
 
-            activeList.add(
-                0,
-                ActiveUserInfo(
-                    id = currentDevId,
-                    deviceModel = deviceName.ifBlank { "This Device (Admin/User)" },
-                    brand = manufacturer.ifBlank { "Android" },
-                    appVersion = "v${com.example.BuildConfig.VERSION_NAME}",
-                    versionCode = com.example.BuildConfig.VERSION_CODE,
-                    lastSeen = now,
-                    registeredAt = prefs.getLong("app_installed_at_timestamp", now),
-                    isOnline = true,
-                    location = "$myCity, $myCountry",
-                    city = myCity,
-                    country = myCountry,
-                    countryCode = myCountryCode,
-                    ip = myIp,
-                    isp = myIsp,
-                    networkType = detectNetworkType(),
-                    currentActivity = "অ্যাডমিন প্যানেল"
-                )
-            )
+        val currentDeviceItem = ActiveUserInfo(
+            id = currentDevId,
+            deviceModel = deviceName.ifBlank { "This Device (Admin/User)" },
+            brand = manufacturer.ifBlank { "Android" },
+            appVersion = "v${com.example.BuildConfig.VERSION_NAME}",
+            versionCode = com.example.BuildConfig.VERSION_CODE,
+            lastSeen = now,
+            registeredAt = prefs.getLong("app_installed_at_timestamp", now),
+            isOnline = true,
+            location = "$myCity, $myCountry",
+            city = myCity,
+            country = myCountry,
+            countryCode = myCountryCode,
+            ip = myIp,
+            isp = myIsp,
+            networkType = detectNetworkType(),
+            currentActivity = "অ্যাডমিন প্যানেল"
+        )
+
+        if (existingIndex >= 0) {
+            allList[existingIndex] = currentDeviceItem
+        } else {
+            allList.add(0, currentDeviceItem)
         }
 
         // Sort: currently online first, then latest lastSeen
-        activeList.sortWith(compareByDescending<ActiveUserInfo> { it.isOnline }.thenByDescending { it.lastSeen })
+        allList.sortWith(compareByDescending<ActiveUserInfo> { it.isOnline }.thenByDescending { it.lastSeen })
 
-        val onlineCount = activeList.count { it.isOnline || (now - it.lastSeen) <= activeThresholdMillis }.coerceAtLeast(1)
-        val finalTotal = maxOf(totalLifetimeCount, activeList.size, prefs.getInt("cached_lifetime_users_count", 1))
+        val liveActiveList = allList.filter { it.isOnline }
+        val onlineCount = liveActiveList.size.coerceAtLeast(1)
+        val finalTotal = maxOf(totalLifetimeCount, allList.size, prefs.getInt("cached_lifetime_users_count", 1))
         prefs.edit().putInt("cached_lifetime_users_count", finalTotal).apply()
 
-        // Calculate Location Traffic breakdown
-        val locationGroups = activeList.groupBy {
-            val c = it.city.ifBlank { it.location }
-            if (c.isNotBlank()) "$c, ${it.country}" else it.country.ifBlank { "বাংলাদেশ" }
-        }
-        val topLocations = locationGroups.map { (locName, users) ->
-            val flagEmoji = when {
-                locName.contains("Bangladesh", ignoreCase = true) || locName.contains("বাংলাদেশ") || locName.contains("ঢাকা") -> "🇧🇩"
-                locName.contains("India", ignoreCase = true) || locName.contains("ভারত") || locName.contains("কলকাতা") -> "🇮🇳"
-                locName.contains("Saudi", ignoreCase = true) || locName.contains("সৌদি") -> "🇸🇦"
-                locName.contains("Emirates", ignoreCase = true) || locName.contains("Dubai", ignoreCase = true) -> "🇦🇪"
-                locName.contains("United States", ignoreCase = true) || locName.contains("USA", ignoreCase = true) -> "🇺🇸"
-                locName.contains("United Kingdom", ignoreCase = true) || locName.contains("UK", ignoreCase = true) -> "🇬🇧"
-                locName.contains("Malaysia", ignoreCase = true) || locName.contains("মালয়েশিয়া") -> "🇲🇾"
-                else -> "🌐"
+        // Helper for location statistics
+        fun buildLocationStats(sourceList: List<ActiveUserInfo>): List<LocationTrafficStat> {
+            val list = if (sourceList.isNotEmpty()) sourceList else allList
+            val locationGroups = list.groupBy {
+                val c = it.city.ifBlank { it.location }
+                if (c.isNotBlank()) "$c, ${it.country}" else it.country.ifBlank { "বাংলাদেশ" }
             }
-            val count = users.size
-            val pct = if (activeList.isNotEmpty()) (count.toFloat() / activeList.size.toFloat()) else 1f
-            LocationTrafficStat(
-                locationName = locName,
-                count = count,
-                percentage = pct,
-                flag = flagEmoji
-            )
-        }.sortedByDescending { it.count }
+            return locationGroups.map { (locName, users) ->
+                val flagEmoji = when {
+                    locName.contains("Bangladesh", ignoreCase = true) || locName.contains("বাংলাদেশ") || locName.contains("ঢাকা") -> "🇧🇩"
+                    locName.contains("India", ignoreCase = true) || locName.contains("ভারত") || locName.contains("কলকাতা") -> "🇮🇳"
+                    locName.contains("Saudi", ignoreCase = true) || locName.contains("সৌদি") -> "🇸🇦"
+                    locName.contains("Emirates", ignoreCase = true) || locName.contains("Dubai", ignoreCase = true) -> "🇦🇪"
+                    locName.contains("United States", ignoreCase = true) || locName.contains("USA", ignoreCase = true) -> "🇺🇸"
+                    locName.contains("United Kingdom", ignoreCase = true) || locName.contains("UK", ignoreCase = true) -> "🇬🇧"
+                    locName.contains("Malaysia", ignoreCase = true) || locName.contains("মালয়েশিয়া") -> "🇲🇾"
+                    else -> "🌐"
+                }
+                val count = users.size
+                val pct = if (list.isNotEmpty()) (count.toFloat() / list.size.toFloat()) else 1f
+                LocationTrafficStat(
+                    locationName = locName,
+                    count = count,
+                    percentage = pct,
+                    flag = flagEmoji
+                )
+            }.sortedByDescending { it.count }
+        }
 
-        // Calculate Network Breakdown
-        val networkStats = activeList.groupBy { it.networkType.ifBlank { "WiFi" } }
-            .mapValues { it.value.size }
+        // Helper for network stats
+        fun buildNetworkStats(sourceList: List<ActiveUserInfo>): Map<String, Int> {
+            val list = if (sourceList.isNotEmpty()) sourceList else allList
+            return list.groupBy {
+                val net = it.networkType.trim()
+                when {
+                    net.contains("WiFi", ignoreCase = true) -> "WiFi"
+                    net.contains("Mobile", ignoreCase = true) || net.contains("Cellular", ignoreCase = true) || net.contains("4G", ignoreCase = true) || net.contains("5G", ignoreCase = true) -> "Mobile Data (4G/5G)"
+                    net.contains("Ethernet", ignoreCase = true) || net.contains("Broadband", ignoreCase = true) -> "Ethernet / Broadband"
+                    net.contains("VPN", ignoreCase = true) -> "VPN"
+                    else -> "WiFi"
+                }
+            }.mapValues { it.value.size }
+        }
+
+        val topLocations = buildLocationStats(allList)
+        val liveLocations = buildLocationStats(liveActiveList)
+        val networkStats = buildNetworkStats(allList)
+        val liveNetworkStats = buildNetworkStats(liveActiveList)
 
         AppUserAnalytics(
             totalUsers = finalTotal,
             activeUsers = onlineCount,
-            activeUsersList = activeList,
+            activeUsersList = allList,
             topLocations = topLocations,
+            liveLocations = liveLocations,
             networkBreakdown = networkStats,
+            liveNetworkBreakdown = liveNetworkStats,
             lastUpdated = now
         )
+    }
+
+    suspend fun cleanStaleOfflineUsers(): Boolean = withContext(Dispatchers.IO) {
+        val rtdbUrl = getSavedFirebaseUrl()
+        if (rtdbUrl.isBlank()) return@withContext false
+        try {
+            val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+            val reqActive = Request.Builder().url("$cleanUrl/active_users.json").build()
+            val resp = client.newCall(reqActive).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string()?.trim() ?: ""
+                if (body.startsWith("{")) {
+                    val root = JSONObject(body)
+                    val now = System.currentTimeMillis()
+                    val staleThreshold = 24 * 60 * 60 * 1000L // 24 hours
+                    val keys = root.keys()
+                    val keysToDelete = mutableListOf<String>()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val uObj = root.optJSONObject(k)
+                        val lastSeen = uObj?.optLong("last_seen", 0L) ?: 0L
+                        if (lastSeen > 0 && (now - lastSeen) > staleThreshold) {
+                            keysToDelete.add(k)
+                        }
+                    }
+                    for (delKey in keysToDelete) {
+                        try {
+                            val delReq = Request.Builder()
+                                .url("$cleanUrl/active_users/$delKey.json")
+                                .delete()
+                                .build()
+                            client.newCall(delReq).execute()
+                        } catch (_: Exception) {}
+                    }
+                    return@withContext true
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        false
     }
 
     fun getSavedUserMode(): String? {

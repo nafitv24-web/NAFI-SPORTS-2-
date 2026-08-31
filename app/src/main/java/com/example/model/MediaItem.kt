@@ -12,6 +12,8 @@ data class StreamServer(
     val url: String
 )
 
+typealias MediaServer = StreamServer
+
 data class MediaItem(
     val id: String,
     val title: String,
@@ -49,6 +51,7 @@ data class MediaItem(
     val drmHeaders: Map<String, String>? = null,
     val manifestType: String? = null
 ) {
+    val headers: Map<String, String>? get() = customHeaders
     // Helper to get all available server URLs
     fun getAllServers(): List<StreamServer> {
         val list = mutableListOf<StreamServer>()
@@ -174,7 +177,9 @@ data class AppUserAnalytics(
     val activeUsers: Int = 1,
     val activeUsersList: List<ActiveUserInfo> = emptyList(),
     val topLocations: List<LocationTrafficStat> = emptyList(),
+    val liveLocations: List<LocationTrafficStat> = emptyList(),
     val networkBreakdown: Map<String, Int> = emptyMap(),
+    val liveNetworkBreakdown: Map<String, Int> = emptyMap(),
     val lastUpdated: Long = System.currentTimeMillis()
 )
 

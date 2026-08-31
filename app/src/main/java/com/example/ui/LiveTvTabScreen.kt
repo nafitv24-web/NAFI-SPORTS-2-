@@ -1,0 +1,262 @@
+package com.example.ui
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.model.*
+import coil.compose.AsyncImage
+import com.example.model.MediaItem
+import com.example.model.MediaType
+import com.example.model.MediaServer
+
+fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
+    val grouped = linkedMapOf<String, MutableList<MediaItem>>()
+    for (item in channels) {
+        val key = item.title.trim().lowercase()
+        if (key.isNotEmpty()) {
+            grouped.getOrPut(key) { mutableListOf() }.add(item)
+        }
+    }
+    return grouped.values.map { list ->
+        val first = list.first()
+        if (list.size == 1) {
+            first
+        } else {
+            val allServers = list.flatMap { it.servers.ifEmpty { listOf(StreamServer(name = it.title, url = it.streamUrl)) } }
+            first.copy(servers = allServers.distinctBy { it.url })
+        }
+    }
+}
+
+@Composable
+fun LiveTvTabScreen(
+    channels: List<MediaItem>,
+    favoriteIds: Set<String>,
+    isTvMode: Boolean = false,
+    onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
+    onToggleFavorite: (String) -> Unit,
+    onAddChannel: (MediaItem) -> Unit = {}
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("ALL") }
+
+    val categories = remember(channels) {
+        listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
+    }
+
+    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds) {
+        channels.filter { channel ->
+            val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
+            val matchesCategory = when (selectedCategory) {
+                "ALL" -> true
+                "FAVORITE" -> favoriteIds.contains(channel.id)
+                else -> channel.category.equals(selectedCategory, ignoreCase = true)
+            }
+            matchesSearch && matchesCategory
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        // Search and Filter Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("লাইভ টিভি চ্যানেল খুঁজুন...", color = Color(0xFF94A3B8), fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF)) },
+                trailingIcon = if (searchQuery.isNotEmpty()) {
+                    {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8))
+                        }
+                    }
+                } else null,
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF00E5FF),
+                    unfocusedBorderColor = Color(0xFF334155),
+                    focusedContainerColor = Color(0xFF1E293B),
+                    unfocusedContainerColor = Color(0xFF1E293B),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Categories Row
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(categories) { cat ->
+                val isSelected = selectedCategory == cat
+                val label = when (cat) {
+                    "ALL" -> "সকল চ্যানেল (${channels.size})"
+                    "FAVORITE" -> "⭐ প্রিয় (${favoriteIds.size})"
+                    else -> cat
+                }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                    ),
+                    modifier = Modifier.clickable { selectedCategory = cat }
+                ) {
+                    Text(
+                        text = label,
+                        color = if (isSelected) Color.Black else Color(0xFFE2E8F0),
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Channels Grid
+        if (filteredChannels.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.TvOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("কোনো চ্যানেল পাওয়া যায়নি", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 130.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(filteredChannels, key = { it.id }) { channel ->
+                    val isFav = favoriteIds.contains(channel.id)
+                    var isFocused by remember { mutableStateOf(false) }
+
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isFocused) Color(0xFF00E5FF) else Color(0xFF334155)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .focusable()
+                            .clickable { onSelectMedia(channel, filteredChannels) }
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                if (!channel.logoUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = channel.logoUrl,
+                                        contentDescription = channel.title,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF0F172A)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Rounded.LiveTv, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(28.dp))
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    text = channel.title,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                if (!channel.category.isNullOrBlank()) {
+                                    Text(
+                                        text = channel.category!!,
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            // Favorite Icon Button
+                            IconButton(
+                                onClick = { onToggleFavorite(channel.id) },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isFav) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                    contentDescription = "Favorite",
+                                    tint = if (isFav) Color(0xFFF59E0B) else Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
