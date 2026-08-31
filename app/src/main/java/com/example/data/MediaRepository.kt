@@ -50,6 +50,22 @@ class MediaRepository(private val context: Context) {
     val nativeScraperEngine: com.example.cloudstream.NativeScraperEngine =
         com.example.cloudstream.NativeScraperEngine(client)
 
+    val authManager: FirebaseAuthManager =
+        FirebaseAuthManager(context, client)
+
+    suspend fun getRtdbAuthQuery(): String {
+        val token = authManager.getValidIdToken()
+        return if (!token.isNullOrBlank()) "?auth=$token" else ""
+    }
+
+    suspend fun appendRtdbAuth(url: String): String {
+        val token = authManager.getValidIdToken()
+        if (token.isNullOrBlank()) return url
+        val clean = url.trim()
+        val sep = if (clean.contains("?")) "&" else "?"
+        return "$clean${sep}auth=$token"
+    }
+
     // Marquee Scrolling Breaking News Ticker Management
     companion object {
         const val DEFAULT_MARQUEE_TEXT = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
@@ -86,7 +102,7 @@ class MediaRepository(private val context: Context) {
                 val obj = JSONObject()
                 obj.put("marquee_ticker", text)
                 val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                val targetUrl = "$cleanUrl/marquee_news.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/marquee_news.json")
                 val req = Request.Builder().url(targetUrl).put(body).build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) success = true
@@ -141,7 +157,7 @@ class MediaRepository(private val context: Context) {
         if (url.isNotBlank()) {
             try {
                 val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val targetUrl = "$cleanUrl/marquee_news.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/marquee_news.json")
                 val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) {
@@ -1222,7 +1238,7 @@ class MediaRepository(private val context: Context) {
                 val body = jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
 
                 for (col in collections) {
-                    val targetUrl = "$cleanUrl/$col/${item.id}.json"
+                    val targetUrl = appendRtdbAuth("$cleanUrl/$col/${item.id}.json")
                     val request = Request.Builder().url(targetUrl).put(body).build()
                     val response = client.newCall(request).execute()
                     if (response.isSuccessful) {
@@ -1272,7 +1288,7 @@ class MediaRepository(private val context: Context) {
                 val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
                 for (col in collections) {
                     try {
-                        val targetUrl = "$cleanUrl/$col/$id.json"
+                        val targetUrl = appendRtdbAuth("$cleanUrl/$col/$id.json")
                         val request = Request.Builder().url(targetUrl).delete().build()
                         val response = client.newCall(request).execute()
                         if (response.isSuccessful) {
@@ -2070,7 +2086,7 @@ class MediaRepository(private val context: Context) {
                 obj.put("isReadOnly", true)
 
                 val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                val targetUrl = "$cleanUrl/playlists/${playlist.id}.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/playlists/${playlist.id}.json")
                 val req = Request.Builder().url(targetUrl).put(body).build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) success = true
@@ -2446,7 +2462,7 @@ class MediaRepository(private val context: Context) {
                 obj.put("sportsM3uUrl", sportsM3u)
                 obj.put("moviesM3uUrl", moviesM3u)
                 val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                val targetUrl = "$cleanUrl/app_config.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/app_config.json")
                 val req = Request.Builder().url(targetUrl).put(body).build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) success = true
@@ -2510,7 +2526,7 @@ class MediaRepository(private val context: Context) {
         if (url.isNotBlank()) {
             try {
                 val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val targetUrl = "$cleanUrl/app_config.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/app_config.json")
                 val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) {
@@ -2547,7 +2563,7 @@ class MediaRepository(private val context: Context) {
     suspend fun fetchAppUpdateInfo(url: String = getSavedFirebaseUrl()): AppUpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-            val targetUrl = "$cleanUrl/app_update.json"
+            val targetUrl = appendRtdbAuth("$cleanUrl/app_update.json")
             val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.4.0").build()
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) return@withContext getCachedAppUpdateInfo()
@@ -2587,7 +2603,7 @@ class MediaRepository(private val context: Context) {
             obj.put("releaseDate", info.releaseDate)
 
             val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-            val targetUrl = "$cleanUrl/app_update.json"
+            val targetUrl = appendRtdbAuth("$cleanUrl/app_update.json")
             val req = Request.Builder().url(targetUrl).put(body).build()
             val resp = client.newCall(req).execute()
             if (resp.isSuccessful) {
@@ -3410,7 +3426,7 @@ class MediaRepository(private val context: Context) {
             }
 
             val body = arr.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-            val targetUrl = "$cleanUrl/cloudstream_repos.json"
+            val targetUrl = appendRtdbAuth("$cleanUrl/cloudstream_repos.json")
             val req = Request.Builder().url(targetUrl).put(body).build()
             val resp = client.newCall(req).execute()
             if (resp.isSuccessful) {
@@ -3425,7 +3441,7 @@ class MediaRepository(private val context: Context) {
     suspend fun fetchCloudStreamReposFromFirebase(url: String = getSavedFirebaseUrl()): List<CloudStreamRepo> = withContext(Dispatchers.IO) {
         try {
             val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-            val targetUrl = "$cleanUrl/cloudstream_repos.json"
+            val targetUrl = appendRtdbAuth("$cleanUrl/cloudstream_repos.json")
             val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) return@withContext emptyList()
@@ -4442,7 +4458,7 @@ class MediaRepository(private val context: Context) {
             val rtdbUrl = getSavedFirebaseUrl()
             if (rtdbUrl.isNotBlank()) {
                 val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
-                val targetUrl = "$cleanUrl/notifications/$id.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/notifications/$id.json")
                 val req = Request.Builder().url(targetUrl).delete().build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) anySuccess = true
@@ -4671,7 +4687,7 @@ class MediaRepository(private val context: Context) {
             if (rtdbUrl.isNotBlank()) {
                 val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
                 val body = jsonObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                val targetUrl = "$cleanUrl/notifications/${notification.id}.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/notifications/${notification.id}.json")
                 val req = Request.Builder().url(targetUrl).put(body).build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) anySuccess = true
