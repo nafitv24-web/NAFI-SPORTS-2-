@@ -5013,8 +5013,9 @@ class MediaRepository(private val context: Context) {
                             put("current_activity", currentActivity)
                         }
                         val activeBody = activeObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val activeTargetUrl = appendRtdbAuth("$cleanUrl/active_users/$deviceId.json")
                         val activeReq = Request.Builder()
-                            .url("$cleanUrl/active_users/$deviceId.json")
+                            .url(activeTargetUrl)
                             .put(activeBody)
                             .build()
                         client.newCall(activeReq).execute()
@@ -5033,8 +5034,9 @@ class MediaRepository(private val context: Context) {
                             put("network_type", netType)
                         }
                         val userBody = userObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val allTargetUrl = appendRtdbAuth("$cleanUrl/all_users/$deviceId.json")
                         val userReq = Request.Builder()
-                            .url("$cleanUrl/all_users/$deviceId.json")
+                            .url(allTargetUrl)
                             .put(userBody)
                             .build()
                         client.newCall(userReq).execute()
@@ -5059,8 +5061,9 @@ class MediaRepository(private val context: Context) {
 
             // 1. Fetch active_users from Firebase RTDB
             try {
+                val activeFetchUrl = appendRtdbAuth("$cleanUrl/active_users.json")
                 val reqActive = Request.Builder()
-                    .url("$cleanUrl/active_users.json")
+                    .url(activeFetchUrl)
                     .header("User-Agent", "NAFITV24/2.5.6 (Android)")
                     .build()
                 val respActive = client.newCall(reqActive).execute()
@@ -5117,8 +5120,9 @@ class MediaRepository(private val context: Context) {
 
             // 2. Fetch all_users count (shallow or direct)
             try {
+                val allFetchUrl = appendRtdbAuth("$cleanUrl/all_users.json?shallow=true")
                 val reqAll = Request.Builder()
-                    .url("$cleanUrl/all_users.json?shallow=true")
+                    .url(allFetchUrl)
                     .build()
                 val respAll = client.newCall(reqAll).execute()
                 if (respAll.isSuccessful) {
@@ -5244,7 +5248,8 @@ class MediaRepository(private val context: Context) {
         if (rtdbUrl.isBlank()) return@withContext false
         try {
             val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
-            val reqActive = Request.Builder().url("$cleanUrl/active_users.json").build()
+            val reqActiveUrl = appendRtdbAuth("$cleanUrl/active_users.json")
+            val reqActive = Request.Builder().url(reqActiveUrl).build()
             val resp = client.newCall(reqActive).execute()
             if (resp.isSuccessful) {
                 val body = resp.body?.string()?.trim() ?: ""
@@ -5264,8 +5269,9 @@ class MediaRepository(private val context: Context) {
                     }
                     for (delKey in keysToDelete) {
                         try {
+                            val delTargetUrl = appendRtdbAuth("$cleanUrl/active_users/$delKey.json")
                             val delReq = Request.Builder()
-                                .url("$cleanUrl/active_users/$delKey.json")
+                                .url(delTargetUrl)
                                 .delete()
                                 .build()
                             client.newCall(delReq).execute()

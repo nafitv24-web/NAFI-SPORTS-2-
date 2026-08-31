@@ -431,6 +431,25 @@ fun NafiTvMainApp(
         }
     }
 
+    // Periodic user presence heartbeat
+    LaunchedEffect(currentTab, selectedMediaItem) {
+        val activity = when {
+            selectedMediaItem != null -> "দেখছেন: ${selectedMediaItem?.title?.take(25)}"
+            currentTab == AppTab.EVENTS -> "ইভেন্টস স্ক্রিন"
+            currentTab == AppTab.LIVE_TV -> "লাইভ টিভি"
+            currentTab == AppTab.MOVIES -> "মুভি ও সিরিজ"
+            currentTab == AppTab.PLAYLIST -> "প্লেলিস্ট"
+            currentTab == AppTab.MENU -> "মেনু স্ক্রিন"
+            else -> "হোম স্ক্রিন"
+        }
+        while (isActive) {
+            try {
+                repository.recordUserPresence(activity)
+            } catch (_: Exception) {}
+            delay(30_000L) // Pulse presence every 30s
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshAllData()
     }
@@ -2940,28 +2959,30 @@ fun LiveEventMatchCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(11.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // LEFT COLUMN (Thumbnail + Badge + Tournament Tag)
+            // LEFT COLUMN: Unobstructed Sports Thumbnail / Team Logos + Tournament Tag
             Column(
-                modifier = Modifier.width(115.dp),
+                modifier = Modifier.width(132.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Thumbnail Box
+                // Thumbnail Box (Unobstructed: NO badge overlapping the match picture)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(68.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height(86.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF1E293B))
+                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(10.dp))
                 ) {
                     val hasTeam1Logo = !sport.team1Logo.isNullOrBlank() && !sport.team1Logo.equals("null", ignoreCase = true)
                     val hasTeam2Logo = !sport.team2Logo.isNullOrBlank() && !sport.team2Logo.equals("null", ignoreCase = true)
                     val hasLogoUrl = !sport.logoUrl.isNullOrBlank() && !sport.logoUrl.equals("null", ignoreCase = true)
 
                     if (hasTeam1Logo && hasTeam2Logo) {
-                        // Two logos VS presentation
+                        // Two logos VS presentation (Clean, larger logos, clear VS divider)
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2970,34 +2991,57 @@ fun LiveEventMatchCard(
                                         listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A))
                                     )
                                 )
-                                .padding(horizontal = 4.dp),
+                                .padding(horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            AsyncImage(
-                                model = sport.team1Logo,
-                                contentDescription = sport.team1,
+                            Box(
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(38.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF334155)),
-                                contentScale = ContentScale.Fit
-                            )
-                            Text(
-                                text = "VS",
-                                color = Color(0xFFF59E0B),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                            AsyncImage(
-                                model = sport.team2Logo,
-                                contentDescription = sport.team2,
+                                    .background(Color(0xFF0F172A))
+                                    .border(1.dp, Color(0xFF475569), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = sport.team1Logo,
+                                    contentDescription = sport.team1,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B))
+                            ) {
+                                Text(
+                                    text = "VS",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                            Box(
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(38.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF334155)),
-                                contentScale = ContentScale.Fit
-                            )
+                                    .background(Color(0xFF0F172A))
+                                    .border(1.dp, Color(0xFF475569), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = sport.team2Logo,
+                                    contentDescription = sport.team2,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
                         }
                     } else if (hasLogoUrl || hasTeam1Logo) {
                         AsyncImage(
@@ -3025,27 +3069,12 @@ fun LiveEventMatchCard(
                                 sport.category.contains("Tennis", ignoreCase = true) -> "🎾"
                                 else -> "🏆"
                             }
-                            Text(text = sportEmoji, fontSize = 24.sp)
+                            Text(text = sportEmoji, fontSize = 28.sp)
                         }
-                    }
-
-                    // Top-right status badge
-                    Surface(
-                        shape = RoundedCornerShape(topEnd = 8.dp, bottomStart = 6.dp),
-                        color = if (isLiveNow) Color(0xFFDC2626) else Color(0xFFD97706),
-                        modifier = Modifier.align(Alignment.TopEnd)
-                    ) {
-                        Text(
-                            text = if (isLiveNow) "• LIVE" else "• UPCOMING",
-                            color = Color.White,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
 
                 // Tournament Tag below thumbnail
                 Surface(
@@ -3055,7 +3084,7 @@ fun LiveEventMatchCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
@@ -3071,12 +3100,12 @@ fun LiveEventMatchCard(
                 }
             }
 
-            // RIGHT COLUMN (Stage / Time, Match Title, Live / Countdown Banner, Action Button)
+            // RIGHT COLUMN: Header with Right-Side LIVE/UPCOMING Badge, Title, Time, Countdown & Action
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Top Row (Stage / Time)
+                // Top Header: Stage on the left & Status Badge prominently placed on the RIGHT
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3086,22 +3115,57 @@ fun LiveEventMatchCard(
                         text = stageHeader,
                         color = Color(0xFFF59E0B),
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // RIGHT-ALIGNED STATUS BADGE (Live or Upcoming)
                     if (isLiveNow) {
-                        Text(
-                            text = "🔴 LIVE",
-                            color = Color(0xFFEF4444),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFDC2626),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFEF4444))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "LIVE",
+                                    color = Color.White,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
                     } else {
-                        Text(
-                            text = formattedTime,
-                            color = Color(0xFF94A3B8),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFD97706),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "UPCOMING",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -3116,6 +3180,16 @@ fun LiveEventMatchCard(
                     lineHeight = 17.sp
                 )
 
+                // Match Time (when upcoming)
+                if (!isLiveNow && formattedTime.isNotBlank()) {
+                    Text(
+                        text = "📅 $formattedTime",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
                 // Status / Countdown Banner
                 if (isLiveNow) {
                     Box(
@@ -3124,7 +3198,7 @@ fun LiveEventMatchCard(
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFF064E3B).copy(alpha = 0.35f))
                             .border(0.5.dp, Color(0xFF10B981).copy(alpha = 0.5f))
-                            .padding(vertical = 3.5.dp),
+                            .padding(vertical = 3.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -3141,7 +3215,7 @@ fun LiveEventMatchCard(
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFF1E293B).copy(alpha = 0.7f))
                             .border(0.5.dp, Color(0xFF334155))
-                            .padding(vertical = 3.5.dp),
+                            .padding(vertical = 3.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -3157,7 +3231,7 @@ fun LiveEventMatchCard(
                 if (servers.size > 1) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                        modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
                     ) {
                         servers.take(3).forEach { srv ->
                             Surface(
