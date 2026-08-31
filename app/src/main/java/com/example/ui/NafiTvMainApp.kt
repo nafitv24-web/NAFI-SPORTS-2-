@@ -2959,36 +2959,36 @@ fun LiveEventMatchCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(11.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // LEFT COLUMN: Unobstructed Sports Thumbnail / Team Logos + Tournament Tag
+            // LEFT COLUMN: Large Prominent Sports Thumbnail / Team Logos + Tournament Tag
             Column(
-                modifier = Modifier.width(132.dp),
+                modifier = Modifier.width(148.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Thumbnail Box (Unobstructed: NO badge overlapping the match picture)
+                // Large Thumbnail Box (Unobstructed: clean large photo)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(86.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .height(102.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF1E293B))
-                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
                 ) {
                     val hasTeam1Logo = !sport.team1Logo.isNullOrBlank() && !sport.team1Logo.equals("null", ignoreCase = true)
                     val hasTeam2Logo = !sport.team2Logo.isNullOrBlank() && !sport.team2Logo.equals("null", ignoreCase = true)
                     val hasLogoUrl = !sport.logoUrl.isNullOrBlank() && !sport.logoUrl.equals("null", ignoreCase = true)
 
                     if (hasTeam1Logo && hasTeam2Logo) {
-                        // Two logos VS presentation (Clean, larger logos, clear VS divider)
+                        // Two logos VS presentation (Clean, large prominent logos, glowing VS divider)
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(
                                     Brush.horizontalGradient(
-                                        listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A))
+                                        listOf(Color(0xFF0B1329), Color(0xFF1E293B), Color(0xFF0B1329))
                                     )
                                 )
                                 .padding(horizontal = 6.dp),
@@ -2997,47 +2997,47 @@ fun LiveEventMatchCard(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(46.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF0F172A))
-                                    .border(1.dp, Color(0xFF475569), CircleShape),
+                                    .border(1.5.dp, Color(0xFF475569), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 AsyncImage(
                                     model = sport.team1Logo,
                                     contentDescription = sport.team1,
                                     modifier = Modifier
-                                        .size(34.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape),
                                     contentScale = ContentScale.Fit
                                 )
                             }
                             Surface(
                                 shape = CircleShape,
-                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B))
+                                color = Color(0xFFF59E0B).copy(alpha = 0.25f),
+                                border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFFF59E0B))
                             ) {
                                 Text(
                                     text = "VS",
                                     color = Color(0xFFFBBF24),
-                                    fontSize = 10.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Black,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp)
                                 )
                             }
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(46.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF0F172A))
-                                    .border(1.dp, Color(0xFF475569), CircleShape),
+                                    .border(1.5.dp, Color(0xFF475569), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 AsyncImage(
                                     model = sport.team2Logo,
                                     contentDescription = sport.team2,
                                     modifier = Modifier
-                                        .size(34.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape),
                                     contentScale = ContentScale.Fit
                                 )
@@ -3069,7 +3069,7 @@ fun LiveEventMatchCard(
                                 sport.category.contains("Tennis", ignoreCase = true) -> "🎾"
                                 else -> "🏆"
                             }
-                            Text(text = sportEmoji, fontSize = 28.sp)
+                            Text(text = sportEmoji, fontSize = 32.sp)
                         }
                     }
                 }
