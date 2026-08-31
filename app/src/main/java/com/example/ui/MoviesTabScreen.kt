@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,12 +20,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -36,7 +35,6 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -67,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.MediaItem
-import com.example.model.MediaType
 
 @Composable
 fun MoviesTabScreen(
@@ -86,22 +83,44 @@ fun MoviesTabScreen(
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
             .sorted()
-        listOf("All", "❤️ Favorites") + unique
+        listOf("All", "ডাউনলোডসমূহ") + unique
     }
 
+    // Identify Featured Spotlight Movie (either specifically Sultan Salahuddin or the first movie)
+    val featuredMovie = remember(movies) {
+        movies.firstOrNull { it.title.contains("Sultan", ignoreCase = true) || it.title.contains("Salahuddin", ignoreCase = true) }
+            ?: movies.firstOrNull { !it.logoUrl.isNullOrBlank() }
+            ?: movies.firstOrNull()
+    }
+
+    // Group movies by category for the categorized carousels view
+    val categorizedMovies = remember(movies) {
+        val uniqueCats = movies.map { it.category.trim() }
+            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+            .distinct()
+        uniqueCats.map { cat ->
+            cat to movies.filter { it.category.trim().equals(cat, ignoreCase = true) }
+        }
+    }
+
+    // Filtered movies when search query is active or a single category is selected
     val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
-        movies.filter { movie ->
-            val matchesSearch = if (searchQuery.isBlank()) true else {
-                movie.title.contains(searchQuery, ignoreCase = true) ||
-                        movie.category.contains(searchQuery, ignoreCase = true) ||
-                        (movie.description != null && movie.description.contains(searchQuery, ignoreCase = true))
+        if (selectedCategory == "ডাউনলোডসমূহ") {
+            emptyList()
+        } else {
+            movies.filter { movie ->
+                val matchesSearch = if (searchQuery.isBlank()) true else {
+                    movie.title.contains(searchQuery, ignoreCase = true) ||
+                            movie.category.contains(searchQuery, ignoreCase = true) ||
+                            (movie.description != null && movie.description.contains(searchQuery, ignoreCase = true))
+                }
+                val matchesCategory = when (selectedCategory) {
+                    "All" -> true
+                    "❤️ Favorites" -> favoriteIds.contains(movie.id)
+                    else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
+                }
+                matchesSearch && matchesCategory
             }
-            val matchesCategory = when (selectedCategory) {
-                "All" -> true
-                "❤️ Favorites" -> favoriteIds.contains(movie.id)
-                else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
-            }
-            matchesSearch && matchesCategory
         }
     }
 
@@ -110,7 +129,7 @@ fun MoviesTabScreen(
             .fillMaxSize()
             .background(Color(0xFF020617))
     ) {
-        // Top Search Bar & Offline Button
+        // TOP SEARCH BAR & DOWNLOAD BUTTON (Matching Screenshot 1)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -123,9 +142,11 @@ fun MoviesTabScreen(
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        "মুভি অথবা সিরিজ খুঁজুন...",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 13.sp
+                        "মুভি ও ওয়েব সিরিজ খুঁজুন (যেমন: Jawan, Toofan, Leo)",
+                        color = Color(0xFF64748B),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 leadingIcon = {
@@ -152,242 +173,490 @@ fun MoviesTabScreen(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = Color(0xFF00E5FF),
-                    unfocusedBorderColor = Color(0xFF334155),
+                    unfocusedBorderColor = Color(0xFF1E293B),
                     focusedContainerColor = Color(0xFF0F172A),
                     unfocusedContainerColor = Color(0xFF0F172A)
                 ),
                 singleLine = true
             )
 
-            // Offline Downloads Quick Access Button
-            Button(
-                onClick = onOpenOfflineDownloads,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1E293B)
-                ),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+            // Right Download Square Button
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF0F172A),
+                border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .size(50.dp)
+                    .clickable { onOpenOfflineDownloads() }
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Download,
-                    contentDescription = "Downloads",
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "ডাউনলোডস",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Download,
+                        contentDescription = "Downloads",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
 
-        // Category Filter Chips
+        // CATEGORY FILTER CHIPS ROW (Horizontal Scroll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 10.dp)
         ) {
             items(categories) { cat ->
                 val isSelected = selectedCategory == cat
                 var isCatFocused by remember { mutableStateOf(false) }
 
+                val isDownloadTab = cat == "ডাউনলোডসমূহ"
+
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF0F172A),
+                    color = when {
+                        isDownloadTab -> Color(0xFF0F766E)
+                        isSelected -> Color(0xFF2563EB)
+                        else -> Color(0xFF1E293B)
+                    },
                     border = BorderStroke(
                         1.dp,
-                        if (isCatFocused) Color(0xFFFFD600) else if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B)
+                        when {
+                            isCatFocused -> Color(0xFFFFD600)
+                            isDownloadTab -> Color(0xFF14B8A6)
+                            isSelected -> Color(0xFF3B82F6)
+                            else -> Color(0xFF334155)
+                        }
                     ),
                     modifier = Modifier
                         .onFocusChanged { isCatFocused = it.isFocused }
                         .focusable()
-                        .clickable { selectedCategory = cat }
+                        .clickable {
+                            if (isDownloadTab) {
+                                onOpenOfflineDownloads()
+                            } else {
+                                selectedCategory = cat
+                            }
+                        }
                 ) {
-                    Text(
-                        text = cat,
-                        color = if (isSelected) Color.Black else Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        if (isDownloadTab) {
+                            Icon(
+                                imageVector = Icons.Rounded.Download,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                        }
+                        Text(
+                            text = cat,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected || isDownloadTab) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
 
-        // Movies Grid
-        if (filteredMovies.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp),
-                contentAlignment = Alignment.Center
+        // MAIN CONTENT AREA
+        if (searchQuery.isBlank() && selectedCategory == "All") {
+            // HOME / ALL VIEW: FEATURED BANNER + CATEGORY CAROUSELS (Matching Screenshot 1)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Movie,
-                        contentDescription = null,
-                        tint = Color(0xFF64748B),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Text(
-                        text = "কোনো মুভি বা সিরিজ পাওয়া যায়নি",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    Text(
-                        text = "অন্য কি-ওয়ার্ড দিয়ে সার্চ করুন অথবা ক্যাটাগরি পরিবর্তন করুন।",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(if (isTvMode) 5 else 3),
-                contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
-                verticalArrangement = Arrangement.spacedBy(if (isTvMode) 14.dp else 10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(filteredMovies, key = { it.id }) { movie ->
-                    val isFav = favoriteIds.contains(movie.id)
-                    var isCardFocused by remember { mutableStateOf(false) }
-                    val cardScale by animateFloatAsState(
-                        targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.05f) else 1.0f,
-                        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                        label = "movieCardScale"
-                    )
+                // 1. FEATURED SPOTLIGHT BANNER
+                if (featuredMovie != null) {
+                    item {
+                        var isBannerFocused by remember { mutableStateOf(false) }
+                        val bannerScale by animateFloatAsState(
+                            targetValue = if (isBannerFocused) 1.02f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                            label = "bannerScale"
+                        )
 
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
-                        border = when {
-                            isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
-                            isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
-                            else -> BorderStroke(1.dp, Color(0xFF1E293B))
-                        },
-                        shadowElevation = if (isCardFocused) 12.dp else 4.dp,
-                        modifier = Modifier
-                            .scale(cardScale)
-                            .fillMaxWidth()
-                            .height(if (isTvMode) 220.dp else 180.dp)
-                            .onFocusChanged { isCardFocused = it.isFocused }
-                            .focusable()
-                            .clickable { onSelectMedia(movie) }
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // Movie Poster Image
-                            if (!movie.logoUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = movie.logoUrl,
-                                    contentDescription = movie.title,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF0F172A),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isBannerFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
+                            ),
+                            shadowElevation = 8.dp,
+                            modifier = Modifier
+                                .scale(bannerScale)
+                                .fillMaxWidth()
+                                .height(210.dp)
+                                .padding(horizontal = 14.dp)
+                                .onFocusChanged { isBannerFocused = it.isFocused }
+                                .focusable()
+                                .clickable { onSelectMedia(featuredMovie) }
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // Background Banner Image
+                                if (!featuredMovie.logoUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = featuredMovie.logoUrl,
+                                        contentDescription = featuredMovie.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(Color(0xFF1E1B4B), Color(0xFF0F172A))
+                                                )
+                                            )
+                                    )
+                                }
+
+                                // Dark Gradient Overlays for High Contrast
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Color(0xFF1E293B)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Movie,
-                                        contentDescription = null,
-                                        tint = Color(0xFF64748B),
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                }
-                            }
-
-                            // Dark Gradient Overlay at Bottom for Readability
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.Transparent,
-                                                Color.Transparent,
-                                                Color.Black.copy(alpha = 0.6f),
-                                                Color.Black.copy(alpha = 0.95f)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Black.copy(alpha = 0.2f),
+                                                    Color.Black.copy(alpha = 0.5f),
+                                                    Color.Black.copy(alpha = 0.95f)
+                                                )
                                             )
                                         )
-                                    )
-                            )
+                                )
 
-                            // Top Left Tag (Category or Rating)
-                            if (movie.category.isNotBlank() && !movie.category.equals("Unknown", ignoreCase = true)) {
-                                Surface(
-                                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
-                                    color = Color(0xFF6366F1).copy(alpha = 0.9f),
-                                    modifier = Modifier.align(Alignment.TopStart)
+                                // Banner Content
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.Bottom
                                 ) {
+                                    // Badges Row
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Red Spotlight Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFE11D48)
+                                        ) {
+                                            Text(
+                                                text = "FEATURED SPOTLIGHT",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            )
+                                        }
+
+                                        // Teal Download Support Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF0D9488)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Download,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(11.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text(
+                                                    text = "ডাউনলোড সাপোর্ট",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    // Main Title
                                     Text(
-                                        text = movie.category,
+                                        text = featuredMovie.title,
                                         color = Color.White,
-                                        fontSize = 8.5.sp,
+                                        fontSize = 18.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                }
-                            }
 
-                            // Top Right Favorite Button
-                            IconButton(
-                                onClick = { onToggleFavorite(movie.id) },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                    contentDescription = "Favorite",
-                                    tint = if (isFav) Color(0xFFEF4444) else Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
+                                    Spacer(modifier = Modifier.height(2.dp))
 
-                            // Bottom Info
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = movie.title,
-                                    color = Color.White,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                val servers = movie.getAllServers()
-                                if (servers.size > 1) {
+                                    // Subtitle / Description
                                     Text(
-                                        text = "${servers.size} সার্ভার উপলভ্য",
-                                        color = Color(0xFF38BDF8),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Medium
+                                        text = featuredMovie.description?.takeIf { it.isNotBlank() }
+                                            ?: "ঐতিহাসিক অ্যাকশন ও ড্রামা সিরিজ/মুভি।",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 11.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
                         }
                     }
                 }
+
+                // 2. CATEGORIZED HORIZONTAL CAROUSELS
+                items(categorizedMovies, key = { it.first }) { (categoryName, catMovies) ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Section Header: "🎬 NAFI OTT • BANGLA" ----- "সব (15)"
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "🎬 $categoryName",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.5.sp
+                                )
+                            }
+
+                            Text(
+                                text = "সব (${catMovies.size})",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable { selectedCategory = categoryName }
+                                    .padding(vertical = 4.dp, horizontal = 6.dp)
+                            )
+                        }
+
+                        // Horizontal Poster Row
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(catMovies, key = { it.id }) { movie ->
+                                MoviePosterCard(
+                                    movie = movie,
+                                    isFav = favoriteIds.contains(movie.id),
+                                    isTvMode = isTvMode,
+                                    onSelect = { onSelectMedia(movie) },
+                                    onToggleFav = { onToggleFavorite(movie.id) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // FILTERED OR SEARCH VIEW (Grid Layout)
+            if (filteredMovies.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Movie,
+                            contentDescription = null,
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = "কোনো মুভি বা সিরিজ পাওয়া যায়নি",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "অন্য কি-ওয়ার্ড দিয়ে সার্চ করুন অথবা ক্যাটাগরি পরিবর্তন করুন।",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(if (isTvMode) 5 else 3),
+                    contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (isTvMode) 14.dp else 10.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(filteredMovies, key = { it.id }) { movie ->
+                        MoviePosterCard(
+                            movie = movie,
+                            isFav = favoriteIds.contains(movie.id),
+                            isTvMode = isTvMode,
+                            onSelect = { onSelectMedia(movie) },
+                            onToggleFav = { onToggleFavorite(movie.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MoviePosterCard(
+    movie: MediaItem,
+    isFav: Boolean,
+    isTvMode: Boolean,
+    onSelect: () -> Unit,
+    onToggleFav: () -> Unit
+) {
+    var isCardFocused by remember { mutableStateOf(false) }
+    val cardScale by animateFloatAsState(
+        targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.05f) else 1.0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "movieCardScale"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
+        border = when {
+            isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
+            isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
+            else -> BorderStroke(1.dp, Color(0xFF1E293B))
+        },
+        shadowElevation = if (isCardFocused) 12.dp else 4.dp,
+        modifier = Modifier
+            .scale(cardScale)
+            .width(if (isTvMode) 140.dp else 115.dp)
+            .height(if (isTvMode) 210.dp else 170.dp)
+            .onFocusChanged { isCardFocused = it.isFocused }
+            .focusable()
+            .clickable { onSelect() }
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Poster Image
+            if (!movie.logoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = movie.logoUrl,
+                    contentDescription = movie.title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1E293B)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Movie,
+                        contentDescription = null,
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            // Dark Gradient Overlay at Bottom for Readability
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.6f),
+                                Color.Black.copy(alpha = 0.95f)
+                            )
+                        )
+                    )
+            )
+
+            // Top Left "OTT" Red Badge (Matching Screenshot 1)
+            Surface(
+                shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                color = Color(0xFFEF4444),
+                modifier = Modifier.align(Alignment.TopStart)
+            ) {
+                Text(
+                    text = "OTT",
+                    color = Color.White,
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+
+            // Top Right Favorite Button
+            IconButton(
+                onClick = onToggleFav,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(32.dp)
+            ) {
+                Icon(
+                    imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = "Favorite",
+                    tint = if (isFav) Color(0xFFEF4444) else Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            // Bottom Info: Title & Category (Matching Screenshot 1)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = movie.title,
+                    color = Color.White,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(1.dp))
+
+                Text(
+                    text = movie.category,
+                    color = Color(0xFF94A3B8),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

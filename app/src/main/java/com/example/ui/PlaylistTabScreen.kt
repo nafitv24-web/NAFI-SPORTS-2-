@@ -1,6 +1,5 @@
 package com.example.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -20,22 +19,27 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tv
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +73,7 @@ import com.example.data.MediaRepository
 import com.example.model.MediaItem
 import com.example.model.PlaylistInfo
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @Composable
 fun PlaylistTabScreen(
@@ -79,13 +86,19 @@ fun PlaylistTabScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedPlaylist by remember { mutableStateOf<PlaylistInfo?>(null) }
     var playlistChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var channelSearchQuery by remember { mutableStateOf("") }
     var isLoadingChannels by remember { mutableStateOf(false) }
+
+    var showAddPlaylistDialog by remember { mutableStateOf(false) }
+    var showXtreamDialog by remember { mutableStateOf(false) }
+
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(selectedPlaylist) {
         val pl = selectedPlaylist
         if (pl != null) {
             isLoadingChannels = true
+            channelSearchQuery = ""
             try {
                 playlistChannels = repository.fetchPlaylistChannels(pl)
             } catch (e: Exception) {
@@ -102,14 +115,140 @@ fun PlaylistTabScreen(
             .background(Color(0xFF020617))
     ) {
         if (selectedPlaylist == null) {
-            // Search Bar for Playlists
+            // ==================== PLAYLISTS HOME VIEW ====================
+
+            // 1. TOP HEADER (Matching Screenshot 2)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(Color(0xFF0284C7).copy(alpha = 0.2f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "IPTV Playlists",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${playlists.size} টি প্লেলিস্ট সংরক্ষিত",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.5.sp
+                        )
+                    }
+                }
+
+                // "+ প্লেলিস্ট যোগ করুন" Button
+                Button(
+                    onClick = { showAddPlaylistDialog = true },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2563EB)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "প্লেলিস্ট যোগ করুন",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // 2. XTREAM CODES API & M3U SUPPORT BANNER (Matching Screenshot 2)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF0F172A),
+                border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .clickable { showXtreamDialog = true }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color(0xFF0D9488).copy(alpha = 0.25f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Bolt,
+                            contentDescription = null,
+                            tint = Color(0xFF2DD4BF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Xtream Codes API & M3U সাপোর্ট",
+                            color = Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "সার্ভার URL, ইউজার ও পাসওয়ার্ড দিয়ে নিমেষেই কানেক্ট করুন",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // 3. SEARCH BAR (Matching Screenshot 2)
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
                         "প্লেলিস্ট খুঁজুন...",
-                        color = Color(0xFF94A3B8),
+                        color = Color(0xFF64748B),
                         fontSize = 13.sp
                     )
                 },
@@ -133,19 +272,20 @@ fun PlaylistTabScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                shape = RoundedCornerShape(14.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = Color(0xFF00E5FF),
-                    unfocusedBorderColor = Color(0xFF334155),
+                    unfocusedBorderColor = Color(0xFF1E293B),
                     focusedContainerColor = Color(0xFF0F172A),
                     unfocusedContainerColor = Color(0xFF0F172A)
                 ),
                 singleLine = true
             )
 
+            // Filter playlists based on search
             val filteredPlaylists = remember(playlists, searchQuery) {
                 if (searchQuery.isBlank()) playlists else {
                     playlists.filter {
@@ -155,6 +295,7 @@ fun PlaylistTabScreen(
                 }
             }
 
+            // 4. 2-COLUMN GRID OF PLAYLIST CARDS (Matching Screenshot 2)
             if (filteredPlaylists.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -182,92 +323,31 @@ fun PlaylistTabScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTvMode) 3 else 2),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    columns = GridCells.Fixed(if (isTvMode) 4 else 2),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredPlaylists, key = { it.id }) { pl ->
-                        var isCardFocused by remember { mutableStateOf(false) }
-                        val cardScale by animateFloatAsState(
-                            targetValue = if (isCardFocused) 1.05f else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                            label = "plCardScale"
+                    itemsIndexed(filteredPlaylists, key = { _, pl -> pl.id }) { index, pl ->
+                        PlaylistGridCard(
+                            playlist = pl,
+                            index = index,
+                            isTvMode = isTvMode,
+                            onClick = { selectedPlaylist = pl }
                         )
-
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isCardFocused) Color(0xFFFFD600) else Color(0xFF334155)
-                            ),
-                            modifier = Modifier
-                                .scale(cardScale)
-                                .fillMaxWidth()
-                                .height(110.dp)
-                                .onFocusChanged { isCardFocused = it.isFocused }
-                                .focusable()
-                                .clickable { selectedPlaylist = pl }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(54.dp)
-                                        .background(Color(0xFF6366F1).copy(alpha = 0.2f), RoundedCornerShape(10.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Folder,
-                                        contentDescription = null,
-                                        tint = Color(0xFF818CF8),
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = pl.title,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (!pl.description.isNullOrBlank()) {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = pl.description,
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 11.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
         } else {
-            // Inside Selected Playlist View
+            // ==================== INSIDE PLAYLIST CHANNEL LIST VIEW ====================
             val currentPl = selectedPlaylist!!
+
+            // Top bar inside playlist
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { selectedPlaylist = null }) {
@@ -277,7 +357,7 @@ fun PlaylistTabScreen(
                         tint = Color(0xFF00E5FF)
                     )
                 }
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = currentPl.title,
@@ -288,10 +368,51 @@ fun PlaylistTabScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${playlistChannels.size} চ্যানেল উপলভ্য",
+                        text = "${playlistChannels.size} চ্যানেল সংরক্ষিত",
                         color = Color(0xFF94A3B8),
                         fontSize = 11.sp
                     )
+                }
+            }
+
+            // Channel Search
+            OutlinedTextField(
+                value = channelSearchQuery,
+                onValueChange = { channelSearchQuery = it },
+                placeholder = {
+                    Text("এই প্লেলিস্টে চ্যানেল খুঁজুন...", color = Color(0xFF64748B), fontSize = 12.5.sp)
+                },
+                leadingIcon = {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF))
+                },
+                trailingIcon = {
+                    if (channelSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { channelSearchQuery = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White)
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF00E5FF),
+                    unfocusedBorderColor = Color(0xFF1E293B),
+                    focusedContainerColor = Color(0xFF0F172A),
+                    unfocusedContainerColor = Color(0xFF0F172A)
+                ),
+                singleLine = true
+            )
+
+            val filteredChannels = remember(playlistChannels, channelSearchQuery) {
+                if (channelSearchQuery.isBlank()) playlistChannels else {
+                    playlistChannels.filter {
+                        it.title.contains(channelSearchQuery, ignoreCase = true) ||
+                                it.category.contains(channelSearchQuery, ignoreCase = true)
+                    }
                 }
             }
 
@@ -300,9 +421,19 @@ fun PlaylistTabScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFF00E5FF))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(color = Color(0xFF00E5FF))
+                        Text(
+                            text = "চ্যানেল লোড হচ্ছে...",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp
+                        )
+                    }
                 }
-            } else if (playlistChannels.isEmpty()) {
+            } else if (filteredChannels.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -310,20 +441,20 @@ fun PlaylistTabScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "এই প্লেলিস্টে কোনো চ্যানেল পাওয়া যায়নি",
+                        text = "কোনো চ্যানেল পাওয়া যায়নি",
                         color = Color(0xFF94A3B8),
                         fontSize = 13.sp
                     )
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTvMode) 4 else 3),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    columns = GridCells.Fixed(if (isTvMode) 5 else 3),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(playlistChannels, key = { it.id }) { item ->
+                    items(filteredChannels, key = { it.id }) { item ->
                         var isCardFocused by remember { mutableStateOf(false) }
 
                         Surface(
@@ -335,7 +466,7 @@ fun PlaylistTabScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(if (isTvMode) 140.dp else 120.dp)
+                                .height(if (isTvMode) 130.dp else 115.dp)
                                 .onFocusChanged { isCardFocused = it.isFocused }
                                 .focusable()
                                 .clickable { onSelectMedia(item, playlistChannels) }
@@ -352,7 +483,7 @@ fun PlaylistTabScreen(
                                         model = item.logoUrl,
                                         contentDescription = item.title,
                                         modifier = Modifier
-                                            .size(42.dp)
+                                            .size(44.dp)
                                             .clip(RoundedCornerShape(6.dp)),
                                         contentScale = ContentScale.Fit
                                     )
@@ -379,6 +510,402 @@ fun PlaylistTabScreen(
                     }
                 }
             }
+        }
+    }
+
+    // ==================== DIALOGS ====================
+
+    // Add Playlist Dialog
+    if (showAddPlaylistDialog) {
+        var newTitle by remember { mutableStateOf("") }
+        var newUrl by remember { mutableStateOf("") }
+        var newLogo by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showAddPlaylistDialog = false },
+            title = { Text("নতুন M3U প্লেলিস্ট যোগ করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = newTitle,
+                        onValueChange = { newTitle = it },
+                        label = { Text("প্লেলিস্টের নাম") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = newUrl,
+                        onValueChange = { newUrl = it },
+                        label = { Text("M3U / M3U8 লিঙ্ক") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = newLogo,
+                        onValueChange = { newLogo = it },
+                        label = { Text("লোগো URL (ঐচ্ছিক)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newTitle.isNotBlank() && newUrl.isNotBlank()) {
+                            val newPl = PlaylistInfo(
+                                id = "user_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(5)}",
+                                title = newTitle.trim(),
+                                url = newUrl.trim(),
+                                logoUrl = newLogo.trim().ifBlank { null },
+                                type = "M3U",
+                                isAdmin = false
+                            )
+                            repository.saveUserPlaylist(newPl)
+                            onPlaylistsChanged()
+                            showAddPlaylistDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("সংরক্ষণ করুন", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddPlaylistDialog = false }) {
+                    Text("বাতিল", color = Color(0xFF94A3B8))
+                }
+            },
+            containerColor = Color(0xFF0F172A)
+        )
+    }
+
+    // Xtream Codes API Dialog
+    if (showXtreamDialog) {
+        var xtreamServer by remember { mutableStateOf("") }
+        var xtreamUser by remember { mutableStateOf("") }
+        var xtreamPass by remember { mutableStateOf("") }
+        var xtreamName by remember { mutableStateOf("") }
+        var isConnecting by remember { mutableStateOf(false) }
+        var connectionError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { if (!isConnecting) showXtreamDialog = false },
+            title = { Text("Xtream Codes API কানেক্ট করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = xtreamName,
+                        onValueChange = { xtreamName = it },
+                        label = { Text("প্লেলিস্টের নাম (যেমন: My Xtream)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = xtreamServer,
+                        onValueChange = { xtreamServer = it },
+                        label = { Text("সার্ভার URL (যেমন: http://domain.com:8080)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = xtreamUser,
+                        onValueChange = { xtreamUser = it },
+                        label = { Text("ইউজারনেম (Username)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = xtreamPass,
+                        onValueChange = { xtreamPass = it },
+                        label = { Text("পাসওয়ার্ড (Password)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    if (connectionError != null) {
+                        Text(
+                            text = connectionError!!,
+                            color = Color(0xFFEF4444),
+                            fontSize = 11.5.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (xtreamServer.isNotBlank() && xtreamUser.isNotBlank() && xtreamPass.isNotBlank()) {
+                            isConnecting = true
+                            connectionError = null
+                            scope.launch {
+                                val m3uUrl = repository.buildXtreamM3uUrl(xtreamServer, xtreamUser, xtreamPass)
+                                val newPl = PlaylistInfo(
+                                    id = "xtream_${System.currentTimeMillis()}",
+                                    title = if (xtreamName.isNotBlank()) xtreamName.trim() else "Xtream Server",
+                                    url = m3uUrl,
+                                    serverUrl = xtreamServer.trim(),
+                                    username = xtreamUser.trim(),
+                                    password = xtreamPass.trim(),
+                                    type = "XTREAM",
+                                    isAdmin = false
+                                )
+                                repository.saveUserPlaylist(newPl)
+                                onPlaylistsChanged()
+                                isConnecting = false
+                                showXtreamDialog = false
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
+                    enabled = !isConnecting
+                ) {
+                    if (isConnecting) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                    } else {
+                        Text("কানেক্ট করুন", color = Color.White)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showXtreamDialog = false }, enabled = !isConnecting) {
+                    Text("বাতিল", color = Color(0xFF94A3B8))
+                }
+            },
+            containerColor = Color(0xFF0F172A)
+        )
+    }
+}
+
+/**
+ * Custom Playlist Grid Card strictly matching Screenshot 2:
+ * - Top badges: 🔗 M3U (blue), 🔒 এডমিন (teal), #01 (gray index)
+ * - Center: High contrast styled thumbnail / logo
+ * - Bottom: "1. Toffee", "2. Sports TV", etc. in bold white font
+ */
+@Composable
+fun PlaylistGridCard(
+    playlist: PlaylistInfo,
+    index: Int,
+    isTvMode: Boolean,
+    onClick: () -> Unit
+) {
+    var isCardFocused by remember { mutableStateOf(false) }
+    val cardScale by animateFloatAsState(
+        targetValue = if (isCardFocused) 1.04f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "plCardScale"
+    )
+
+    val cleanTitle = remember(playlist.title, index) {
+        val raw = playlist.title.trim()
+        // If title already has numbers like "1. Toffee", keep it, otherwise prefix formatted
+        if (raw.matches(Regex("^\\d+\\..*"))) {
+            raw
+        } else {
+            "${index + 1}. $raw"
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
+        border = BorderStroke(
+            1.dp,
+            if (isCardFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
+        ),
+        shadowElevation = if (isCardFocused) 8.dp else 2.dp,
+        modifier = Modifier
+            .scale(cardScale)
+            .fillMaxWidth()
+            .onFocusChanged { isCardFocused = it.isFocused }
+            .focusable()
+            .clickable { onClick() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp)
+        ) {
+            // TOP ROW: BADGES & INDEX (Matching Screenshot 2)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Badge 1: 🔗 M3U or 🔗 XTREAM
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF2563EB)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Link,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (playlist.type.equals("XTREAM", true)) "XTREAM" else "M3U",
+                                color = Color.White,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Badge 2: 🔒 এডমিন
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF0D9488)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Lock,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(9.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (playlist.isAdmin) "এডমিন" else "ইউজার",
+                                color = Color.White,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                // Right Index: #01, #02, etc.
+                Text(
+                    text = String.format("#%02d", index + 1),
+                    color = Color(0xFF64748B),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // CENTER THUMBNAIL / LOGO AREA (Matching Screenshot 2)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(82.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1E293B)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!playlist.logoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = playlist.logoUrl,
+                        contentDescription = playlist.title,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    // Fallback stylized branding matching playlist theme
+                    val titleLower = playlist.title.lowercase()
+                    when {
+                        titleLower.contains("toffee") -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFFEC4899), Color(0xFFDB2777), Color(0xFF9D174D))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Toffee",
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        titleLower.contains("aksh") || titleLower.contains("go") -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFFE11D48), Color(0xFFBE123C), Color(0xFF0284C7))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "GO",
+                                    color = Color.White,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        titleLower.contains("bdix") -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "BDIX",
+                                    color = Color(0xFF0F172A),
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        else -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF1E293B)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PlaylistPlay,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // BOTTOM TITLE (Matching Screenshot 2: "1. Toffee", "2. Sports TV", etc.)
+            Text(
+                text = cleanTitle,
+                color = Color.White,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
