@@ -553,7 +553,7 @@ fun getMovieLanguageBadge(movie: MediaItem): String {
         movie.country?.equals("Turkey", ignoreCase = true) == true -> "তুর্কি"
         movie.category.contains("Bangla", ignoreCase = true) -> "বাংলা"
         movie.category.contains("Hindi", ignoreCase = true) -> "হিন্দি"
-        else -> "বাংলা"
+        else -> "NFT"
     }
 }
 
@@ -647,7 +647,8 @@ fun MoviePosterCard(
                     "কোরিয়ান" -> Color(0xFF7C3AED)
                     "অ্যানিমে" -> Color(0xFFDB2777)
                     "তুর্কি" -> Color(0xFF0D9488)
-                    else -> Color(0xFF0284C7)
+                    "NFT" -> Color(0xFF6366F1)
+                    else -> Color(0xFF6366F1)
                 },
                 modifier = Modifier.align(Alignment.TopStart)
             ) {

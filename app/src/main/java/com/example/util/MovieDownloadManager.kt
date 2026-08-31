@@ -32,10 +32,12 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 enum class DownloadState {
     IDLE,
@@ -112,10 +114,11 @@ object MovieDownloadManager {
 
     // Ultra-optimized High-Throughput HTTP Client for maximum download speed
     private val downloadHttpClient = OkHttpClient.Builder()
-        .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
+        .connectionPool(ConnectionPool(64, 10, TimeUnit.MINUTES))
         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
@@ -336,8 +339,6 @@ object MovieDownloadManager {
         onStarted?.invoke()
 
         val job = coroutineScope.launch {
-            var inputStream: BufferedInputStream? = null
-            var outputStream: BufferedOutputStream? = null
             var targetFile: File? = null
 
             try {
@@ -365,18 +366,24 @@ object MovieDownloadManager {
                     targetFile.delete()
                 }
 
-                val requestBuilder = Request.Builder()
-                    .url(targetUrl)
-                    .addHeader("User-Agent", mediaItem.userAgent ?: "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                    .addHeader("Accept-Encoding", "identity") // Direct raw stream without decompression bottleneck
-                    .addHeader("Connection", "keep-alive")
+                val createRequestBuilder: () -> Request.Builder = {
+                    val builder = Request.Builder()
+                        .url(targetUrl)
+                        .addHeader("User-Agent", mediaItem.userAgent ?: "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                        .addHeader("Accept", "*/*")
+                        .addHeader("Connection", "keep-alive")
+                    mediaItem.referrer?.let { builder.addHeader("Referer", it) }
+                    mediaItem.cookie?.let { builder.addHeader("Cookie", it) }
+                    mediaItem.origin?.let { builder.addHeader("Origin", it) }
+                    mediaItem.customHeaders?.forEach { (k, v) -> builder.addHeader(k, v) }
+                    builder
+                }
 
-                mediaItem.referrer?.let { requestBuilder.addHeader("Referer", it) }
-                mediaItem.cookie?.let { requestBuilder.addHeader("Cookie", it) }
-                mediaItem.origin?.let { requestBuilder.addHeader("Origin", it) }
-                mediaItem.customHeaders?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
+                val probeRequest = createRequestBuilder()
+                    .addHeader("Accept-Encoding", "identity")
+                    .build()
 
-                val response = downloadHttpClient.newCall(requestBuilder.build()).execute()
+                val response = downloadHttpClient.newCall(probeRequest).execute()
                 if (!response.isSuccessful) {
                     throw Exception("সার্ভার রেসপন্স কোড: ${response.code}")
                 }
@@ -385,71 +392,184 @@ object MovieDownloadManager {
                 val totalBytes = body.contentLength()
                 val totalFormatted = if (totalBytes > 0) formatBytes(totalBytes) else "অজানা সাইজ"
 
-                // 256 KB high-speed chunk buffer for maximum I/O throughput
-                val bufferSize = 256 * 1024
-                inputStream = BufferedInputStream(body.byteStream(), bufferSize)
-                outputStream = BufferedOutputStream(FileOutputStream(targetFile), bufferSize)
+                val acceptRanges = response.header("Accept-Ranges")
+                val supportsRanges = (acceptRanges != null && acceptRanges.contains("bytes", ignoreCase = true)) || (totalBytes > 8 * 1024 * 1024)
 
-                val buffer = ByteArray(bufferSize)
-                var bytesRead: Int
-                var totalBytesRead = 0L
+                showProgressNotification(context, notifId, mediaItem.title, 0, "ডাউনলোড শুরু হচ্ছে...")
+
+                val totalDownloadedAtomic = AtomicLong(0L)
                 var lastUiUpdate = System.currentTimeMillis()
                 var lastBytesForSpeed = 0L
                 var lastSpeedCalcTime = System.currentTimeMillis()
                 var currentSpeed = "0 KB/s"
 
-                showProgressNotification(context, notifId, mediaItem.title, 0, "ডাউনলোড শুরু হচ্ছে...")
+                val numWorkers = if (supportsRanges && totalBytes >= 8 * 1024 * 1024) 4 else 1
 
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    if (!isActive) {
-                        throw CancellationException("ডাউনলোড বাতিল করা হয়েছে")
+                if (numWorkers > 1) {
+                    response.close() // Release probe stream
+
+                    // Pre-allocate file
+                    val rafInit = RandomAccessFile(targetFile, "rw")
+                    try {
+                        rafInit.setLength(totalBytes)
+                    } finally {
+                        rafInit.close()
                     }
 
-                    outputStream.write(buffer, 0, bytesRead)
-                    totalBytesRead += bytesRead
+                    val chunkSize = totalBytes / numWorkers
+                    val workerJobs = (0 until numWorkers).map { workerIndex ->
+                        val startByte = workerIndex * chunkSize
+                        val endByte = if (workerIndex == numWorkers - 1) totalBytes - 1 else (workerIndex + 1) * chunkSize - 1
 
-                    val now = System.currentTimeMillis()
-                    if (now - lastSpeedCalcTime >= 800) {
-                        val bytesInPeriod = totalBytesRead - lastBytesForSpeed
-                        val timePeriodSec = (now - lastSpeedCalcTime) / 1000.0
-                        val speedBytesPerSec = if (timePeriodSec > 0) (bytesInPeriod / timePeriodSec).toLong() else 0L
-                        currentSpeed = formatSpeed(speedBytesPerSec)
-                        lastBytesForSpeed = totalBytesRead
-                        lastSpeedCalcTime = now
+                        async(Dispatchers.IO) {
+                            val rangeRequest = createRequestBuilder()
+                                .addHeader("Range", "bytes=$startByte-$endByte")
+                                .addHeader("Accept-Encoding", "identity")
+                                .build()
+
+                            val segResponse = downloadHttpClient.newCall(rangeRequest).execute()
+                            if (!segResponse.isSuccessful && segResponse.code != 206) {
+                                throw Exception("Segment $workerIndex error: ${segResponse.code}")
+                            }
+
+                            val segBody = segResponse.body ?: throw Exception("Segment $workerIndex empty body")
+                            val segStream = BufferedInputStream(segBody.byteStream(), 256 * 1024)
+                            val raf = RandomAccessFile(targetFile, "rw")
+                            raf.seek(startByte)
+
+                            val segBuffer = ByteArray(256 * 1024)
+                            var readBytes: Int
+                            try {
+                                while (segStream.read(segBuffer).also { readBytes = it } != -1) {
+                                    if (!isActive) throw CancellationException()
+                                    raf.write(segBuffer, 0, readBytes)
+                                    totalDownloadedAtomic.addAndGet(readBytes.toLong())
+                                }
+                            } finally {
+                                try { raf.close() } catch (_: Exception) {}
+                                try { segStream.close() } catch (_: Exception) {}
+                                try { segBody.close() } catch (_: Exception) {}
+                            }
+                        }
                     }
 
-                    if (now - lastUiUpdate >= 250 || (totalBytes > 0 && totalBytesRead == totalBytes)) {
-                        lastUiUpdate = now
-                        val progressFloat = if (totalBytes > 0) (totalBytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
-                        val progressPercent = (progressFloat * 100).toInt()
-                        val downloadedFormatted = formatBytes(totalBytesRead)
+                    while (workerJobs.any { it.isActive }) {
+                        if (!isActive) {
+                            workerJobs.forEach { it.cancel() }
+                            throw CancellationException("ডাউনলোড বাতিল করা হয়েছে")
+                        }
 
-                        val prog = MovieDownloadProgress(
-                            movieId = mediaItem.id,
-                            title = mediaItem.title,
-                            progress = progressFloat,
-                            progressPercent = progressPercent,
-                            downloadedBytes = totalBytesRead,
-                            totalBytes = totalBytes,
-                            downloadedSizeFormatted = downloadedFormatted,
-                            totalSizeFormatted = totalFormatted,
-                            speedFormatted = currentSpeed,
-                            state = DownloadState.DOWNLOADING
-                        )
-                        activeProgressMap[mediaItem.id] = prog
-                        _downloadsState.value = HashMap(activeProgressMap)
+                        val curDownloaded = totalDownloadedAtomic.get()
+                        val now = System.currentTimeMillis()
+                        if (now - lastSpeedCalcTime >= 800) {
+                            val bytesInPeriod = curDownloaded - lastBytesForSpeed
+                            val timePeriodSec = (now - lastSpeedCalcTime) / 1000.0
+                            val speedBytesPerSec = if (timePeriodSec > 0) (bytesInPeriod / timePeriodSec).toLong() else 0L
+                            currentSpeed = formatSpeed(speedBytesPerSec)
+                            lastBytesForSpeed = curDownloaded
+                            lastSpeedCalcTime = now
+                        }
 
-                        showProgressNotification(
-                            context = context,
-                            notifId = notifId,
-                            title = mediaItem.title,
-                            progress = progressPercent,
-                            statusText = "$downloadedFormatted / $totalFormatted • ⚡ $currentSpeed ($progressPercent%)"
-                        )
+                        if (now - lastUiUpdate >= 250) {
+                            lastUiUpdate = now
+                            val progressFloat = (curDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            val progressPercent = (progressFloat * 100).toInt()
+                            val downloadedFormatted = formatBytes(curDownloaded)
+
+                            val prog = MovieDownloadProgress(
+                                movieId = mediaItem.id,
+                                title = mediaItem.title,
+                                progress = progressFloat,
+                                progressPercent = progressPercent,
+                                downloadedBytes = curDownloaded,
+                                totalBytes = totalBytes,
+                                downloadedSizeFormatted = downloadedFormatted,
+                                totalSizeFormatted = totalFormatted,
+                                speedFormatted = currentSpeed,
+                                state = DownloadState.DOWNLOADING
+                            )
+                            activeProgressMap[mediaItem.id] = prog
+                            _downloadsState.value = HashMap(activeProgressMap)
+
+                            showProgressNotification(
+                                context = context,
+                                notifId = notifId,
+                                title = mediaItem.title,
+                                progress = progressPercent,
+                                statusText = "$downloadedFormatted / $totalFormatted • ⚡ $currentSpeed ($progressPercent%)"
+                            )
+                        }
+                        delay(200)
+                    }
+
+                    workerJobs.awaitAll()
+
+                } else {
+                    // Ultra-fast 512KB single-stream buffer pipeline
+                    val bufferSize = 512 * 1024
+                    val inputStream = BufferedInputStream(body.byteStream(), bufferSize)
+                    val outputStream = BufferedOutputStream(FileOutputStream(targetFile), bufferSize)
+
+                    val buffer = ByteArray(bufferSize)
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+
+                    try {
+                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                            if (!isActive) {
+                                throw CancellationException("ডাউনলোড বাতিল করা হয়েছে")
+                            }
+
+                            outputStream.write(buffer, 0, bytesRead)
+                            totalBytesRead += bytesRead
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastSpeedCalcTime >= 800) {
+                                val bytesInPeriod = totalBytesRead - lastBytesForSpeed
+                                val timePeriodSec = (now - lastSpeedCalcTime) / 1000.0
+                                val speedBytesPerSec = if (timePeriodSec > 0) (bytesInPeriod / timePeriodSec).toLong() else 0L
+                                currentSpeed = formatSpeed(speedBytesPerSec)
+                                lastBytesForSpeed = totalBytesRead
+                                lastSpeedCalcTime = now
+                            }
+
+                            if (now - lastUiUpdate >= 250 || (totalBytes > 0 && totalBytesRead == totalBytes)) {
+                                lastUiUpdate = now
+                                val progressFloat = if (totalBytes > 0) (totalBytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+                                val progressPercent = (progressFloat * 100).toInt()
+                                val downloadedFormatted = formatBytes(totalBytesRead)
+
+                                val prog = MovieDownloadProgress(
+                                    movieId = mediaItem.id,
+                                    title = mediaItem.title,
+                                    progress = progressFloat,
+                                    progressPercent = progressPercent,
+                                    downloadedBytes = totalBytesRead,
+                                    totalBytes = totalBytes,
+                                    downloadedSizeFormatted = downloadedFormatted,
+                                    totalSizeFormatted = totalFormatted,
+                                    speedFormatted = currentSpeed,
+                                    state = DownloadState.DOWNLOADING
+                                )
+                                activeProgressMap[mediaItem.id] = prog
+                                _downloadsState.value = HashMap(activeProgressMap)
+
+                                showProgressNotification(
+                                    context = context,
+                                    notifId = notifId,
+                                    title = mediaItem.title,
+                                    progress = progressPercent,
+                                    statusText = "$downloadedFormatted / $totalFormatted • ⚡ $currentSpeed ($progressPercent%)"
+                                )
+                            }
+                        }
+                        outputStream.flush()
+                    } finally {
+                        try { outputStream.close() } catch (_: Exception) {}
+                        try { inputStream.close() } catch (_: Exception) {}
+                        try { body.close() } catch (_: Exception) {}
                     }
                 }
-
-                outputStream.flush()
 
                 // Finalize Downloaded Movie Record
                 val actualFileSize = targetFile.length()
@@ -520,8 +640,6 @@ object MovieDownloadManager {
                     onError?.invoke(errMsg)
                 }
             } finally {
-                try { outputStream?.close() } catch (_: Exception) {}
-                try { inputStream?.close() } catch (_: Exception) {}
                 activeDownloadJobs.remove(mediaItem.id)
             }
         }

@@ -3142,25 +3142,28 @@ fun VideoPlayerScreen(
                                             )
                                         }
 
-                                        // Language Badge on top left (বাংলা, হিন্দি, etc.)
+                                        // Language Badge on top left (বাংলা, হিন্দি, etc., or NFT)
                                         val movieLang = remember(movie.id, movie.title, movie.category) {
                                             val s = "${movie.category} ${movie.title} ${movie.description ?: ""}".lowercase()
                                             when {
+                                                s.contains("bangla dubbed") || s.contains("বাংলা ডাবড") -> "বাংলা ডাবড"
                                                 s.contains("bangla") || s.contains("bengali") || s.contains("বাংলা") -> "বাংলা"
+                                                s.contains("hindi dubbed") || s.contains("হিন্দি ডাবড") -> "হিন্দি ডাবড"
                                                 s.contains("hindi") || s.contains("হিন্দি") -> "হিন্দি"
                                                 s.contains("english") || s.contains("ইংরেজি") -> "ইংরেজি"
                                                 s.contains("tamil") || s.contains("তামিল") -> "তামিল"
                                                 s.contains("telugu") || s.contains("তেলেগু") -> "তেলেগু"
                                                 s.contains("korean") || s.contains("কোরিয়ান") -> "কোরিয়ান"
-                                                else -> movie.quality.ifBlank { "HD" }
+                                                else -> "NFT"
                                             }
                                         }
                                         Surface(
                                             color = when (movieLang) {
-                                                "বাংলা" -> Color(0xFF059669)
-                                                "হিন্দি" -> Color(0xFFD97706)
+                                                "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
+                                                "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
                                                 "ইংরেজি" -> Color(0xFF2563EB)
-                                                else -> Color(0xFF0F172A).copy(alpha = 0.85f)
+                                                "NFT" -> Color(0xFF6366F1)
+                                                else -> Color(0xFF6366F1)
                                             },
                                             shape = RoundedCornerShape(bottomEnd = 6.dp),
                                             modifier = Modifier.align(Alignment.TopStart)
