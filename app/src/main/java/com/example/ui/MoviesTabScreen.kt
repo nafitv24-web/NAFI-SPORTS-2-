@@ -526,6 +526,37 @@ fun MoviesTabScreen(
     }
 }
 
+/**
+ * Helper to determine the movie language for badge display
+ * (e.g., "বাংলা", "হিন্দি", "হিন্দি ডাবড", "ইংরেজি", "তামিল", etc.)
+ */
+fun getMovieLanguageBadge(movie: MediaItem): String {
+    val textToScan = "${movie.category} ${movie.title} ${movie.description ?: ""} ${movie.country ?: ""} ${movie.tournament ?: ""}".lowercase()
+    return when {
+        textToScan.contains("bangla dubbed") || textToScan.contains("বাংলা ডাবড") -> "বাংলা ডাবড"
+        textToScan.contains("bangla") || textToScan.contains("bengali") || textToScan.contains("বাংলা") || textToScan.contains("bd") || textToScan.contains("dhallywood") -> "বাংলা"
+        textToScan.contains("hindi dubbed") || textToScan.contains("hindi-dubbed") || textToScan.contains("dubbed in hindi") || textToScan.contains("হিন্দি ডাবড") -> "হিন্দি ডাবড"
+        textToScan.contains("hindi") || textToScan.contains("হিন্দি") || textToScan.contains("bollywood") -> "হিন্দি"
+        textToScan.contains("tamil") || textToScan.contains("তামিল") -> "তামিল"
+        textToScan.contains("telugu") || textToScan.contains("তেলেগু") -> "তেলেগু"
+        textToScan.contains("malayalam") || textToScan.contains("মালায়ালাম") -> "মালায়ালাম"
+        textToScan.contains("korean") || textToScan.contains("k-drama") || textToScan.contains("kdrama") || textToScan.contains("কোরিয়ান") -> "কোরিয়ান"
+        textToScan.contains("anime") || textToScan.contains("japanese") || textToScan.contains("অ্যানিমে") -> "অ্যানিমে"
+        textToScan.contains("turkish") || textToScan.contains("তুর্কি") -> "তুর্কি"
+        textToScan.contains("english") || textToScan.contains("ইংরেজি") || textToScan.contains("hollywood") -> "ইংরেজি"
+        textToScan.contains("south") || textToScan.contains("সাউথ") -> "সাউথ"
+        movie.country?.equals("Bangladesh", ignoreCase = true) == true -> "বাংলা"
+        movie.country?.equals("India", ignoreCase = true) == true -> "হিন্দি"
+        movie.country?.equals("USA", ignoreCase = true) == true || movie.country?.equals("UK", ignoreCase = true) == true -> "ইংরেজি"
+        movie.country?.equals("South Korea", ignoreCase = true) == true -> "কোরিয়ান"
+        movie.country?.equals("Japan", ignoreCase = true) == true -> "অ্যানিমে"
+        movie.country?.equals("Turkey", ignoreCase = true) == true -> "তুর্কি"
+        movie.category.contains("Bangla", ignoreCase = true) -> "বাংলা"
+        movie.category.contains("Hindi", ignoreCase = true) -> "হিন্দি"
+        else -> "বাংলা"
+    }
+}
+
 @Composable
 fun MoviePosterCard(
     movie: MediaItem,
@@ -540,6 +571,10 @@ fun MoviePosterCard(
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "movieCardScale"
     )
+
+    val langBadge = remember(movie.id, movie.title, movie.category, movie.description) {
+        getMovieLanguageBadge(movie)
+    }
 
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -594,21 +629,30 @@ fun MoviePosterCard(
                             colors = listOf(
                                 Color.Transparent,
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.6f),
+                                Color.Black.copy(alpha = 0.65f),
                                 Color.Black.copy(alpha = 0.95f)
                             )
                         )
                     )
             )
 
-            // Top Left "OTT" Red Badge (Matching Screenshot 1)
+            // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc., replacing "OTT")
             Surface(
                 shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
-                color = Color(0xFFEF4444),
+                color = when (langBadge) {
+                    "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
+                    "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
+                    "ইংরেজি" -> Color(0xFF2563EB)
+                    "তামিল", "তেলেগু", "মালায়ালাম", "সাউথ" -> Color(0xFFEA580C)
+                    "কোরিয়ান" -> Color(0xFF7C3AED)
+                    "অ্যানিমে" -> Color(0xFFDB2777)
+                    "তুর্কি" -> Color(0xFF0D9488)
+                    else -> Color(0xFF0284C7)
+                },
                 modifier = Modifier.align(Alignment.TopStart)
             ) {
                 Text(
-                    text = "OTT",
+                    text = langBadge,
                     color = Color.White,
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -631,30 +675,20 @@ fun MoviePosterCard(
                 )
             }
 
-            // Bottom Info: Title & Category (Matching Screenshot 1)
+            // Bottom Movie Name inside the movie card (মুভির নাম নিচের দিকে থাকবে মুভির ভিতরে থাকবে)
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(horizontal = 7.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = movie.title,
                     color = Color.White,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(1.dp))
-
-                Text(
-                    text = movie.category,
-                    color = Color(0xFF94A3B8),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
+                    maxLines = 2,
+                    lineHeight = 14.sp,
                     overflow = TextOverflow.Ellipsis
                 )
             }

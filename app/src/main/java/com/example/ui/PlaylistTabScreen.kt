@@ -678,10 +678,9 @@ fun PlaylistTabScreen(
 }
 
 /**
- * Custom Playlist Grid Card strictly matching Screenshot 2:
- * - Top badges: 🔗 M3U (blue), 🔒 এডমিন (teal), #01 (gray index)
- * - Center: High contrast styled thumbnail / logo
- * - Bottom: "1. Toffee", "2. Sports TV", etc. in bold white font
+ * Custom Playlist Grid Card:
+ * - Only displays the playlist image / thumbnail
+ * - Absolutely no extra text, badges, or labels as requested by the user
  */
 @Composable
 fun PlaylistGridCard(
@@ -692,220 +691,106 @@ fun PlaylistGridCard(
 ) {
     var isCardFocused by remember { mutableStateOf(false) }
     val cardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) 1.04f else 1.0f,
+        targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.05f) else 1.0f,
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "plCardScale"
     )
-
-    val cleanTitle = remember(playlist.title, index) {
-        val raw = playlist.title.trim()
-        // If title already has numbers like "1. Toffee", keep it, otherwise prefix formatted
-        if (raw.matches(Regex("^\\d+\\..*"))) {
-            raw
-        } else {
-            "${index + 1}. $raw"
-        }
-    }
 
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
         border = BorderStroke(
-            1.dp,
+            if (isCardFocused) 2.5.dp else 1.dp,
             if (isCardFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
         ),
-        shadowElevation = if (isCardFocused) 8.dp else 2.dp,
+        shadowElevation = if (isCardFocused) 10.dp else 2.dp,
         modifier = Modifier
             .scale(cardScale)
             .fillMaxWidth()
+            .height(if (isTvMode) 120.dp else 100.dp)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable { onClick() }
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp)
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF0F172A)),
+            contentAlignment = Alignment.Center
         ) {
-            // TOP ROW: BADGES & INDEX (Matching Screenshot 2)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Badge 1: 🔗 M3U or 🔗 XTREAM
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF2563EB)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Link,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(10.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = if (playlist.type.equals("XTREAM", true)) "XTREAM" else "M3U",
-                                color = Color.White,
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Badge 2: 🔒 এডমিন
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF0D9488)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Lock,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(9.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = if (playlist.isAdmin) "এডমিন" else "ইউজার",
-                                color = Color.White,
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                // Right Index: #01, #02, etc.
-                Text(
-                    text = String.format("#%02d", index + 1),
-                    color = Color(0xFF64748B),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+            if (!playlist.logoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = playlist.logoUrl,
+                    contentDescription = playlist.title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(14.dp)),
+                    contentScale = ContentScale.Crop
                 )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // CENTER THUMBNAIL / LOGO AREA (Matching Screenshot 2)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(82.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1E293B)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!playlist.logoUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = playlist.logoUrl,
-                        contentDescription = playlist.title,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    // Fallback stylized branding matching playlist theme
-                    val titleLower = playlist.title.lowercase()
-                    when {
-                        titleLower.contains("toffee") -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(Color(0xFFEC4899), Color(0xFFDB2777), Color(0xFF9D174D))
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Toffee",
-                                    color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
+            } else {
+                // Fallback stylized branding without extra clutter
+                val titleLower = playlist.title.lowercase()
+                when {
+                    titleLower.contains("toffee") -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFEC4899), Color(0xFFDB2777), Color(0xFF9D174D))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Tv,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(42.dp)
+                            )
                         }
-                        titleLower.contains("aksh") || titleLower.contains("go") -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(Color(0xFFE11D48), Color(0xFFBE123C), Color(0xFF0284C7))
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "GO",
-                                    color = Color.White,
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
+                    }
+                    titleLower.contains("aksh") || titleLower.contains("go") -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFE11D48), Color(0xFFBE123C), Color(0xFF0284C7))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Tv,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(42.dp)
+                            )
                         }
-                        titleLower.contains("bdix") -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "BDIX",
-                                    color = Color(0xFF0F172A),
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-                        else -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0xFF1E293B)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlaylistPlay,
-                                    contentDescription = null,
-                                    tint = Color(0xFF38BDF8),
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
+                    }
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlaylistPlay,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(42.dp)
+                            )
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // BOTTOM TITLE (Matching Screenshot 2: "1. Toffee", "2. Sports TV", etc.)
-            Text(
-                text = cleanTitle,
-                color = Color.White,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }

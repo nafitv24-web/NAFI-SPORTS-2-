@@ -3142,16 +3142,33 @@ fun VideoPlayerScreen(
                                             )
                                         }
 
-                                        // Quality / OTT Badge on top left
+                                        // Language Badge on top left (বাংলা, হিন্দি, etc.)
+                                        val movieLang = remember(movie.id, movie.title, movie.category) {
+                                            val s = "${movie.category} ${movie.title} ${movie.description ?: ""}".lowercase()
+                                            when {
+                                                s.contains("bangla") || s.contains("bengali") || s.contains("বাংলা") -> "বাংলা"
+                                                s.contains("hindi") || s.contains("হিন্দি") -> "হিন্দি"
+                                                s.contains("english") || s.contains("ইংরেজি") -> "ইংরেজি"
+                                                s.contains("tamil") || s.contains("তামিল") -> "তামিল"
+                                                s.contains("telugu") || s.contains("তেলেগু") -> "তেলেগু"
+                                                s.contains("korean") || s.contains("কোরিয়ান") -> "কোরিয়ান"
+                                                else -> movie.quality.ifBlank { "HD" }
+                                            }
+                                        }
                                         Surface(
-                                            color = if (movie.tournament == "NAFI_OTT" || (movie.category ?: "").contains("OTT", ignoreCase = true)) Color(0xFFE50914) else Color(0xFF0F172A).copy(alpha = 0.85f),
+                                            color = when (movieLang) {
+                                                "বাংলা" -> Color(0xFF059669)
+                                                "হিন্দি" -> Color(0xFFD97706)
+                                                "ইংরেজি" -> Color(0xFF2563EB)
+                                                else -> Color(0xFF0F172A).copy(alpha = 0.85f)
+                                            },
                                             shape = RoundedCornerShape(bottomEnd = 6.dp),
                                             modifier = Modifier.align(Alignment.TopStart)
                                         ) {
                                             Text(
-                                                text = if (movie.tournament == "NAFI_OTT") "OTT" else (movie.quality ?: "HD"),
+                                                text = movieLang,
                                                 color = Color.White,
-                                                fontSize = 9.sp,
+                                                fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                             )
