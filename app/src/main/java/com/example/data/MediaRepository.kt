@@ -4963,6 +4963,18 @@ class MediaRepository(private val context: Context) {
             lastUpdated = now
         )
     }
+
+    fun getSavedUserMode(): String? {
+        return prefs.getString("saved_app_user_mode", null)
+    }
+
+    fun saveUserMode(modeName: String?) {
+        if (modeName == null) {
+            prefs.edit().remove("saved_app_user_mode").apply()
+        } else {
+            prefs.edit().putString("saved_app_user_mode", modeName).apply()
+        }
+    }
 }
 
 

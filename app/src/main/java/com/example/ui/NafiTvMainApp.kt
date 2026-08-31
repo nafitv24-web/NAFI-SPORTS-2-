@@ -134,8 +134,15 @@ fun NafiTvMainApp(
     var currentTab by remember { mutableStateOf(AppTab.EVENTS) }
     var selectedMediaItem by remember { mutableStateOf<MediaItem?>(null) }
     var activePlaybackPlaylist by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var isTvMode by remember { mutableStateOf(false) }
-    var activeUserMode by remember { mutableStateOf<AppUserMode?>(null) }
+    val initialSavedMode = remember {
+        when (repository.getSavedUserMode()) {
+            "REMOTE" -> AppUserMode.REMOTE
+            "MOBILE" -> AppUserMode.MOBILE
+            else -> null
+        }
+    }
+    var activeUserMode by remember { mutableStateOf<AppUserMode?>(initialSavedMode) }
+    var isTvMode by remember { mutableStateOf(initialSavedMode == AppUserMode.REMOTE) }
     var isAdminViewActive by remember { mutableStateOf(false) }
     var activeMovieBrowserProvider by remember { mutableStateOf<MovieProvider?>(null) }
     var isExtensionsManagementActive by remember { mutableStateOf(false) }
@@ -433,10 +440,12 @@ fun NafiTvMainApp(
             onSelectMobileMode = {
                 isTvMode = false
                 activeUserMode = AppUserMode.MOBILE
+                repository.saveUserMode("MOBILE")
             },
             onSelectRemoteMode = {
                 isTvMode = true
                 activeUserMode = AppUserMode.REMOTE
+                repository.saveUserMode("REMOTE")
             },
             onExitApp = {
                 showExitConfirmationDialog = true
@@ -522,12 +531,12 @@ fun NafiTvMainApp(
             }
         )
     } else {
-        // Intercept back press when at root screens to return to Mode Selection Screen
+        // Intercept back press when at root screens to show Exit Confirmation Dialog
         BackHandler {
             if (currentTab != AppTab.EVENTS) {
                 currentTab = AppTab.EVENTS
             } else {
-                activeUserMode = null
+                showExitConfirmationDialog = true
             }
         }
 
@@ -699,6 +708,52 @@ fun NafiTvMainApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // Switch to Mobile Mode Button (TV -> Mobile)
+                                var isTvModeSwitchFocused by remember { mutableStateOf(false) }
+                                val tvModeSwitchScale by animateFloatAsState(
+                                    targetValue = if (isTvModeSwitchFocused) 1.08f else 1.0f,
+                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                    label = "tvModeSwitchScale"
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = if (isTvModeSwitchFocused) Color(0xFF1E3A8A).copy(alpha = 0.8f) else Color(0xFF1E293B),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        if (isTvModeSwitchFocused) 2.dp else 1.dp,
+                                        if (isTvModeSwitchFocused) Color(0xFF38BDF8) else Color(0xFF00E5FF).copy(alpha = 0.6f)
+                                    ),
+                                    shadowElevation = if (isTvModeSwitchFocused) 4.dp else 0.dp,
+                                    modifier = Modifier
+                                        .scale(tvModeSwitchScale)
+                                        .onFocusChanged { isTvModeSwitchFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable {
+                                            isTvMode = false
+                                            activeUserMode = AppUserMode.MOBILE
+                                            repository.saveUserMode("MOBILE")
+                                            Toast.makeText(context, "à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.PhoneAndroid,
+                                            contentDescription = "à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡à§‡ à¦¯à¦¾à¦¨",
+                                            tint = if (isTvModeSwitchFocused) Color(0xFF38BDF8) else Color(0xFF00E5FF),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = "à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
                                 // Notification Bell Button (TV)
                                 val tvUnreadNotifCount = remember(notificationsList) { notificationsList.count { !it.isRead } }
                                 var isTvNotifFocused by remember { mutableStateOf(false) }
@@ -850,6 +905,23 @@ fun NafiTvMainApp(
                             AppTab.MENU -> MenuScreen(
                                 repository = repository,
                                 customList = customList,
+                                isTvMode = true,
+                                onSwitchToMobileMode = {
+                                    isTvMode = false
+                                    activeUserMode = AppUserMode.MOBILE
+                                    repository.saveUserMode("MOBILE")
+                                    Toast.makeText(context, "à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+                                },
+                                onSwitchToTvMode = {
+                                    isTvMode = true
+                                    activeUserMode = AppUserMode.REMOTE
+                                    repository.saveUserMode("REMOTE")
+                                    Toast.makeText(context, "à¦Ÿà¦¿à¦­à¦¿ à¦°à¦¿à¦®à§‹à¦Ÿ à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+                                },
+                                onResetModeSelection = {
+                                    repository.saveUserMode(null)
+                                    activeUserMode = null
+                                },
                                 onOpenAdminApp = { isAdminViewActive = true },
                                 onOpenOfflineDownloads = { isOfflineDownloadsActive = true },
                                 onOpenExtensionManager = { isExtensionsManagementActive = true },
@@ -955,6 +1027,38 @@ fun NafiTvMainApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // TV Mode Switch Chip (Mobile -> TV Remote Mode)
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.25f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.8f)),
+                                    modifier = Modifier.clickable {
+                                        isTvMode = true
+                                        activeUserMode = AppUserMode.REMOTE
+                                        repository.saveUserMode("REMOTE")
+                                        Toast.makeText(context, "à¦Ÿà¦¿à¦­à¦¿ à¦°à¦¿à¦®à§‹à¦Ÿ à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Tv,
+                                            contentDescription = "à¦Ÿà¦¿à¦­à¦¿ à¦®à§‹à¦¡à§‡ à¦¯à¦¾à¦¨",
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = "à¦Ÿà¦¿à¦­à¦¿ à¦®à§‹à¦¡",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
                                 // Notification Bell Button (Mobile)
                                 val mobUnreadNotifCount = remember(notificationsList) { notificationsList.count { !it.isRead } }
                                 Surface(
@@ -1130,6 +1234,23 @@ fun NafiTvMainApp(
                         AppTab.MENU -> MenuScreen(
                             repository = repository,
                             customList = customList,
+                            isTvMode = false,
+                            onSwitchToMobileMode = {
+                                isTvMode = false
+                                activeUserMode = AppUserMode.MOBILE
+                                repository.saveUserMode("MOBILE")
+                                Toast.makeText(context, "à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+                            },
+                            onSwitchToTvMode = {
+                                isTvMode = true
+                                activeUserMode = AppUserMode.REMOTE
+                                repository.saveUserMode("REMOTE")
+                                Toast.makeText(context, "à¦Ÿà¦¿à¦­à¦¿ à¦°à¦¿à¦®à§‹à¦Ÿ à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_SHORT).show()
+                            },
+                            onResetModeSelection = {
+                                repository.saveUserMode(null)
+                                activeUserMode = null
+                            },
                             onOpenAdminApp = { isAdminViewActive = true },
                             onOpenOfflineDownloads = { isOfflineDownloadsActive = true },
                             onOpenExtensionManager = { isExtensionsManagementActive = true },
@@ -1284,21 +1405,38 @@ fun NafiTvMainApp(
                 )
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showExitConfirmationDialog = false
-                        activity?.finish()
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFEF4444),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(42.dp)
-                ) {
-                    Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("à¦¹à§à¦¯à¦¾à¦, à¦¬à§‡à¦° à¦¹à¦¨", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            showExitConfirmationDialog = false
+                            repository.saveUserMode(null)
+                            activeUserMode = null
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8)),
+                        modifier = Modifier.height(42.dp)
+                    ) {
+                        Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("à¦®à§‹à¦¡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = {
+                            showExitConfirmationDialog = false
+                            activity?.finish()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(42.dp)
+                    ) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("à¦¹à§à¦¯à¦¾à¦, à¦¬à§‡à¦° à¦¹à¦¨", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             },
             dismissButton = {
@@ -6674,6 +6812,10 @@ fun AdminControlAppScreen(
 fun MenuScreen(
     repository: MediaRepository,
     customList: List<MediaItem>,
+    isTvMode: Boolean = false,
+    onSwitchToMobileMode: () -> Unit = {},
+    onSwitchToTvMode: () -> Unit = {},
+    onResetModeSelection: () -> Unit = {},
     onOpenAdminApp: () -> Unit,
     onOpenExtensionManager: () -> Unit = {},
     onOpenOfflineDownloads: () -> Unit = {},
@@ -6731,6 +6873,111 @@ fun MenuScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // CARD -1: App Display Mode Switcher (à¦®à§‹à¦¬à¦¾à¦‡à¦² / à¦Ÿà¦¿à¦­à¦¿ à¦°à¦¿à¦®à§‹à¦Ÿ à¦®à§‹à¦¡ à¦¨à¦¿à¦°à§à¦¬à¦¾à¦šà¦¨ à¦“ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨)
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.15f),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isTvMode) Icons.Rounded.Tv else Icons.Rounded.PhoneAndroid,
+                                        contentDescription = "App Mode",
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "à¦…à§à¦¯à¦¾à¦ª à¦¡à¦¿à¦¸à¦ªà§à¦²à§‡ à¦®à§‹à¦¡ (App Mode)",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isTvMode) "à¦¬à¦°à§à¦¤à¦®à¦¾à¦¨ à¦®à§‹à¦¡: à¦Ÿà¦¿à¦­à¦¿ à¦°à¦¿à¦®à§‹à¦Ÿ à¦®à§‹à¦¡ (Landscape)" else "à¦¬à¦°à§à¦¤à¦®à¦¾à¦¨ à¦®à§‹à¦¡: à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡ (Portrait)",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "à¦†à¦ªà¦¨à¦¿ à¦¯à§‡à¦•à§‹à¦¨à§‹ à¦¸à¦®à§Ÿ à¦†à¦ªà¦¨à¦¾à¦° à¦¸à§à¦¬à¦¿à¦§à¦¾à¦œà¦¨à¦• à¦®à§‹à¦¡à§‡ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à¦¤à§‡ à¦ªà¦¾à¦°à§‡à¦¨à¥¤ à¦à¦•à¦¬à¦¾à¦° à¦¨à¦¿à¦°à§à¦¬à¦¾à¦šà¦¨ à¦•à¦°à¦²à§‡ à¦ªà¦°à¦¬à¦°à§à¦¤à§€à¦¤à§‡ à¦¸à¦°à¦¾à¦¸à¦°à¦¿ à¦¸à§‡à¦‡ à¦®à§‹à¦¡à§‡à¦‡ à¦…à§à¦¯à¦¾à¦ª à¦šà¦¾à¦²à§ à¦¹à¦¬à§‡à¥¤",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (!isTvMode) {
+                            Button(
+                                onClick = onSwitchToTvMode,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f).height(42.dp)
+                            ) {
+                                Icon(Icons.Rounded.Tv, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("à¦Ÿà¦¿à¦­à¦¿ à¦®à§‹à¦¡à§‡ à¦¯à¦¾à¦¨", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Button(
+                                onClick = onSwitchToMobileMode,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f).height(42.dp)
+                            ) {
+                                Icon(Icons.Rounded.PhoneAndroid, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("à¦®à§‹à¦¬à¦¾à¦‡à¦² à¦®à§‹à¦¡à§‡ à¦¯à¦¾à¦¨", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onResetModeSelection,
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCBD5E1)),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("à¦®à§‹à¦¡ à¦šà§Ÿà§‡à¦¸ à¦ªà§‡à¦œ", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         // CARD 0: Offline Downloads Library
         item {
             Card(
@@ -8875,283 +9122,18 @@ fun LiveTvTabScreen(
                     animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
                     label = "liveCatScale"
                 )
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = when {
-                        isCatFocused -> Color(0xFF00E5FF)
-                        isSelected -> Color(0xFF2563EB)
-                        else -> Color(0xFF1E293B)
-                    },
-                    border = when {
-                        isCatFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                        isSelected -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
-                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-                    },
-                    shadowElevation = if (isCatFocused) 12.dp else 0.dp,
-                    modifier = Modifier
-                        .scale(catScale)
-                        .onFocusChanged { isCatFocused = it.isFocused }
-                        .focusable()
-                        .clickable { selectedCategory = category }
-                ) {
-                    Text(
-                        text = category,
-                        color = if (isCatFocused) Color.Black else if (isSelected) Color.White else Color(0xFFE2E8F0),
-                        fontSize = 12.sp,
-                        fontWeight = if (isCatFocused || isSelected) FontWeight.Black else FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                    )
-                }
-            }
-        }
-
-        // Section Title with dynamic count
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "ğŸ“ Live Channels (${filtered.size})",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (onAddChannel != null) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF2563EB),
-                        modifier = Modifier.clickable { showAddDialog = true }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "â• à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦¯à§‹à¦—",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF00E5FF).copy(alpha = 0.15f)
-                ) {
-                    Text(
-                        text = "Auto-Sync",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-        }
-
-        if (showAddDialog && onAddChannel != null) {
-            var newChName by remember { mutableStateOf("") }
-            var newChServer1 by remember { mutableStateOf("") }
-            var newChServer2 by remember { mutableStateOf("") }
-            var newChCategory by remember { mutableStateOf("Bangla") }
-            var newChLogo by remember { mutableStateOf("") }
-            var catDropdownExpanded by remember { mutableStateOf(false) }
-            val defaultCats = listOf("Bangla", "News", "Sports TV", "Entertainment", "Indian", "Kids", "Music", "Infotainment", "Religious")
-
-            AlertDialog(
-                onDismissRequest = { showAddDialog = false },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.LiveTv, contentDescription = null, tint = Color(0xFF00E5FF))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("à¦²à¦¾à¦‡à¦­ à¦Ÿà¦¿à¦­à¦¿ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦¯à§‹à¦— à¦•à¦°à§à¦¨", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = newChName,
-                            onValueChange = { newChName = it },
-                            placeholder = { Text("à¦šà§à¦¯à¦¾à¦¨à§‡à¦²à§‡à¦° à¦¨à¦¾à¦® (à¦¯à§‡à¦®à¦¨: T Sports, Somoy TV)", color = Color(0xFF64748B), fontSize = 12.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = newChServer1,
-                            onValueChange = { newChServer1 = it },
-                            placeholder = { Text("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§§ à¦²à¦¿à¦‚à¦• (.m3u8 à¦¬à¦¾ à¦­à¦¿à¦¡à¦¿à¦“ à¦²à¦¿à¦‚à¦•)", color = Color(0xFF64748B), fontSize = 12.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = newChServer2,
-                            onValueChange = { newChServer2 = it },
-                            placeholder = { Text("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§¨ à¦¬à§à¦¯à¦¾à¦•à¦†à¦ª à¦²à¦¿à¦‚à¦• (à¦à¦šà§à¦›à¦¿à¦•)", color = Color(0xFF64748B), fontSize = 12.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
-                        )
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = newChCategory,
-                                onValueChange = { newChCategory = it },
-                                label = { Text("à¦•à§à¦¯à¦¾à¦Ÿà¦¾à¦—à¦°à¦¿", color = Color(0xFF94A3B8), fontSize = 11.sp) },
-                                placeholder = { Text("Bangla, Sports TV, News...", color = Color(0xFF64748B), fontSize = 12.sp) },
-                                trailingIcon = {
-                                    IconButton(onClick = { catDropdownExpanded = !catDropdownExpanded }) {
-                                        Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, tint = Color.White)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = customFieldColors(),
-                                shape = RoundedCornerShape(10.dp),
-                                singleLine = true
-                            )
-                            DropdownMenu(
-                                expanded = catDropdownExpanded,
-                                onDismissRequest = { catDropdownExpanded = false },
-                                modifier = Modifier.background(Color(0xFF1E293B))
-                            ) {
-                                defaultCats.forEach { cat ->
-                                    DropdownMenuItem(
-                                        text = { Text(cat, color = Color.White) },
-                                        onClick = {
-                                            newChCategory = cat
-                                            catDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        OutlinedTextField(
-                            value = newChLogo,
-                            onValueChange = { newChLogo = it },
-                            placeholder = { Text("à¦²à§‹à¦—à§‹ à¦‡à¦®à§‡à¦œ à¦²à¦¿à¦‚à¦• (à¦à¦šà§à¦›à¦¿à¦•)", color = Color(0xFF64748B), fontSize = 12.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = customFieldColors(),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (newChName.isNotBlank() && newChServer1.isNotBlank()) {
-                                val sList = mutableListOf<StreamServer>()
-                                sList.add(StreamServer("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§§ (Main)", newChServer1.trim()))
-                                if (newChServer2.isNotBlank()) sList.add(StreamServer("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§¨ (Backup)", newChServer2.trim()))
-                                val item = MediaItem(
-                                    id = "tv_${System.currentTimeMillis()}",
-                                    title = newChName.trim(),
-                                    category = newChCategory.trim().ifBlank { "Bangla" },
-                                    type = MediaType.LIVE_TV,
-                                    streamUrl = newChServer1.trim(),
-                                    backupUrl = newChServer2.trim().takeIf { it.isNotBlank() },
-                                    servers = sList,
-                                    logoUrl = newChLogo.trim().takeIf { it.isNotBlank() },
-                                    isLive = true
-                                )
-                                onAddChannel(item)
-                                showAddDialog = false
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                    ) {
-                        Text("à¦¯à§à¦•à§à¦¤ à¦•à¦°à§à¦¨", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showAddDialog = false }) {
-                        Text("à¦¬à¦¾à¦¤à¦¿à¦²", color = Color(0xFF94A3B8))
-                    }
-                },
-                containerColor = Color(0xFF1E293B)
-            )
-        }
-
-        // Channels Grid (Adaptive & Spacious for TV Mode, shows full details, categories and servers)
-        if (filtered.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Rounded.TvOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
-                    Text("à¦•à§‹à¦¨à§‹ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦ªà¦¾à¦“à§Ÿà¦¾ à¦¯à¦¾à§Ÿà¦¨à¦¿", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("à¦…à¦¨à§à¦¯ à¦•à¦¿-à¦“à§Ÿà¦¾à¦°à§à¦¡ à¦¦à¦¿à§Ÿà§‡ à¦¸à¦¾à¦°à§à¦š à¦•à¦°à§à¦¨ à¦…à¦¥à¦¬à¦¾ à¦•à§à¦¯à¦¾à¦Ÿà¦¾à¦—à¦°à¦¿ à¦ªà¦°à¦¿à¦¬à¦°à§à¦¤à¦¨ à¦•à¦°à§à¦¨à¥¤", color = Color(0xFF94A3B8), fontSize = 12.sp, textAlign = TextAlign.Center)
-                }
-            }
-        } else {
-            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (isTvMode) 4 else 3),
-                contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
-                verticalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(filtered, key = { it.id }) { channel ->
-                    val isFav = favoriteIds.contains(channel.id)
-                    var isCardFocused by remember { mutableStateOf(false) }
-                    val cardScale by animateFloatAsState(
-                        targetValue = if (isCardFocused) (if (isTvMode) 1.10f else 1.06f) else 1.0f,
-                        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                        label = "channelCardScale"
-                    )
-
-                    val availableServers = channel.getAllServers()
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
-                        border = when {
-                            isCardFocused -> androidx.compose.foundation.BorderStroke(3.dp, Color(0xFFFFD600))
-                            isFav -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
-                            else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
-                        },
-                        shadowElevation = if (isCardFocused) 16.dp else 4.dp,
-                        modifier = Modifier
-                            .scale(cardScale)
-                            .fillMaxWidth()
-                            .height(if (isTvMode) 160.dp else 135.dp)
-                            .onFocusChanged { isCardFocused = it.isFocused }
-                            .focusable()
-                            .clickable { onSelectMedia(channel, filtered) }
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // Status Badges at Top Left
-                            if (channel.isLive) {
-                                Surface(
-                                    shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 8.dp),
-                                    color = Color(0xFFEF4444),
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                ) {
-             xœÜWİNÛ0¾ç)L5¡TªBÿ@p±Im×hH0$RàÚ$njÕµ;Ç-ÔgØåŞoO²ãü4”f‰S¤i›/Úøïøø;ç;Ç¡Ü6"+eäÏí6«ÑGTûùã;º¼¸ÖÆ[=Á„„½ıoßO¨"æ›Ç‚+—>ØfŸØá¼ÚÖ{Bƒ‰VÜÙtì>ÃŞÔ\ÌLøtL‰¾ÁUòiÏ±ïSX!é3HÆfOmŞ@K"õ¢6ÔÎ)_µ.\±F„…Ñ1²ğS†q‰]B;Ôè}B­:z)=Å]È1öˆ™[„<×v¹î $'ÒÕƒ–sWa©ou#X„Rb6ä~dHÀÅÜ emË¿¬æÊq:ı³¶sjxD}1£·zúwF¸²GÉ}Êíd‚²nû±ïÃK®y×ÈŞÜoÜ™•‚ùÿ)
-§‘ƒ— «"èÂõ@^¸G¯‹—•ûàF½)\ù¾G"I´¼	æœ0›úu´.‡=n#óˆ1ÀÿÈµ­Îi©ÁL8§‘3ãá€ÜOEôĞ!•†€[=ÚI´³7¶‹"oş\_HŸH3¯
-úLBOÒ¹¢à@øT’!±åj[é,(.´z¬o6|ŞíA¸|G¬Œ¬Ô:3¢UñŠrÂ !8}cU¸n¸˜˜|o×SÆ®ğJ‡AËĞ¡s#T«ù6DE#ÉÄl»3²Åh}Ù¬bOå2S5zRbTfÖK¤¾›ÚGÓ0ÄD n%„£ğë‚±k	O4>µê¦É´>qïBóÖ<¥‚İ‰û
-UhaSiŠ*V!Ÿîë„i‹IÓ~´¤N4%c¶wËcèDÑ¹•ó´‹ˆ^áõ–Àä‚O‘è¹‘um‡s8m™8¾¨™»ôÅª’Ÿüm¦y€ú%Ú4VÇ[Ãöy§_oä=Ç÷´YQT1³›¡At‹ôv-ù,ã$i²Ë h6‡'ü6Mµ»FJ?îâåÕÊ)iå)4‰Ş½‰mÊ%™I±°G(Ú»&xUl{z«ÅAìé­¶qğşa†W—”“PgS³2ß˜‰GØ¡¡¾NºöA ihø ƒ­U1Ñ·)e¼@£›ÖÃŠB>é¬)T’2ÑÑ:ÜYA¾-0­Ú-ŸrñÈkj	I8Ô6SrAŒ“í^•ë[ö¬S«¿Xu{åğ´ªR¬Vw#İÊ\éUŸÕfvG·G²^üµ>Xü  ÿÿ ùC?
+           xœìÛnãÆõ}¿bV
+ğ2’|‰StğEJÚÙÂRœÇ€&GaŠTHÊ—8~H6AÑA -º°±A.‹<õ©ù¡_ĞOè9CÅË9”vƒl‘ó ó23<3ç~æŒ	èÏü¡aRí@06¦”<$ÇŞÌµ¨µçù.õûøPë´tkÚ\v3=Çó¡ÛÅ˜ºäZØÁöŒ°ç™³€ZäÁ#²‡İ´Öe¯×ju7{½fIÏ>u¨æûu6·Ö»»ò~Ô	h¶G»Ûyk]ÒãF<»SÏ·èÓ3\Ë÷lëR7½ÉÔ¨>ÄU5BÛsõ]6f?ô½3ª­ÃÊ®¥pìõö·Z­¦êr(§“ûN¼êÕË§ü…vîëëíÍMÉ$Ë<hy]‡³ÀºÛC¢¥·IÚ8•=dKñ@Ï²‡6£ÜQ|)©˜†C5Óûx!_İs{cÃÁú_gÉÈ†ºğÛù8ClbœÂGK>f:¶y†à;ALrøyş|Ëä—Åï4%Œ: —¡XöBx›W¼®\â‹¤aÄ×wÃ<‹5áË¼7¶C5X°K·Óİîµ$Jaè¹aßşU°@ !<oùµGãP€%ùè#’F©—4N#zzD-{6‘MÀjúÔ°,ÛicÏ·?„¡±Ş`rNıĞ6Ù“7Q­
+.>Í’yqws/¹|ãÒ‡Y¡àìçÂÇÄºr‰mÙfn˜´=ö.²¬ "1úĞvœ#ãò=Û
+ÇŞ•Ì{+?ï­¢9áow{äN¨‹¤K®õ=ø¡şIÜÆÉ1çâk;¾¢Éû/îôşß./(u“ÎyAH,ÿ>ùìcrhŸ×‚pOˆöÚ5,	 F-= Ş¼i6ŠŒÂå%ÅüÅFMó¤çXâÖ\6A2²t)zÕÕV]ñ WÜÚ½Ò¶\.RP(§»cYñâ’û‰;s™2+õeJü™m¹;ƒ!XÚ×¨§2
+|ì]ÀÜömÃñFĞ(ôgTb!dF3«¶jNBßÎË÷†T¯UMáÀô\=¦K·dìİpŸ¦oOcÿ Yd„6›iZÂ„è£Œjmô¹J<¦.|M4ÆS~
+c”›[\»üçŸŸ“ùí—ó»¿Ìo˜ßş{~ûl~÷ÉüöG‚÷wŸÎo¿è–<(éš<¤µI»Ô²¦{È´UigùŠ‰…¡ø´ødÙ¨F`…85@ì/ƒ<½Òg:6àuKoo‹SZÉÿjìÌBïAÿÊ5KÈ-ÅOÍ}j©»O•¦ˆƒ²¶(xë¡!ÉªÛ×_'*–åÜğ‰K/öÆïJN¯ˆ†lr
+Sº&“Yˆš¼‚wüx¨5Í*Iç>õaníûw–îŸ„åì‚vù0‡ŞÈ[ö}o
+QœÛ½œ(såÃğ·‹#9Ä¢Ccæ„0Ÿ ˜Ä±ƒ0…÷i¼C/üÛŸz>4œàM\hØÌŞáƒ×²¯~o[¬ıÑ,°ÍèÕĞK7=¦`(mo4š÷2Øì80fÄKEñõÜ};˜ØApL?˜Ñ e¦hîÙ$EAoÈüô‡…æ¾E/³­»ŠŞìà\Ù´ªe*mçv¹ídj²–YA0ß	|2¿ı	®à·ÊJÂÕçóÛçó»áecMh3Úpµa©Ö“ä0ŠÚI@àH«‹©(Í&®Ü$ÔÉb TÅg™¶œ±ú¦ï9Æ%4ºeÒ©5KìIÂ—Õ@»%×ğ%üúx:¶K-ä‡M«Âõ5œÒ3QáånŒç`‡(—Ã„v¡û1“#KQq˜:0»10#ÏuÂµŞd¿Ï	ŞãÓï‰Æ˜~Ï~C$Òak¤ïM¼+PeÍ<ß2ÉÛÚxsc¢B*¤Y…¬H³¼RŞŸá‚jØœ¡7aÔ`xU=Kü¯vIV9éîƒCâ IU¼>Š­ùR¬Ä=U¸é_Œc3ú.º&ó»;Â´#(Ä?‚²#š>YŸmÃ³o¡‰´äüö+öûY¦é¯|Å»ÿ"øª³_u^_=c<´Ğ_`Gÿ<¿ı&ÇmóÛ¿q5÷wöøW¶Jº¿ ¶Úõ.…¾Svª’(5™!Ã {•Û $\šÚª¨fSÇ8¥N†I?O±âöûòìíOBv{kcg}w;ÇnmvCJm¬‘$ÆX#vèºş‚9!ôh6B]ê2æïÎÂ\{ÏİÃŒ#C_†=$÷EoªX)ÿ¹|nÎ÷½uF­™¥+wQ9ÈwÒ’Õ«»ªNAX^¯ ¬¨[ØÊú¡|u9#QwV­è‚‹L¤¢%a²˜K¥ÁrD$=5Ì³‘+¬6şË×CER9	}èù]ÃGÓ )±rzÑB:©^x<Œ4|RÙ*))…¡Ü!¯ß™ZıKÈ®<NµN@¨Ö/åãÈßÊß¬âbÖm)Ÿ¥ëVqŒ’'ğKXÎå{ŸşãW×ïçrı”²I`\‡¶?‰¾Tnc@Š€ªÜc&=IŠèvğî:†{¦51¥q3/U)&xƒC›Ù8!|È2¼¿í‡>5&Ñ¸*rXlİ°,-İ³,vÖÛE¾ÍÌ ôí	à^ıÁdUâ8,7÷ºø<#Ú.Ø¬Ù4‡QG#\LĞı”jÙ†ºa±Qñ6Âó÷_»î_ĞM7g¾îÛÀĞ#;ÄæFaßç²,Í@­·¹°'û¢ÛC¶Ä ²ø€ª©¯˜\³¥Àµ~xpÒ}|y¥Ş£â»¾“K	ÕšÜ)£paNc=4ÎèÁÊÂ¬œ)N1`Ã¡Úcì§ÖÉ›‘B	MÈ‹ÂÇXŒ‚ŠPÍáéí;Y]A/ˆ¶`–5ö;±¸ğ‘ÒİÄ@?e·±åÁ˜tõ÷d•%õ³ãÜpÿÀ6:¢Pù©òŞÇKØé°"ÿ¾Â6!Ú‚xU²a¦² ß2Uú”¹#?–eV³»2ŠŠŠwÙê¼¤nìm4¯¶c ƒœ¼ÎöÌpëˆã“Á	ú>@)\xÁ3D€€¬q=iÓ Ks¹ä/¾ˆæ)©I³ƒîd^m2&™
+³Tİnâ:vlıw6Ä®Sœ&(ÛÕÌ.©€Ê¶ÏRj%Ÿø]ÒJVUc›«Xç&CAIœ?ëmÆ&¶´Úi£d·5•hû”íV}*İ\ı†İ6¿{í1°÷xóLSÑ4k…"ÆrÿÄ°AÌ"%÷ÓƒîT}onQÀÓ»OHÖãú2£	ğëdËDšjŒ¦şœi—oùXO£ÃÍ¿~ª“dÅË,gìü:fËu/Q¹r–ÅÊJöãÃ+}êG?„+^8€ú¨(G&“/4nj#â({Ôq½g_RK‹J¯ç¨Ìšd#Bu]®şéø^|ÅBİ [>””ÕTG³ -SX$)ó¬U¼šûÜâìdğú¢îĞ%¡±@klÁs
+ë°FÎè³¾èåE‰`bÆ5R’|5‚qÎlô9¬dH¬@$¸:QO,ÎX#„åø¾ÅëñëW¥‘1a$vlÇ1\{ızg„;ATÃ õBÃÑğ$N¿ğc	^M’'ŞncVÓ[[Ãfr=”»‡F &ı)5Ñ=Ÿúh-c2…¿ÇøŠ`áVÚÃ¡K”¸>k¨÷ù£èÂ¡wQqğ”FL„=¾6±wyOºªÆ98ŒI`Á	k¶ã8ñsM2Æ*ÅÙm‰ÇÀ!ü$E±‚W–?dÒêµßìì”®zŞ!ËÆ/õĞWô9»z'²6sêö6 
+U¬ÀÌåß^ù0Xe¾$Ä’
+K‘2‰ğÜ
+C¨]SÅO‡Å²TQUU§kÌ¼¡¼šÙj-LÚúfi%=Ex(mÁ—Ê§Ò"ôN¦±†éÃ İØq*–aá |ØÎÈÔwYpW±	Ù»ªD#‡ QÕ®a0`
+ÉÀ›’C:,ß°@Š$†Œ¥2Trš•J/%
+0ô¦€¶~C|dìÔƒ€yÒu-¹S#‚¢?Ë¿ZwÑúè¥j‹0jãZQİeV;5Á!9=ñÅ_	¦õS•K•àòç·õM¥3é®Â Oªó2êíó°òöÙâhŞ£`Á)yDÚ¯¤d©@Qú ìô¶ş¥ïµk!yoH¿{|Ò=î¿ÊRYzè%¯„PŠ]v`4{q`ÇrTqb»´OªI!•¿ÈúzîÀÊ?˜—, QZB‘ P[ÿ(­¶¾UI0™cY@µ-•‰1¢'àe¥‚X·&ÉæÚ1Í+~yêª>„ Ùà#)ïºaé‚K’Ôxæli]õçdóPŞ¢Z`¢¬`ÏÖª´uÕ‘K³vun¾ĞE|j¿NS-R{Q©÷4T§Õ{yPHäÑû\Å;¤¸:sœÇ~„àÊ5PnÕM*Ğåpr(Ô1 å£±-ú•ÌY-÷(Âl|»¹½Ô«uhaDˆ;§šìHï-^¦(uø‹.»Õ{¶Z=›‚%¥çe Ü““Á/4e¥—kÒÃPŸfÊ{†2X±àyÉ“%{tÑ&é+†.·W%G4ã¤T¼kX9’zÀÀÿ¿P}U´tLŠrI¶uâ[ùÿÊ·ZŒ01.±BóégÊ8x`ù†wï>oõ®Š0°E¬d³QÁ;R²šœ°¼«P0x¿Ğ‚~03œ@k¼ë¹ŞÒ´<Ÿî/R6¶KE®yŒ–ŒSë{¬êÿ‘!õÙ¡Š•~¦è³Ş›ª ’şÑïÍ½ÿ  ÿÿ p{]
