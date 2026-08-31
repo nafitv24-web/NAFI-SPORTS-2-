@@ -15,7 +15,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -8480,13 +8479,25 @@ fun EventsScreen(
                 items(filteredSports, key = { it.id }) { sport ->
                     val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
                     val isLiveNow = isEventLiveNow(sport, tickCount)
-                    AdminEventMatchCard(
-                        sport = sport,
-                        isLiveNow = isLiveNow,
-                        remainingSecs = remainingSecs,
-                        isTvMode = true,
-                        onSelectMedia = onSelectMedia
-                    )
+                    val isAdminCustomEvent = sport.id.startsWith("custom_") || sport.id.startsWith("admin_")
+
+                    if (isAdminCustomEvent) {
+                        AdminEventMatchCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = true,
+                            onSelectMedia = onSelectMedia
+                        )
+                    } else {
+                        JsonPosterEventCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = true,
+                            onSelectMedia = onSelectMedia
+                        )
+                    }
                 }
             }
         } else {
@@ -8498,13 +8509,25 @@ fun EventsScreen(
                 items(filteredSports, key = { it.id }) { sport ->
                     val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
                     val isLiveNow = isEventLiveNow(sport, tickCount)
-                    AdminEventMatchCard(
-                        sport = sport,
-                        isLiveNow = isLiveNow,
-                        remainingSecs = remainingSecs,
-                        isTvMode = false,
-                        onSelectMedia = onSelectMedia
-                    )
+                    val isAdminCustomEvent = sport.id.startsWith("custom_") || sport.id.startsWith("admin_")
+
+                    if (isAdminCustomEvent) {
+                        AdminEventMatchCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = false,
+                            onSelectMedia = onSelectMedia
+                        )
+                    } else {
+                        JsonPosterEventCard(
+                            sport = sport,
+                            isLiveNow = isLiveNow,
+                            remainingSecs = remainingSecs,
+                            isTvMode = false,
+                            onSelectMedia = onSelectMedia
+                        )
+                    }
                 }
             }
         }
@@ -8530,30 +8553,11 @@ fun AdminEventMatchCard(
         else -> "ğŸ†"
     }
 
-    val parsedTeams = remember(sport.title, sport.team1, sport.team2) {
-        if (!sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank()) {
-            Pair(sport.team1!!, sport.team2!!)
-        } else if (sport.title.contains(" vs ", ignoreCase = true)) {
-            val parts = sport.title.split(Regex("(?i)\\s+vs\\s+"))
-            Pair(parts.getOrElse(0) { "Team 1" }.trim(), parts.getOrElse(1) { "Team 2" }.trim())
-        } else if (sport.title.contains(" v ", ignoreCase = true)) {
-            val parts = sport.title.split(Regex("(?i)\\s+v\\s+"))
-            Pair(parts.getOrElse(0) { "Team 1" }.trim(), parts.getOrElse(1) { "Team 2" }.trim())
-        } else if (sport.title.contains(" - ", ignoreCase = true)) {
-            val parts = sport.title.split(Regex("\\s+-\\s+"))
-            Pair(parts.getOrElse(0) { "Team 1" }.trim(), parts.getOrElse(1) { "Team 2" }.trim())
-        } else {
-            Pair(sport.team1?.takeIf { it.isNotBlank() } ?: sport.title, sport.team2?.takeIf { it.isNotBlank() } ?: "Live Match")
-        }
-    }
-    val team1Name = parsedTeams.first
-    val team2Name = parsedTeams.second
-
     val matchFullTitle = when {
         !sport.tournament.isNullOrBlank() && sport.tournament!!.contains("Series", ignoreCase = true) -> "$sportEmoji | ${sport.tournament}"
         !sport.tournament.isNullOrBlank() && !sport.tournament!!.equals("Sports", ignoreCase = true) -> "$sportEmoji | ${sport.tournament}"
         !sport.title.isNullOrBlank() && !sport.title.equals("Live Match", ignoreCase = true) -> "$sportEmoji | ${sport.title}"
-        team1Name.isNotBlank() && team2Name.isNotBlank() -> "$sportEmoji | $team1Name vs $team2Name"
+        !sport.team1.isNullOrBlank() && !sport.team2.isNullOrBlank() -> "$sportEmoji | ${sport.team1} vs ${sport.team2}"
         else -> "$sportEmoji | Live Event"
     }
     val servers = sport.getAllServers()
@@ -8635,7 +8639,7 @@ fun AdminEventMatchCard(
         colors = CardDefaults.cardColors(
             containerColor = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0D1B2A)
         ),
-        border = if (isCardFocused) BorderStroke(2.dp, Color(0xFF38BDF8)) else BorderStroke(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.8f)),
+        border = if (isCardFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.8f)),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 8.dp else 2.dp)
     ) {
         Column(
@@ -8646,7 +8650,7 @@ fun AdminEventMatchCard(
             Surface(
                 color = Color(0xFF132238),
                 shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -8654,7 +8658,7 @@ fun AdminEventMatchCard(
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = matchFullTitle,
@@ -8676,7 +8680,7 @@ fun AdminEventMatchCard(
                         Surface(
                             color = Color(0xFFEF4444).copy(alpha = 0.2f),
                             shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
@@ -8701,7 +8705,7 @@ fun AdminEventMatchCard(
                         Surface(
                             color = Color(0xFFF59E0B).copy(alpha = 0.2f),
                             shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.7f))
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.7f))
                         ) {
                             Text(
                                 text = "UPCOMING",
@@ -8727,12 +8731,12 @@ fun AdminEventMatchCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     TeamLogoBadge(
-                        teamName = team1Name,
+                        teamName = sport.team1 ?: "Team 1",
                         logoUrl = sport.team1Logo
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = team1Name,
+                        text = sport.team1 ?: "Team 1",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -8752,7 +8756,7 @@ fun AdminEventMatchCard(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF0F172A),
-                            border = BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f))
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -8788,7 +8792,7 @@ fun AdminEventMatchCard(
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color(0xFF3D1214),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.8f))
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.8f))
                         ) {
                             Text(
                                 text = countdownStr,
@@ -8802,7 +8806,7 @@ fun AdminEventMatchCard(
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color(0xFF1E3A8A).copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.6f))
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.6f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -8832,12 +8836,12 @@ fun AdminEventMatchCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     TeamLogoBadge(
-                        teamName = team2Name,
+                        teamName = sport.team2 ?: "Team 2",
                         logoUrl = sport.team2Logo
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = team2Name,
+                        text = sport.team2 ?: "Team 2",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -8872,8 +8876,8 @@ fun AdminEventMatchCard(
                             shape = RoundedCornerShape(8.dp),
                             color = if (isServerFocused) Color(0xFF1E3A8A) else Color(0xFF1E293B),
                             border = when {
-                                isServerFocused -> BorderStroke(2.dp, Color(0xFF38BDF8))
-                                else -> BorderStroke(1.dp, Color(0xFF334155))
+                                isServerFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8))
+                                else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
                             },
                             modifier = Modifier
                                 .scale(srvScale)
@@ -8921,7 +8925,7 @@ fun AdminEventMatchCard(
                         isLiveNow -> Color(0xFFDC2626)
                         else -> Color(0xFF2563EB)
                     },
-                    border = if (isPlayBtnFocused) BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
+                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
                     modifier = Modifier
                         .scale(playBtnScale)
                         .onFocusChanged { isPlayBtnFocused = it.isFocused }
@@ -8954,46 +8958,57 @@ fun AdminEventMatchCard(
     }
 }
 
-
-fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
-    if (channels.isEmpty()) return emptyList()
-    val map = linkedMapOf<String, MediaItem>()
-    for (item in channels) {
-        val normalizedTitle = item.title.trim().lowercase()
-        val key = if (item.id.isNotBlank()) item.id else normalizedTitle
-        val existing = map[key]
-        if (existing == null) {
-            map[key] = item
-        } else {
-            val mergedServers = (existing.getAllServers() + item.getAllServers()).distinctBy { it.url }
-            map[key] = existing.copy(
-                servers = mergedServers
-            )
-        }
-    }
-    return map.values.toList()
-}
-
 @Composable
-fun LiveTvTabScreen(
-    channels: List<MediaItem>,
-    favoriteIds: Set<String>,
-    isTvMode: Boolean,
-    onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
-    onToggleFavorite: (String) -> Unit,
-    onAddChannel: (MediaItem) -> Unit = {}
+fun JsonPosterEventCard(
+    sport: MediaItem,
+    isLiveNow: Boolean,
+    remainingSecs: Long,
+    isTvMode: Boolean = false,
+    onSelectMedia: (MediaItem) -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by rememxœ¤YÍn#Ç¾ë)Ú<,f`eLR¤´{P ’+&Bv-g)ï[3M²¡æ=ÓÔÏ®uğÉÃÈ!ÈÅ@K 5	ròÉy"/WHUÏôp~z~(×Ašî.VWUõuÏÉ²ÚHz%ØLRÉ.æVg$DÇ&ä†
-âBÇ"9‹È)	ÙŠ­®Xh¹KêûLD6ù FêÑ›Ó*q¸à‘ÔJIgJo@‘d6ÆÔ_ê±h‰­sßãfë ”jÀçìVıÜğxÊ™/Y()÷WÌ—øâÜSç‘ +îªÑ›ìœQŸµa‰MÚrgE×°~.d…÷ùÊ‚Å;s.¤òôòèó@õ¯¡ëÙ3ò	¼c_m¨ˆôºøÂBP1P/ÃC,û®´v¦XYç|š±Ê.Î¸?6…y“ÄlSIÄhè.ÿ¸aá=6s%LIÖuHæ‰ãÏ½\ÀRW¤ëMŞßü6¤YQé.Y4S¿Vd~|¤ôõ×¹‰…_r$—‚9nàc#+g¶ÁÚÒÀµUxPµ*í*x»d>±Š>ÌºM‹
-?¸Jé.÷î²ÇdB°3W/„{vi>Ä…áÄºÅãlXqVåC®•(dvÁùiINN±YùVÚ¹
-<>ç<§äuò˜ûÌ-ñšŞÍø{fåÍq®¨{½ƒïY 6­îİtÚíw{'v<4ëöÏ>#‰­c’gdª’6í~ÜZùõ5X–µî÷äÒ*ÁYSÏãşÂZBğŞ£ã¨ëo}Hn Œ¸«Ş<‡öa>»’Ş‘€¨ `Á°ôÙ™0Ä²·É±sv1Ñ.6RpŸy—ìNN9U2òxÃò;ò°4(ğßâ0„‘şm.ÉCyÖZP—-á)7~ h…ÕÙ>şmûøŸíã?à/Ù>ş°ıøıöñŸÛÇ_¶?n?~»}ü7¼ıYµÿ¥ú~€ö_Tãâ8 ¦‹¥»ÈNÏÇ6À8ó]}äDkÛdš`#sÛM3v–ı¥…¯è‚½…-¤ìÀ±‘ó³‘yNœiå_Õ‚›Bø’EnÈ×’+#:ñ¬Nõ4 y™[ó‹ÁèhüÜ®aÈb'Â½ÔS9gœW~kğŸ)MäsbåŠáÙj-ï-Û‰ZPéx#%¸?ğ'‚»×†”ëtÈC­¨:‚©™5‘œˆ bÕşÕbè²,¬‰§–ıãª¥:¾Ç•ñÕRİû`ì)¿5ä…Ú—Š(m"¬æ¨uE–a9Ñ’®qŸ&Ş¡ÏÂ¾´zı2(ª)t‚½PKŠTyHèFqn_,¥Õ››]á,ãşa·äË]ëaÇ
- Ä¤Là¨yEßßCeIG$íÆJS(,ù%&¹öE\[`Vò¤:jª5ƒ²[w3Faˆ ¯ëÍ®0
-Pîï­<n7 P”“”ôÛÈ
-©,2BäOøCÌBTÊrzŠsKg›pÆ˜÷uMFõ»æŒŠ}—D¬QvfKö‡ÇGgc;&V¾1íôGZ¯‚0.}cõ0“ap]a7JcU]o*M;î†ÓQÉ´ŞYÿÅÑ¸ãÍ¿Óvç 8.3ş4c§Â^†Œ*ÄVÔ ºğAoT‰‘áÇ6éü÷¯ÿßÏ"Î¬|cëjpMÈwKĞSôh#,g©GöLıÈw
-^&LÓNgì)6#óò5óøfµ_ÕoIEOö¡Çƒ$Î6BËdP®ªNÙyM‘¿¹—¾GO³@(*ØÄ8¸+gSëºP}èH‡hwU”©¤ëè{¾ öErXÊÀs¶ß§£„ñ¸‰òtB{ys1ŸïÉgı{pÙÁÉpxüâ)\v°—EiÎÊ˜}˜g·‚ªY>~§4ß‘VGŸTûÏÛ0ö’ôcãG˜UÃ"ËG¡½pjĞ§Jôk"F¶|²"GÒ'[D€²«]µ/dbÿ„Ór¦üyV¤—7Nf“A¬ş¨z{>‘Cõ*˜Ä^DªJIzòºŠFiÀ4ZÄ<®ˆ·‡äšİ«£ŞlzêüUué—.GÑ<¨Ì0oï[¬XAˆ
-8P M¼ºO/0Ë×Ïs
-ñ¶+/hH~e¨ƒú€v’ME@å(Rók¶4L¾MîIâKì±I!çzNw8óævú\Ÿ±5€š³5s‘	¯C¬-]­áÿì‚·]çx8?$‘äó¹Ï"Ìÿ™èÌô«xW¾
-nkö¾ W“¸“8~BCo†~éTìf3„Ö‘p”º£á’•2 Õ²l”=™6J=ÛF)DzgÎtúò¸Ûİ‹p£ÔØŞò‚Û3ÁnhR=µæíCÔQ•ù–ú[+Ğt§™««eoØxÛà¾òd|…è!†¤›ú4şR¢›æı»3‡á¶o².{@½¥è5îª1ç°ô}¤
-<ê.šk6"nÓMUñb¼Jö¼–œ¶4Es\Ãõ´Iöç©Í:›‹¡K¥É÷(™cÇ«`4ß6|¢K—€_†ï7ó^„Éç¬6¿‹2Šî}÷Ùwsüµ@(/˜ĞìQ-FÊûĞÖ^×S“RKLã‡ıF)M„-¾¶%F¥l‹œÕ’xCÕAUyvM –å;(“4›nä»UÒXa‹RSq[î`-åœ”¶_•{G¹íşAAnqæŞG%J»E©?I·w¢–'¯«¤tì>z>~9mó©¡(•î7z(JûÑõÜ ı¨3­ÍÊşwWU’).—ˆ¬ê¯²’\7<¸ó÷Ÿ­Xn|+ÚN}öŠ¡çk/ŠóL3¶âxÚNËŠŞá'"<#õÚÍ€jÌEp3ĞûIÓ9Pb"µÓ‚áP˜“¨QÏm8
-Jı.hÈXÈ1}ı­‡PI.ƒ5yƒŞ«™ùÚÚhböslà_‹…`úg³'yÓ§Á¢<™ÊRtªµƒvXæ™_q{PšCTõ¡–6•¢}uÈW„dËÑ»PÒª=gî‹O¸m÷¸é³´ÖÔâË4JR22Fï0âl: )c„ãë{‹Šõ’Æ7ó–¦úƒö UUiÚCûõ>yW~óˆÿ>ü  ÿÿ öşì
+    val context = LocalContext.current
+    var isCardFocused by remember { mutableStateOf(false) }
+    var isPlayBtnFocused by remember { mutableStateOf(false) }
+    var showNoLinkDialog by remember { mutableStateOf(false) }
+
+    val stageHeader = if (!sport.status.isNullOrBlank() && !sport.status.equals("LIVE", ignoreCase = true) && !sport.status.equals("UPCOMING", ignoreCase = true)) {
+        sport.status.uppercase()
+    } else {
+        "GROUP STAGE"
+    }
+
+    val rawTag = sport.tournament?.takeIf { it.isNotBlaxœì=oÜÈuÿûSÌ-|··^ï®~X6b»Zi÷,T²\í¯mÔ’«%Ì%7$W²ÎHòGZ\Ñ«“â’öšâ"‚är8i
+ÍWî4¡ïÍpÈ!9$‡+éšKïáNŞåÎgŞ¼yóŞ›÷Ş8Ïµ:9%î’Úõ—şÌõ‚æHÌ×;>%Vgµv ê6	Ü¹çèSÓ	†ú¹G<ı>4=sfë#S«õÙT7Hw³Ö 5øß:p\ÏÜĞ}
+ŞÜ¬Ó¦Ò•j5Õê×¢Ş@ıcÛòƒôj„å&¦C^FØX,£éºøïZÁD«æ~àNŸÕêääD^B7¦–ƒnŞ'µó³÷ÏÏ~v~öéùÙïÏÏ>!çg¿8ı÷çg¿>?ûoø~şúçgŸ×Š_éÆ>o¯oyæ>no¸Ùë™6<ÂßÙ£Óxİb¦»m9Ïaˆ{ƒx¦>}Ç³›–ÿÈº¶îà,Ş¸AŞH0¿=×m_«9sÛ–"1u$Ä¬ÛöÀôMÏ×êMİ9&/‰4ç²·†ÏK_–šcØfïÈiÃ¶FÏï"éÇ
+ |<‘Ö˜h"êÂo®30msì˜†¥3ÅdsÊ›¬áOÜ£G´­MK·İƒ°{‰2CW÷ƒæTnÍ6r şm M|*ĞÀ‡@¿=ıİó³Ïà/|ùÏó³èÿEÿı~ú9PKúË‡Yj‚§ß§¥~ÉŠ|ÒüòŠ–ı(Kğ}£É×´2kè—´­3À>ÀvïÑÛÃ‡Ïw÷†õ&\#’¢9Õë¶éì±–Âÿ¦åO-ßßƒù7}:y2uœ‰ÓF¢²ˆMÌ6‡-øAË<¥U¦úù&Üõ &–ó›{îÜ1L£ù®î9–s°>İ7½†´6H'Ø4ı‘gÍ‹¾	V^<°Ğ†k»ÖzÑï÷WîôZİº¼ôÔ5¬±eb¿vÂMßzÏÔ–:McVÏÔI>I¡&°Û”â†R¤¼»ğT"ıœĞÍ¯(Ñ!y|Dÿ~FyÙ§„Íñ)~ÿm-]6E3E@óİ‰˜ò‚cÀë»¦u0Á÷÷£/Í®kù5€(ß^mú³ŠØa#]9_‰\>” {ŞZ¿•C"—ÇòR¶å˜ùÜuZ¹åë6°u(6äŸ›°œL¯ÚìÁ*[Ş´;‚œõÏ~’O¤ëĞ££‰ßˆó¡{Á¦9Öçvà7÷éWŠVŸr{âmdĞİYY]êuë’µ,¥G ¹£ëì£Ÿ A –­®Â•”}íi	šóÆÑê·owÖSdãOôÒJÈN7\êğ¡K8Xjºn÷lóPùè”‰JÔÓÂİš7tÏŒtàlûÇDw€™fßvõ`İğ9q¡@
+y¢ÛsìnO–µû.Hq¦Q'ífkieÌ6xø<;ÇÚ…>fæw÷#Ót4cîÑ‡;–‚#.‰µVƒ˜º;¢öËİy0°İ£-§GŸ
+ãµõ}ÓFî‘“ØB±ŸÆı—l	ì5ÇĞıÅ»–rbrf›>6®%ß•*â: H˜Jg"ze ‹úüëiêİøXß‡w¤ZáÊÂ Á´ˆ†šBŒ‘"bYNK´è°ƒÑ’Á—pÁS­dîcBn÷:w–ºuFú©1îÍ¾ëfN»0bÏµŒÍ‘;¹¾	ˆ‚ÑQ²ˆõç>75ÜĞÂû–Öº›ıµzØåfÚ©fÂÑ½5…õ•A_´ø4ƒ=W£dx¸@Y—"Dd\·n‘wmõ·z›$Æ­¿Ù}4\ß&ƒ­ÍŞÍî_ßÄÉÆîÎãõ!ÙXßÛ$Úğ	¹ä½oÁ<bõt+¸µÃ	»‚gb’ËVGÙ
+¡¿ÏtÃ€eªµ[YæŠK`Á²¡›*­ğ¦ès¸i=	ËØÇ1¤Ø8`dÛwat>Ô ÃÉ|ºïè–“6Ÿ:DÛBy”¼7W™¤üÂ=JvšUÉnj2¹ñˆº½´’ÂÄõ¬÷p¡ğaTJ¢l˜]÷…|¿U™«hNJæ,*7¡»š¶&—Œ£bÀfšŒÅĞ)/¨¸¯xXQ¸ÂV¯½^Ï‘–Bİ ¡ÊÛ>nxûºı”Ñƒ)Ö ¢¸ ˜£Á…=@SooÃSjƒ™ÁÌ¿{ëUrüæÜñg¶îOÜšMÜÀ½Ù^Ynİ^¾}§½´´¼z³}Ç\ê£%óÎmóÁÑ½µV«&íÎºìŒ(¥Ê§avTè¶O®’zT8"T\Jk2! E’øk³oùe«$¤6”qsˆ-Ü›Ó ëzèÎnîQ9%¹Oºº+YÛŞzÒ#À«Ûzô¶¼ÙÁÜ£+··Ûãš|IÇ·½mëĞ|ŒDØ$67:«ÕÌ–W¨šæ 0·,BSGê×â5 ë9!4Q‰3ååÜ…·fòÕ7¡—ÂNí‹ïü;Á™«1´Ğï|
+s”)EgR¹€êf×ÎRÜ  vİÉÕ¦ÄÂÕ4g²Á±ïğë
+•2øˆJ^!Ó•ÿršyzš]ZtYEû Ú‰»½íİwI01	å_äÈ
+&ÂîE¦º÷í¹iFÿ?qA>‘¦ÃvƒÌ;pš¶è„A2¸3X®&ÃY¸­äï(YíÅI„¬FÊ€ùU"VYÌl5×ÒòêÒr{e%o'D(`·E›{ÑâÎH*ïT¥èAI„j2aq[‚ æy¨‚ñöâoy2ƒ
+ª(/äV«?|ôş÷k4k)æÅ4ÏÄË¥b!*êDa	„°—‰eYŒ?„ŠÖ,*±X^a16‹0Õ_lƒJJ­
+¥%ß×}k´Ã˜œ[
+³E`ƒ[@);ëõìÉúö;=$jÛYÁ1üÂ„ÿÂ×åÿšå×ò§)R’§—R—ÃÓJ¬î’MTyÛGÎ3wÃ=rÈĞšBC7ÈúˆJÌ·¸šÄxw{,¡™h¹ç.P‡gtµ,¢e‹Æ¢"ÈˆMİ ƒÀÁ[\€Äıîoá<Ñyt#>­†«$Óh.S,gÀrJTáLt^»&5ŒÉ[YP.BB1;	ÙÅÃq•³T ÍáíB®‘Ç-z/O/f¶ jÁÌ®Øjæ[ŞÔXKeÙ=Z°g Ñp»x‰ğ~É\*Gù*å*«¦ÂA‰‚ÒÚÁ>ú§ßˆêAx’>ÕƒÑ×pßõàs`±bn¢İ“®oTÌ#Uâ"Š[¯¿QÜî,¯/u×é6ÿx†—ÌÛårf(ıD.Õï ¦€İá™¤¶>Ü›LP÷ŞÇÁMøîÑ·:æ‘O€)<‡iõƒc(Ø “bù”f_XzbWjV¨tJÉ¹”‹Èê¢Bù¾Zbµ.ì‚¥\"1GË|¹%î¤Av¸-££X¸Ep…ğ­3Ô°2U
+5¯Å´®ìÆšåÅ×¶rù@»Õ½³Ö®CC³cM·gî+ãkÈˆ°€Š–·/ªfÊjÙZZ-[.VÊ.K!» 2V¤ˆ¥&±XcË5¡‹Pu+çÀ\IVKU‚¨<µoXŞÈ6é¢P¬&µœ‡$»¨2‚Pºë`8TÒFÓÌÙ…P¯¾1Ï‹„›Ì‡ô;;›_@wmµz+ı~5İµDküÿR^#ÄÅç™SİB¯®9òÉ}ÒÚ.[…xöbèÇØ½då[dmu¹ÕÚ.­=qçô¼:õò7ÃúuhiiU¥¡©åHÛ¡µ±™U…F|¬“Ë›JUG|»Ær1Eà±°£Áa§CñX«½iäÍVÇ˜Ğ¿Sú×¯5(¶k:æítñìK}3U:!é@ÕW_"“ùâï~B¸ÛÖ+à/wÉõÖâ%ın·ßYşš—\"/)ç({›¸GZGVC|ĞôçæÖ˜ùC'|¡O%ÚcYñu?üÎùÙ?s÷ÌH<Ñ—P~²Ë¡Ñşá£WÿH®^ˆJW[ë+ı<¹Y„Ë£RôòOÿ4éTÙ`+S¬æT¢=F"FËyN€ä¬‘DúãaİÀQsÉAæ÷˜5&zèu¤z"Èõªøæ‰ùé‰Ë®œ,2®PÑLE¦¤!7Œ‚¤ÊÎÚòÆí|ªy##’¨ñ¼8Tk’ÕB÷‚Üj<\%ã+§ß­ZN9èV
+=ñò]û¯Ò«©³VìÕÄÜ;E-(,qôLL¡¯gr9~Ÿ‰Be> WgTH¸ó\†ºY¦‡ÊfƒüøÉ8–l”S2²g†k•’uòÇ‡ ıØºï÷¦³ äÜºb 1¦ÈÂÊ!7¦½´€ï	B©ù`¹Ø|PÉ³(9Zú8!e88£ñ?bñÜ‰†‘°ÈOµzTB>ò9øÛ(ZàwJF	e#8‡jBYå“uO"ù7¡vz$œ›Ki`¸Ş%»ô‰ŸÁÆ^¯÷ˆÉZŠJ6ÂÈYô‰Ûu“P‚l1ca‰î¶ğĞ´gĞhà’©	2MĞaÓöÙÑó_<Şí³àÍ[SØ†çXÀ.AÉÉª°aA‚C¸6;¬Ù°UŒbåq ~Ä ø7hĞåV`Nï×3OBîHm8qEØ§(—BO-ÏæCLü•Åø^Ö«=óÀ|‚ş«Õjµ§şŸ}ó©öô›O_~ëöà.+uâ{‡'h¶œÏNØpOXì‰ë÷„Çl}FWÛ¯Øç:´ôÔxë›OëO¿õôô[àkcé›v)cln½ıhw¯÷lc}Ğ«GÃ WöËzÖn­µf'·;ğgùùÉxbœÀ>ü5G'“ÎêÊÉJk<óëêˆz€ÆÙİöqx¦±£ÏvÇß`V’P^€{wj2î‡>z$ 63z Â´ˆ{ó]öÍaˆÅÙñ[b™FAÜÂT5HÔêòb"âdåÂïÄ3kL•eª<óN„E={üÜDL‹:ŞeÁôFğÊ¾EjÏ=«Á¿´â6%;¢c¡w½Çó@ƒ7 š`…EŞc?šºaPœfB<Ó‡åİJÔ¦EœíYƒöææ&|{z^fĞaİ;gÅ‰É£ëF,£G‘Û™7è²`¿Ş×ê"½pÉmHÖíè—b°Oaï’R¾ˆ_ieâÇhƒ>o/,#“¥hH²4â<aÓq”SÍ0@TA1áŸiÕp†ÃØt_x&P/rè÷éS®íÂ›á‹$Ÿ=S HùO-×Sµ"ß=ËÌYò÷‘ëÑôÊIr­AÀ4R¹H?EGƒˆ8Í‘¿¢W¿õV…½?AÔ#ÛÔĞXÅS¸şÏyS¢é-GÖ#Ò€Ôh7DâáíÈ<¤éÅf(1%9sşú5ì,Ùæ3“&%®¸»²Éa<RG¢=äÎÌ:nÏLkV
+õ#Ü‰¨””ãÃJ•d<r×{JV€ÔŠ†×6
+‘ƒ!Sgc¥2H¥×ş|ƒÚ'ÃRÑ	U„ááPßŒ<4cÑZ£<™‰a¬‚>˜[”˜A¸“‡¿Zşğcqî’®ë"²¸'û9‘ıâ.Ñ¢Æg×à‡îÈ‚ığíP—½7Snİ0B)ÊÄ/ˆÊÕ„ä5N¡l3Ñ½Ñä/ç&lVûÇxxebV†xÿ¤¶E ßZ›X5iD¢tq]Ød’Õ'îô7Œ/¬ËÜá8%ƒ\½y<×‘´8o™>1,ºeÃŞx:vŒ=wJlWœì,½Cn.KEÛ?ÏQ#4t/ê‘6’ˆ^üYsªÏØ‰AJTÉòZv@G—>\ó²ğœ,ï8Ï÷ÈÉKË’hÓ Ûç(È%ƒcš¸ (g–.;vqœ!ï¢óüö‹ùø~÷>á´è×PbË¶¯Øà©$œÁjC¤ÀF†®â²“Î€€Y–oŞÏ=ôhÈôô5\*ˆß	Ó1nDsŞ¶-¶aä³¯%º.™°TÎ¨™ˆX.Ò’ÆšÂ3LXo°µô$>W~C*Äµ<4F>´—ké“‰K”~eò÷Ğ_3d…E…yA‡fIBÛ¸±[ª6p¡2ÕÓù²Iz|§0“±ŠĞÒÎòªi$!“91³Öjûv],öµ«ÇïØ˜OÄ@s[ß2í”Tp‰T“(à:ôL‰Y»	Mñ!ì$¨\¤¨7qmvğ2Ê¸Á2ÛüŠ¹üÈ-mÌdÿı4ÌÅ¢aüõSø»±;uª‡d€öà)İá“z:qGÂ‡7ãbZOwöptœÛ
+31KqÒËĞÚ(°Õf…ŞG™×aH¾-¼O®e%Øì"‘‰F®f`ca†–D2–ÄLÕjùÚo$5ğÛÁF>îÚ`Î«5$¦èÍŒID]jF‚„W$M‡‘p‹”%,¨O!Ê©ÁrÚÑ¥fÓH7Lm~xNR‰ÎısŸmx‚°§ êíM4.$Qé‡KJ1"¶õ÷3§>át>f¸N„ŸèB÷%¸J@å¸'Šä‘W¹¯î»@ÅÓĞuUúStK-ÚH”e¸Üsœ–¨QÄ„åw)¹öŞ½¨Imfs	ø‰š +ë¼ãrÎöãŞà¹~›Ÿë³ù@é‘ÿrå#†Š‡fèÓü»‡?Q‡èÕÎ$·ÀÓGZĞ‚ÍÄ¼A¶İ£2o ô²WéĞ‘,lÊî ÂÄ']‹/¨œòñ<Bö@?t;—³Õ’ıŠÃS>é_Jó÷û›«­VÁ_göák)úNúÃc±« hĞpdé~„eÚ‰Òı Y^‚ó[à<¥šÏ‚0íWè¯å³1ŸVw\PŠ1ãíª„‰S#¤’óQyò	µiQí¨‡‹¥{‰9rÅ.‰‡¾qÇ+øæ)‡‘d¦Û!†é'
+eªº0‡9fK¦¡F(ÛP7*{µ©«’ã^M[â]v‘˜™ª¡Á¹ò|ÄŞ¥|—Ewq“Ñ®¿äÖêrZ—¸3(¹0Tó_×ÂJ:Ëhr^¤ŞJPª.»&{˜£°‰VYn¢ÉÍ|rõ©Š2²F5&`à	.SXrvˆ¥¹Ì\ ŒËm»,BC¢Aê”í<ãh‰¯ÖY‘Úÿú*× ókšÓøÇU½ÙUÜ¥.7Ú¢°òe'ö@ør‚i™¼œnm¯Œ+&Í-“¿j4}pìŒ
+¦{0½Ë‰¶¿1(#ä§íZH
+â)ßcv{ãQÙYĞ>á˜Gê¡xº—©ÌgÛ¬ßY¸¾âcöi[Ïo†æn\  >lzîÃÄz/f:®¹ì<4Ö‘å~…ñøÔ'Œ­…ınÚ#ócäjÌˆM†OğK78<üÀıl9†¥ãaí/,SWÛ™ûÖˆı4vÅ¢{&l”–;÷k© ÿÜKr/
+·ûÜäİùéğp»¯¶£W´L³ƒıÅLò¹ï)İ;×\šÓÎÈ
+Çá.™ôJ.HG.¦é¯š A²7I&8/£?B^J(•Óã(tĞ²œ°˜\ã+”}efÔ¢DzÒP±sÊÂnÉ™[¦C¡a7báÅbLöD.æı²ó¸4äÏIh“şıŒŞMO?MŸÇÅqôdäÆ­.ß^^ë¦Nã:²Ó¸4,št‹ƒú±LŠÎ
+¬ÊQõÜS4äSûEè(ÜÍ"%.	\„šrÜŞ’áZsº4_Ãµ	ã’ô†'øûA¢è×tÅ«ÿQĞUçtÕ¹ºú„ÒPÌ¿^Ñ@_¤¨íüì8›û	»şãk²âÕ/¬0ÛN9ÊŒ(‰!A ¥Ç r¨T8ª('S~ªé+?¢ÌnzR÷Ui«‚|¡0m£A"£APíh6›—Lñ¥>-2ÈñY‘©a÷È²Ç…Ş,²×¥ms¿‰­nB«­tj¹›ŠóšĞ‹%C¨ÂSç+ä-´	eş‚PŒ]N;¦3/gfLE"Rá5YN¥…7]‰ Ïo!Kóæ›+Æ–Â2l˜¸§§&l2oˆHGwórÄsàŠ$ãLğJ©f«Äh8C¹Bš¿Cg*Õ/˜våvÊyB9)n'ÿ×ü_."¢Õm!™šë."~ÎŒ'ğ—P›Ë§T?ıé×¢ß—%ú)Y“ÊoD(ºeAuİ£%=2Šdâ0DWé®
+hÜ!†ò²XÎ²–h+Ù(¾İYÛÑ-é61‚ÂH?)VB=,5öªıù„h]ãêQG½G<V×cRÛX,d¼µàğÙõ—ƒcŸÌ=/ÌñÅnÔê§
+çÜ–“L1 T{ï'‰ı…G%Äq‰ü@u«éº¦¨Âç&f:x²¼Rm1şNB0j°(şL#|’©)v2
+&¤ä§V‰_Ú%ì=—Õ–UDEFE(§pñøNˆI/éÌ¢›}ÉIìUÜ¼ŠPz¥T’¿ËUå•Ï>®à¤Ã`ò}ÉŞ„İ–ÅXÈÌTÀrT~LÅ‘Ï‹,Ûwó&PæT,D'¼ó"¿±·=à¼Úº¡ƒ‚ëä=3Ã£GšF`øeŒA¬À#T3ø•#B\"HÎ|åÇoÄí)òI²’$)Mé¬zÜ¤p?]tôßÉÉ•]õVB%ŸU¿IR¾Æ+sÉ³£¥,)ÃÃİñ¸Úal$hçz;-œ¶
+†¶²›ÓsWA¿pşú#vÆ@Ç/ŸHìq*œ¦‘qb,îã÷¢ÛÄ“ûıÍ¨;\¨úMZ| 
+—š³?L_Oş=¼îœ™äšÙĞÙõò¿äm}œN~uşóÕm’Ôy¹ğÚñ
+~/ÒÌ.û¶şŞqó ØOƒš¸ã ò£ì:Ñõ…››Z‹ØÊ†iÛ~³o½00¿ô¯“åğŠŞ|f J•l”úT‡9­´cQ›g%çÕÔëâØƒœÆ+ğ‹ªMW»)TêcKã½øîĞ“1)‚£Z9ö,Ö×é-	9ëK£Y^êJïÅ¢ÀxgFÊ7¯§¡ô&öô5Û­8l•ßj‘†ğ¥Å„!Dqaá$¤îsOCÎMD4×Ò!t"Å‚Ol:’´‹8gËb%EH‡Ÿ,pz~ãªñ^I2¾Ò /ö:\vÕ"²ÒYdÃ«šÒ^¬@ÌÅï¾p0X©¾@ÅÊ
+¦™°~.çF…!Tö©âÑaáZ*ñªªâ¦ÕM±™ÕV¼¥)dŞ–¥Åt©•Æº¯™FŠÁ‰l=|hDyLòØw‘rWrÎö»2Cã­[‰;°Aa
+ğzl²m‹,pF¢Œš2”n•(cz"0ÀÀ0Ï‰BÆX8wÏ1ò…H."eë_­ºÿ’»³i_Ëí1ª§ÌjQ¢è‰¿Ï.ÂS?ıZ(T‚ƒ Ï¯5W”b&ÄªR¥¨ün®Âß>>>‹£@ÓUNÉ}ÒşJ®,È®>P;ıÕ?ÁÕwı¥tzOÉ ·÷¤·7ø*¯J¥ûc8|%¥\dç€)SBÅÚ¨dW§ApBR0åÇVßt¶>Q{\ĞD	…²…<@ñ&9jV[*¿±NeÍ•'ÔçM¬O‚tFıhî$	õùoLRW•!dI‹xKÊ'ƒNìôÅo!?Ô³øÆ
+e×j•-fµƒŞS\–.ùà°0i—Ûæ3UäQûsšª“Úe™ŞE(7«\„ÉAeA"¾ÁÙPxBŠG sÛŞõ*88 ¬ûÇÎh×­ú–
+óNm8©.TÙ@%–·VpÛpNg"Bl&õÛ•µXQW¿õ3j‘Şş™Ò_AzÑÄL‡÷øÒ¥_›}KÍŸMa'V½AéšU„SSäzÙÈMÃP}Î”Ïóà‚ÏLœÑuJ.yAÁºx¿B(ÑRkwÕ‹ ®0ğüBÕYÑÂ: ¤Œl˜Ã2´±çJ7w1¡Úı}.ì|cÛ=
+O	wÃ¯ÍŒĞ·$	ÃePtØ¨ )íš|b£t²™ÄÍ™*iœ¯TsM÷hA=µºÄŠ ‘!ÕÉ¡Œ”¾$í³Ú/‹Üªô¿   ÿÿ zõ

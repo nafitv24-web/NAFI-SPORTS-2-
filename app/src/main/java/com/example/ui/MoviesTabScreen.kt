@@ -1,11 +1,9 @@
 package com.example.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,15 +26,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.ChevronLeft
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
@@ -55,11 +46,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,8 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.MediaItem
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun MoviesTabScreen(
@@ -99,24 +86,11 @@ fun MoviesTabScreen(
         listOf("All", "ডাউনলোডসমূহ") + unique
     }
 
-    // Identify Featured Spotlight Movies list (Sultan Salahuddin, recent/popular, and movies with posters)
-    val featuredMovies = remember(movies) {
-        if (movies.isEmpty()) emptyList()
-        else {
-            val priority = movies.filter {
-                it.title.contains("Sultan", ignoreCase = true) ||
-                it.title.contains("Salahuddin", ignoreCase = true) ||
-                it.title.contains("Toofan", ignoreCase = true) ||
-                it.title.contains("Jawan", ignoreCase = true) ||
-                it.title.contains("2024", ignoreCase = true) ||
-                it.title.contains("2025", ignoreCase = true) ||
-                it.title.contains("2026", ignoreCase = true)
-            }
-            val withPosters = movies.filter { !it.logoUrl.isNullOrBlank() }
-            (priority + withPosters + movies)
-                .distinctBy { it.id }
-                .take(12)
-        }
+    // Identify Featured Spotlight Movie (either specifically Sultan Salahuddin or the first movie)
+    val featuredMovie = remember(movies) {
+        movies.firstOrNull { it.title.contains("Sultan", ignoreCase = true) || it.title.contains("Salahuddin", ignoreCase = true) }
+            ?: movies.firstOrNull { !it.logoUrl.isNullOrBlank() }
+            ?: movies.firstOrNull()
     }
 
     // Group movies by category for the categorized carousels view
@@ -294,20 +268,153 @@ fun MoviesTabScreen(
 
         // MAIN CONTENT AREA
         if (searchQuery.isBlank() && selectedCategory == "All") {
-            // HOME / ALL VIEW: FEATURED SPOTLIGHT CAROUSEL + CATEGORY CAROUSELS
+            // HOME / ALL VIEW: FEATURED BANNER + CATEGORY CAROUSELS (Matching Screenshot 1)
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                // 1. FEATURED SPOTLIGHT SLIDING CAROUSEL (ডানে বামে স্লাইড ও অটো রোটেট)
-                if (featuredMovies.isNotEmpty()) {
+                // 1. FEATURED SPOTLIGHT BANNER
+                if (featuredMovie != null) {
                     item {
-                        FeaturedSpotlightCarousel(
-                            featuredMovies = featuredMovies,
-                            isTvMode = isTvMode,
-                            onSelectMovie = onSelectMedia
+                        var isBannerFocused by remember { mutableStateOf(false) }
+                        val bannerScale by animateFloatAsState(
+                            targetValue = if (isBannerFocused) 1.02f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                            label = "bannerScale"
                         )
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF0F172A),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isBannerFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
+                            ),
+                            shadowElevation = 8.dp,
+                            modifier = Modifier
+                                .scale(bannerScale)
+                                .fillMaxWidth()
+                                .height(210.dp)
+                                .padding(horizontal = 14.dp)
+                                .onFocusChanged { isBannerFocused = it.isFocused }
+                                .focusable()
+                                .clickable { onSelectMedia(featuredMovie) }
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // Background Banner Image
+                                if (!featuredMovie.logoUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = featuredMovie.logoUrl,
+                                        contentDescription = featuredMovie.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(Color(0xFF1E1B4B), Color(0xFF0F172A))
+                                                )
+                                            )
+                                    )
+                                }
+
+                                // Dark Gradient Overlays for High Contrast
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Black.copy(alpha = 0.2f),
+                                                    Color.Black.copy(alpha = 0.5f),
+                                                    Color.Black.copy(alpha = 0.95f)
+                                                )
+                                            )
+                                        )
+                                )
+
+                                // Banner Content
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.Bottom
+                                ) {
+                                    // Badges Row
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Red Spotlight Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFE11D48)
+                                        ) {
+                                            Text(
+                                                text = "FEATURED SPOTLIGHT",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            )
+                                        }
+
+                                        // Teal Download Support Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF0D9488)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Download,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(11.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text(
+                                                    text = "ডাউনলোড সাপোর্ট",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    // Main Title
+                                    Text(
+                                        text = featuredMovie.title,
+                                        color = Color.White,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                    // Subtitle / Description
+                                    Text(
+                                        text = featuredMovie.description?.takeIf { it.isNotBlank() }
+                                            ?: "ঐতিহাসিক অ্যাকশন ও ড্রামা সিরিজ/মুভি।",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 11.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -611,309 +718,3 @@ fun MoviePosterCard(
         )
     }
 }
-
-// -----------------------------------------------------------------------------
-// FEATURED SPOTLIGHT SLIDING CAROUSEL (ডানে বামে স্লাইড ও অটো রোটেট)
-// -----------------------------------------------------------------------------
-@Composable
-fun FeaturedSpotlightCarousel(
-    featuredMovies: List<MediaItem>,
-    isTvMode: Boolean,
-    onSelectMovie: (MediaItem) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (featuredMovies.isEmpty()) return
-
-    val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
-    val coroutineScope = rememberCoroutineScope()
-    var isUserInteracting by remember { mutableStateOf(false) }
-
-    // Auto-advance sliding rotation every 4.5 seconds
-    LaunchedEffect(pagerState, featuredMovies.size, isUserInteracting) {
-        if (featuredMovies.size > 1 && !isUserInteracting) {
-            while (true) {
-                delay(4500)
-                if (featuredMovies.isNotEmpty()) {
-                    val nextPage = (pagerState.currentPage + 1) % featuredMovies.size
-                    pagerState.animateScrollToPage(
-                        nextPage,
-                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
-                    )
-                }
-            }
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp)
-    ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (isTvMode) 230.dp else 210.dp)
-        ) { page ->
-            val movie = featuredMovies[page]
-            var isBannerFocused by remember { mutableStateOf(false) }
-            val bannerScale by animateFloatAsState(
-                targetValue = if (isBannerFocused) (if (isTvMode) 1.03f else 1.015f) else 1.0f,
-                animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                label = "bannerScale"
-            )
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(
-                    1.dp,
-                    if (isBannerFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
-                ),
-                shadowElevation = 8.dp,
-                modifier = Modifier
-                    .scale(bannerScale)
-                    .fillMaxSize()
-                    .onFocusChanged {
-                        isBannerFocused = it.isFocused
-                        isUserInteracting = it.isFocused
-                    }
-                    .focusable()
-                    .clickable { onSelectMovie(movie) }
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // Background Banner Image
-                    if (!movie.logoUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = movie.logoUrl,
-                            contentDescription = movie.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF1E1B4B), Color(0xFF0F172A))
-                                    )
-                                )
-                        )
-                    }
-
-                    // Dark Gradient Overlays for High Contrast & Text Readability
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.2f),
-                                        Color.Black.copy(alpha = 0.5f),
-                                        Color.Black.copy(alpha = 0.95f)
-                                    )
-                                )
-                            )
-                    )
-
-                    // Banner Content at Bottom
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.Bottom
-                    ) {
-                        // Badges Row
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Red Spotlight Badge
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFFE11D48)
-                            ) {
-                                Text(
-                                    text = "FEATURED SPOTLIGHT",
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                )
-                            }
-
-                            // New Movie Badge
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFF8B5CF6)
-                            ) {
-                                Text(
-                                    text = "🔥 নতুন মুভি",
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                )
-                            }
-
-                            // Download Support Badge
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFF0D9488)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Download,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(11.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = "ডাউনলোড",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // Main Title & Quick Play Button Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = movie.title,
-                                    color = Color.White,
-                                    fontSize = if (isTvMode) 19.sp else 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                Spacer(modifier = Modifier.height(2.dp))
-
-                                Text(
-                                    text = movie.description?.takeIf { it.isNotBlank() }
-                                        ?: "ঐতিহাসিক অ্যাকশন ও ড্রামা সিরিজ/মুভি। এখনই উপভোগ করুন।",
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 11.5.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            // Play button
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color(0xFF2563EB),
-                                modifier = Modifier.clickable { onSelectMovie(movie) }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "প্লে",
-                                        color = Color.White,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Left & Right Navigation Arrows + Indicators Overlay (if > 1 movie)
-        if (featuredMovies.size > 1) {
-            // Left Chevron Arrow (Slide Left)
-            IconButton(
-                onClick = {
-                    coroutineScope.launch {
-                        val prevPage = if (pagerState.currentPage - 1 < 0) featuredMovies.size - 1 else pagerState.currentPage - 1
-                        pagerState.animateScrollToPage(prevPage, animationSpec = tween(400))
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 6.dp)
-                    .size(32.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.ChevronLeft,
-                    contentDescription = "Previous Movie",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            // Right Chevron Arrow (Slide Right)
-            IconButton(
-                onClick = {
-                    coroutineScope.launch {
-                        val nextPage = (pagerState.currentPage + 1) % featuredMovies.size
-                        pagerState.animateScrollToPage(nextPage, animationSpec = tween(400))
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp)
-                    .size(32.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = "Next Movie",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            // Slide Dots Indicators at Top Right
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 10.dp, end = 12.dp)
-                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                featuredMovies.indices.forEach { index ->
-                    val isSelected = pagerState.currentPage == index
-                    Box(
-                        modifier = Modifier
-                            .height(5.dp)
-                            .width(if (isSelected) 14.dp else 5.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f))
-                    )
-                }
-            }
-        }
-    }
-}
-
