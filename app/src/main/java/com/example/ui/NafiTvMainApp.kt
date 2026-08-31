@@ -2981,7 +2981,15 @@ fun LiveEventMatchCard(
                     val hasTeam2Logo = !sport.team2Logo.isNullOrBlank() && !sport.team2Logo.equals("null", ignoreCase = true)
                     val hasLogoUrl = !sport.logoUrl.isNullOrBlank() && !sport.logoUrl.equals("null", ignoreCase = true)
 
-                    if (hasTeam1Logo && hasTeam2Logo) {
+                    if (hasLogoUrl) {
+                        // Single Match / Tournament Poster Banner (shown clearly across the frame)
+                        AsyncImage(
+                            model = sport.logoUrl,
+                            contentDescription = sport.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else if (hasTeam1Logo && hasTeam2Logo) {
                         // Two logos side-by-side without "VS"
                         Row(
                             modifier = Modifier
@@ -3028,9 +3036,9 @@ fun LiveEventMatchCard(
                                 )
                             }
                         }
-                    } else if (hasLogoUrl || hasTeam1Logo) {
+                    } else if (hasTeam1Logo) {
                         AsyncImage(
-                            model = if (hasLogoUrl) sport.logoUrl else sport.team1Logo,
+                            model = sport.team1Logo,
                             contentDescription = sport.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop

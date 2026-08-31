@@ -114,6 +114,7 @@ fun AdminControlAppScreen(
 
     // Sports Match Form State
     var tournamentName by remember { mutableStateOf("") }
+    var matchPosterUrl by remember { mutableStateOf("") }
     var team1Name by remember { mutableStateOf("") }
     var team1LogoUrl by remember { mutableStateOf("") }
     var team2Name by remember { mutableStateOf("") }
@@ -136,6 +137,7 @@ fun AdminControlAppScreen(
     // Edit/Update/Delete Match State
     var editingMatchItem by remember { mutableStateOf<MediaItem?>(null) }
     var editTournament by remember { mutableStateOf("") }
+    var editMatchPosterUrl by remember { mutableStateOf("") }
     var editSportCategory by remember { mutableStateOf("CRICKET") }
     var editSportStatus by remember { mutableStateOf("UPCOMING") }
     var editTeam1Name by remember { mutableStateOf("") }
@@ -1601,6 +1603,18 @@ fun AdminControlAppScreen(
                                 singleLine = true
                             )
 
+                            // Match Poster Banner / Single Picture URL (User: এখানে একটি ছবি দেখার অপশন করে দিন)
+                            OutlinedTextField(
+                                value = matchPosterUrl,
+                                onValueChange = { matchPosterUrl = it },
+                                label = { Text("🖼️ একক ম্যাচের ছবি / ব্যানার URL (Match Poster Image URL)") },
+                                placeholder = { Text("https://example.com/banner.jpg", color = Color(0xFF64748B), fontSize = 13.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true
+                            )
+
                             // Team 1 Section
                             Text("🛡️ Team 1 Details:", color = Color(0xFF60A5FA), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             Row(
@@ -1830,6 +1844,7 @@ fun AdminControlAppScreen(
                                             isLive = sportStatus.contains("Live", ignoreCase = true),
                                             status = sportStatus,
                                             eventTime = matchTimeFormatted.ifBlank { sportStatus },
+                                            logoUrl = matchPosterUrl.takeIf { it.isNotBlank() },
                                             team1 = team1Name.takeIf { it.isNotBlank() },
                                             team1Logo = team1LogoUrl.takeIf { it.isNotBlank() },
                                             team2 = team2Name.takeIf { it.isNotBlank() },
@@ -1849,7 +1864,7 @@ fun AdminControlAppScreen(
                                                 message = if (!matchItem.tournament.isNullOrBlank()) "${matchItem.tournament} - এখনই লাইভ উপভোগ করুন!" else "নতুন লাইভ ম্যাচ যোগ করা হয়েছে!",
                                                 type = NotificationType.LIVE_EVENT,
                                                 targetId = matchItem.id,
-                                                imageUrl = matchItem.team1Logo ?: matchItem.team2Logo
+                                                imageUrl = matchItem.logoUrl ?: matchItem.team1Logo ?: matchItem.team2Logo
                                             )
                                             repository.broadcastNotification(notif)
                                             NotificationHelper.showSystemNotification(context, notif)
@@ -1859,6 +1874,7 @@ fun AdminControlAppScreen(
 
                                         // Reset fields
                                         tournamentName = ""
+                                        matchPosterUrl = ""
                                         team1Name = ""
                                         team1Score = ""
                                         team1LogoUrl = ""
@@ -1978,6 +1994,7 @@ fun AdminControlAppScreen(
                                     onClick = {
                                         editingMatchItem = item
                                         editTournament = item.tournament ?: ""
+                                        editMatchPosterUrl = item.logoUrl ?: ""
                                         editSportCategory = item.category
                                         editSportStatus = if (item.isLive) "● Live Now" else (item.status ?: "Upcoming")
                                         editTeam1Name = item.team1 ?: ""
@@ -4203,6 +4220,20 @@ fun AdminControlAppScreen(
                             )
                         }
 
+                        // Match Poster Banner / Single Picture URL (User: এখানে একটি ছবি দেখার অপশন করে দিন)
+                        item {
+                            OutlinedTextField(
+                                value = editMatchPosterUrl,
+                                onValueChange = { editMatchPosterUrl = it },
+                                label = { Text("🖼️ একক ম্যাচের ছবি / ব্যানার URL (Match Poster Image URL)") },
+                                placeholder = { Text("https://example.com/banner.jpg", color = Color(0xFF64748B), fontSize = 13.sp) },
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
                         // Category & Status
                         item {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4539,6 +4570,7 @@ fun AdminControlAppScreen(
                                         isLive = editSportStatus.contains("Live", ignoreCase = true),
                                         status = editSportStatus,
                                         eventTime = editMatchTime.ifBlank { editSportStatus },
+                                        logoUrl = editMatchPosterUrl.takeIf { it.isNotBlank() },
                                         team1 = editTeam1Name.takeIf { it.isNotBlank() },
                                         team1Logo = editTeam1Logo.takeIf { it.isNotBlank() },
                                         team2 = editTeam2Name.takeIf { it.isNotBlank() },
