@@ -2,12 +2,15 @@ package com.example.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import com.example.model.ActiveUserInfo
 import com.example.model.AppNotification
 import com.example.model.AppUpdateInfo
 import com.example.model.AppUserAnalytics
 import com.example.model.CloudStreamRepo
+import com.example.model.LocationTrafficStat
 import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
@@ -30,6 +33,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -4779,7 +4784,7 @@ class MediaRepository(private val context: Context) {
 
 
     // -------------------------------------------------------------
-    // USER ANALYTICS & ACTIVE USERS TRACKING (Firebase RTDB)
+    // USER ANALYTICS & ACTIVE USERS TRACKING (Firebase RTDB + Location)
     // -------------------------------------------------------------
     fun getOrCreateDeviceId(): String {
         var id = prefs.getString("device_unique_user_id", null)
@@ -4790,7 +4795,118 @@ class MediaRepository(private val context: Context) {
         return id
     }
 
-    fun recordUserPresence() {
+    /**
+     * Accurately detects network connection type (WiFi, 4G/5G Cellular, Ethernet)
+     */
+    fun detectNetworkType(): String {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val network = cm?.activeNetwork
+            val capabilities = cm?.getNetworkCapabilities(network)
+            when {
+                capabilities == null -> "Offline"
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile Data (4G/5G)"
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet / Broadband"
+                else -> "Online"
+            }
+        } catch (_: Exception) {
+            "Online"
+        }
+    }
+
+    /**
+     * Detects real device location (City, Country, ISP) without prompting runtime GPS permissions
+     * Uses fast network IP geo-detection with intelligent locale/timezone fallback.
+     */
+    fun detectDeviceLocation(): Map<String, String> {
+        val now = System.currentTimeMillis()
+        val lastGeoCheck = prefs.getLong("last_geo_check_timestamp", 0L)
+        val cachedCity = prefs.getString("cached_user_city", null)
+        val cachedCountry = prefs.getString("cached_user_country", null)
+        val cachedCountryCode = prefs.getString("cached_user_country_code", null)
+        val cachedIsp = prefs.getString("cached_user_isp", null)
+        val cachedIp = prefs.getString("cached_user_ip", null)
+
+        if (!cachedCity.isNullOrBlank() && !cachedCountry.isNullOrBlank() && (now - lastGeoCheck < 6 * 3600 * 1000L)) {
+            val locName = "$cachedCity, $cachedCountry"
+            return mapOf(
+                "location" to locName,
+                "city" to cachedCity,
+                "country" to (cachedCountry ?: "Bangladesh"),
+                "country_code" to (cachedCountryCode ?: "BD"),
+                "isp" to (cachedIsp ?: ""),
+                "ip" to (cachedIp ?: "")
+            )
+        }
+
+        // Fast background IP Geo-lookup (or locale fallback)
+        var city = cachedCity ?: "ঢাকা"
+        var country = cachedCountry ?: "বাংলাদেশ"
+        var countryCode = cachedCountryCode ?: "BD"
+        var isp = cachedIsp ?: ""
+        var ip = cachedIp ?: ""
+
+        try {
+            val geoReq = Request.Builder()
+                .url("http://ip-api.com/json/?fields=status,country,countryCode,city,isp,query")
+                .header("User-Agent", "NAFITV24/2.5.6")
+                .build()
+            val resp = client.newCall(geoReq).execute()
+            if (resp.isSuccessful) {
+                val bodyStr = resp.body?.string()?.trim() ?: ""
+                if (bodyStr.startsWith("{")) {
+                    val root = JSONObject(bodyStr)
+                    if (root.optString("status") == "success") {
+                        city = root.optString("city", city)
+                        country = root.optString("country", country)
+                        countryCode = root.optString("countryCode", countryCode)
+                        isp = root.optString("isp", isp)
+                        ip = root.optString("query", ip)
+
+                        prefs.edit()
+                            .putString("cached_user_city", city)
+                            .putString("cached_user_country", country)
+                            .putString("cached_user_country_code", countryCode)
+                            .putString("cached_user_isp", isp)
+                            .putString("cached_user_ip", ip)
+                            .putLong("last_geo_check_timestamp", now)
+                            .apply()
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Locale fallback
+            val loc = Locale.getDefault()
+            val tz = TimeZone.getDefault().id.lowercase()
+            if (country.isBlank() || country == "Bangladesh" || country == "বাংলাদেশ") {
+                if (tz.contains("dhaka")) {
+                    city = "ঢাকা"
+                    country = "বাংলাদেশ"
+                    countryCode = "BD"
+                } else if (tz.contains("kolkata") || tz.contains("calcutta") || tz.contains("delhi")) {
+                    city = "কলকাতা"
+                    country = "ভারত"
+                    countryCode = "IN"
+                } else if (loc.displayCountry.isNotBlank()) {
+                    country = loc.displayCountry
+                    countryCode = loc.country.ifBlank { "BD" }
+                }
+            }
+        }
+
+        val locationLabel = "$city, $country"
+        return mapOf(
+            "location" to locationLabel,
+            "city" to city,
+            "country" to country,
+            "country_code" to countryCode,
+            "isp" to isp,
+            "ip" to ip
+        )
+    }
+
+    fun recordUserPresence(currentActivity: String = "ব্রাউজিং") {
         try {
             val deviceId = getOrCreateDeviceId()
             val now = System.currentTimeMillis()
@@ -4808,11 +4924,20 @@ class MediaRepository(private val context: Context) {
             val cleanDeviceName = deviceName.ifBlank { "Android Device" }
             val appVersion = "v${com.example.BuildConfig.VERSION_NAME}"
             val versionCode = com.example.BuildConfig.VERSION_CODE
+            val netType = detectNetworkType()
 
             // Fire and forget background sync to Firebase Realtime Database
             @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
             GlobalScope.launch(Dispatchers.IO) {
                 try {
+                    val locInfo = detectDeviceLocation()
+                    val city = locInfo["city"] ?: "ঢাকা"
+                    val country = locInfo["country"] ?: "বাংলাদেশ"
+                    val countryCode = locInfo["country_code"] ?: "BD"
+                    val locLabel = locInfo["location"] ?: "$city, $country"
+                    val isp = locInfo["isp"] ?: ""
+                    val ip = locInfo["ip"] ?: ""
+
                     val rtdbUrl = getSavedFirebaseUrl()
                     if (rtdbUrl.isNotBlank()) {
                         val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
@@ -4827,6 +4952,14 @@ class MediaRepository(private val context: Context) {
                             put("last_seen", now)
                             put("registered_at", installedAt)
                             put("is_online", true)
+                            put("location", locLabel)
+                            put("city", city)
+                            put("country", country)
+                            put("country_code", countryCode)
+                            put("network_type", netType)
+                            put("isp", isp)
+                            put("ip", ip)
+                            put("current_activity", currentActivity)
                         }
                         val activeBody = activeObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                         val activeReq = Request.Builder()
@@ -4842,6 +4975,11 @@ class MediaRepository(private val context: Context) {
                             put("app_version", appVersion)
                             put("last_seen", now)
                             put("registered_at", installedAt)
+                            put("location", locLabel)
+                            put("city", city)
+                            put("country", country)
+                            put("country_code", countryCode)
+                            put("network_type", netType)
                         }
                         val userBody = userObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                         val userReq = Request.Builder()
@@ -4889,6 +5027,14 @@ class MediaRepository(private val context: Context) {
                             val appVersion = uObj.optString("app_version", "v${com.example.BuildConfig.VERSION_NAME}")
                             val vCode = uObj.optInt("version_code", com.example.BuildConfig.VERSION_CODE)
                             val registeredAt = uObj.optLong("registered_at", lastSeen)
+                            val loc = uObj.optString("location", "বাংলাদেশ")
+                            val city = uObj.optString("city", "ঢাকা")
+                            val country = uObj.optString("country", "Bangladesh")
+                            val countryCode = uObj.optString("country_code", "BD")
+                            val ip = uObj.optString("ip", "")
+                            val isp = uObj.optString("isp", "")
+                            val netType = uObj.optString("network_type", "WiFi")
+                            val curAct = uObj.optString("current_activity", "ব্রাউজিং")
 
                             val isCurrentlyOnline = (now - lastSeen) <= activeThresholdMillis
                             activeList.add(
@@ -4900,7 +5046,15 @@ class MediaRepository(private val context: Context) {
                                     versionCode = vCode,
                                     lastSeen = lastSeen,
                                     registeredAt = registeredAt,
-                                    isOnline = isCurrentlyOnline
+                                    isOnline = isCurrentlyOnline,
+                                    location = loc,
+                                    city = city,
+                                    country = country,
+                                    countryCode = countryCode,
+                                    ip = ip,
+                                    isp = isp,
+                                    networkType = netType,
+                                    currentActivity = curAct
                                 )
                             )
                         }
@@ -4934,6 +5088,12 @@ class MediaRepository(private val context: Context) {
             val manufacturer = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
             val model = android.os.Build.MODEL.orEmpty()
             val deviceName = if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
+            val myCity = prefs.getString("cached_user_city", "ঢাকা") ?: "ঢাকা"
+            val myCountry = prefs.getString("cached_user_country", "বাংলাদেশ") ?: "বাংলাদেশ"
+            val myCountryCode = prefs.getString("cached_user_country_code", "BD") ?: "BD"
+            val myIsp = prefs.getString("cached_user_isp", "") ?: ""
+            val myIp = prefs.getString("cached_user_ip", "") ?: ""
+
             activeList.add(
                 0,
                 ActiveUserInfo(
@@ -4944,7 +5104,15 @@ class MediaRepository(private val context: Context) {
                     versionCode = com.example.BuildConfig.VERSION_CODE,
                     lastSeen = now,
                     registeredAt = prefs.getLong("app_installed_at_timestamp", now),
-                    isOnline = true
+                    isOnline = true,
+                    location = "$myCity, $myCountry",
+                    city = myCity,
+                    country = myCountry,
+                    countryCode = myCountryCode,
+                    ip = myIp,
+                    isp = myIsp,
+                    networkType = detectNetworkType(),
+                    currentActivity = "অ্যাডমিন প্যানেল"
                 )
             )
         }
@@ -4956,10 +5124,42 @@ class MediaRepository(private val context: Context) {
         val finalTotal = maxOf(totalLifetimeCount, activeList.size, prefs.getInt("cached_lifetime_users_count", 1))
         prefs.edit().putInt("cached_lifetime_users_count", finalTotal).apply()
 
+        // Calculate Location Traffic breakdown
+        val locationGroups = activeList.groupBy {
+            val c = it.city.ifBlank { it.location }
+            if (c.isNotBlank()) "$c, ${it.country}" else it.country.ifBlank { "বাংলাদেশ" }
+        }
+        val topLocations = locationGroups.map { (locName, users) ->
+            val flagEmoji = when {
+                locName.contains("Bangladesh", ignoreCase = true) || locName.contains("বাংলাদেশ") || locName.contains("ঢাকা") -> "🇧🇩"
+                locName.contains("India", ignoreCase = true) || locName.contains("ভারত") || locName.contains("কলকাতা") -> "🇮🇳"
+                locName.contains("Saudi", ignoreCase = true) || locName.contains("সৌদি") -> "🇸🇦"
+                locName.contains("Emirates", ignoreCase = true) || locName.contains("Dubai", ignoreCase = true) -> "🇦🇪"
+                locName.contains("United States", ignoreCase = true) || locName.contains("USA", ignoreCase = true) -> "🇺🇸"
+                locName.contains("United Kingdom", ignoreCase = true) || locName.contains("UK", ignoreCase = true) -> "🇬🇧"
+                locName.contains("Malaysia", ignoreCase = true) || locName.contains("মালয়েশিয়া") -> "🇲🇾"
+                else -> "🌐"
+            }
+            val count = users.size
+            val pct = if (activeList.isNotEmpty()) (count.toFloat() / activeList.size.toFloat()) else 1f
+            LocationTrafficStat(
+                locationName = locName,
+                count = count,
+                percentage = pct,
+                flag = flagEmoji
+            )
+        }.sortedByDescending { it.count }
+
+        // Calculate Network Breakdown
+        val networkStats = activeList.groupBy { it.networkType.ifBlank { "WiFi" } }
+            .mapValues { it.value.size }
+
         AppUserAnalytics(
             totalUsers = finalTotal,
             activeUsers = onlineCount,
             activeUsersList = activeList,
+            topLocations = topLocations,
+            networkBreakdown = networkStats,
             lastUpdated = now
         )
     }

@@ -80,6 +80,8 @@ import com.example.model.MediaType
 import com.example.model.StreamServer
 import com.example.util.MovieDownloadManager
 import com.example.util.DownloadState
+import com.example.ui.components.BreakingNewsTickerBar
+import com.example.data.MediaRepository
 import kotlinx.coroutines.delay
 
 enum class MxDragType { NONE, VERTICAL_LEFT, VERTICAL_RIGHT, HORIZONTAL }
@@ -114,6 +116,7 @@ fun VideoPlayerScreen(
     mediaItem: AppMediaItem,
     playlist: List<AppMediaItem> = emptyList(),
     isTvMode: Boolean = false,
+    marqueeTickerText: String? = null,
     onSelectMedia: (AppMediaItem) -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -122,6 +125,10 @@ fun VideoPlayerScreen(
     val activity = context as? Activity
     val configuration = LocalConfiguration.current
     val isScreenLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    val activeTickerText = remember(marqueeTickerText) {
+        marqueeTickerText ?: MediaRepository(context).getMarqueeTickerText()
+    }
 
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
     val servers = remember(currentMedia) { currentMedia.getAllServers() }
@@ -145,6 +152,14 @@ fun VideoPlayerScreen(
                 forceWebEngine = false
             }
         }
+    }
+
+    // Record user live presence & streaming activity
+    LaunchedEffect(currentMedia.id, currentMedia.title) {
+        try {
+            val repo = MediaRepository(context)
+            repo.recordUserPresence(currentActivity = "${currentMedia.title} দেখছেন")
+        } catch (_: Exception) {}
     }
 
     var isFullscreen by rememberSaveable { mutableStateOf(isScreenLandscape || isTvMode) }
@@ -2774,6 +2789,13 @@ fun VideoPlayerScreen(
                         (!currentMedia.team1.isNullOrBlank() && !currentMedia.team2.isNullOrBlank())
 
                 if (isLiveEvent) {
+                    // Breaking News Bar situated right above the matches list
+                    BreakingNewsTickerBar(
+                        tickerText = activeTickerText,
+                        isTvMode = isTvMode,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+
                     Text(
                         text = "🏆 অন্যান্য লাইভ ম্যাচসমূহ (${playlist.size}):",
                         color = Color.White,
@@ -3031,7 +3053,8 @@ fun VideoPlayerScreen(
                     }
                 } else if (isMovieOrSeries) {
                     // DEDICATED MOVIE & OTT PLATFORM DETAILS & POSTER GRID VIEW
-                    val moviePlaylist = playlist.filter {
+                    var moviePlayerSearchQuery by rememberSaveable { mutableStateOf("") }
+                    val rawMoviePlaylist = playlist.filter {
                         it.type == MediaType.MOVIE ||
                         it.type == MediaType.SERIES ||
                         it.tournament == "NAFI_OTT" ||
@@ -3041,6 +3064,70 @@ fun VideoPlayerScreen(
                         (it.category ?: "").contains("Drama", ignoreCase = true) ||
                         (it.category ?: "").contains("Anime", ignoreCase = true)
                     }
+                    val moviePlaylist = remember(rawMoviePlaylist, moviePlayerSearchQuery) {
+                        if (moviePlayerSearchQuery.isBlank()) rawMoviePlaylist else {
+                            rawMoviePlaylist.filter {
+                                it.title.contains(moviePlayerSearchQuery, ignoreCase = true) ||
+                                (it.category ?: "").contains(moviePlayerSearchQuery, ignoreCase = true)
+                            }
+                        }
+                    }
+
+                    // Breaking News Bar situated right above the in-player movie search bar
+                    BreakingNewsTickerBar(
+                        tickerText = activeTickerText,
+                        isTvMode = isTvMode,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+
+                    // In-Player Movie Search Bar
+                    OutlinedTextField(
+                        value = moviePlayerSearchQuery,
+                        onValueChange = { moviePlayerSearchQuery = it },
+                        placeholder = {
+                            Text(
+                                text = "মুভি বা সিরিজ খুঁজুন...",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = "Search Movies",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (moviePlayerSearchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { moviePlayerSearchQuery = "" },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Clear",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00E5FF),
+                            unfocusedBorderColor = Color(0xFF334155),
+                            focusedContainerColor = Color(0xFF0F172A),
+                            unfocusedContainerColor = Color(0xFF0F172A),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                    )
 
                     // Synopsis / Storyline
                     if (!currentMedia.description.isNullOrBlank()) {
@@ -3258,6 +3345,13 @@ fun VideoPlayerScreen(
                             matchesSearch && matchesCategory
                         }
                     }
+
+                    // 0. Breaking News Ticker Bar situated right above the Search Bar
+                    BreakingNewsTickerBar(
+                        tickerText = activeTickerText,
+                        isTvMode = isTvMode,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
 
                     // 1. Sleek In-Player Search Bar
                     OutlinedTextField(

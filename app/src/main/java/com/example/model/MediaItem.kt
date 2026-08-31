@@ -151,13 +151,30 @@ data class ActiveUserInfo(
     val versionCode: Int = 28,
     val lastSeen: Long = System.currentTimeMillis(),
     val registeredAt: Long = System.currentTimeMillis(),
-    val isOnline: Boolean = true
+    val isOnline: Boolean = true,
+    val location: String = "বাংলাদেশ",
+    val city: String = "ঢাকা",
+    val country: String = "Bangladesh",
+    val countryCode: String = "BD",
+    val ip: String = "",
+    val isp: String = "",
+    val networkType: String = "WiFi",
+    val currentActivity: String = "ব্রাউজিং"
+)
+
+data class LocationTrafficStat(
+    val locationName: String,
+    val count: Int,
+    val percentage: Float,
+    val flag: String = "🇧🇩"
 )
 
 data class AppUserAnalytics(
     val totalUsers: Int = 1,
     val activeUsers: Int = 1,
     val activeUsersList: List<ActiveUserInfo> = emptyList(),
+    val topLocations: List<LocationTrafficStat> = emptyList(),
+    val networkBreakdown: Map<String, Int> = emptyMap(),
     val lastUpdated: Long = System.currentTimeMillis()
 )
 

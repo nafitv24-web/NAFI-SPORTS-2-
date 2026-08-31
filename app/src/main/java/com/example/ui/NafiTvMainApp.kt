@@ -68,6 +68,7 @@ import com.example.data.MediaRepository
 import com.example.model.ActiveUserInfo
 import com.example.model.AppNotification
 import com.example.model.AppUserAnalytics
+import com.example.ui.components.BreakingNewsTickerBar
 import com.example.model.AppUpdateInfo
 import com.example.model.CloudStreamRepo
 import com.example.model.MediaItem
@@ -237,6 +238,7 @@ fun NafiTvMainApp(
     var customList by remember { mutableStateOf(repository.getCustomStreams()) }
     var m3uList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var favoriteIds by remember { mutableStateOf(repository.getFavoriteIds()) }
+    var breakingNewsText by remember { mutableStateOf(repository.getMarqueeTickerText()) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     fun checkForUpdates(isManualCheck: Boolean = false) {
@@ -401,6 +403,13 @@ fun NafiTvMainApp(
                     e.printStackTrace()
                 }
 
+                try {
+                    val remoteTicker = repository.fetchMarqueeTickerFromFirebase()
+                    if (!remoteTicker.isNullOrBlank()) {
+                        breakingNewsText = remoteTicker
+                    }
+                } catch (_: Exception) {}
+
                 // 6. App update check
                 checkForUpdates(isManualCheck = false)
             } catch (e: Exception) {
@@ -467,6 +476,7 @@ fun NafiTvMainApp(
             mediaItem = selectedMediaItem!!,
             playlist = currentPlayList,
             isTvMode = isTvMode,
+            marqueeTickerText = breakingNewsText,
             onSelectMedia = { selectedMediaItem = it },
             onBack = { selectedMediaItem = null }
         )
@@ -835,6 +845,13 @@ fun NafiTvMainApp(
                         }
                     }
 
+                    // Breaking News Bar at the very top in TV Mode
+                    BreakingNewsTickerBar(
+                        tickerText = breakingNewsText,
+                        isTvMode = true,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+
                     // Main Content in TV Mode
                     Box(
                         modifier = Modifier
@@ -966,14 +983,18 @@ fun NafiTvMainApp(
             // MOBILE MODE: Standard Scaffold with Top Bar + Content + Bottom Navigation Bar
             Scaffold(
                 topBar = {
-                    // Top Action Bar Header
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color(0xFF0F172A))
                             .statusBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
+                        // Top Action Bar Header
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1114,6 +1135,16 @@ fun NafiTvMainApp(
                                 }
                             }
                         }
+                    }
+
+                    // App-wide Breaking News Ticker Bar at the very top of mobile app
+                        BreakingNewsTickerBar(
+                            tickerText = breakingNewsText,
+                            isTvMode = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
                     }
                 },
                 bottomBar = {
@@ -2237,9 +2268,208 @@ fun AdminControlAppScreen(
 
             // -------------------------------------------------------------
             // -------------------------------------------------------------
-            // TAB: USER ANALYTICS & LIVE ACTIVE USERS
+            // TAB: USER ANALYTICS & LIVE ACTIVE USERS & LOCATION TRAFFIC
             // -------------------------------------------------------------
             if (selectedAdminTab == AdminTab.ANALYTICS) {
+                // 1. Live Locations & Geo-Traffic Breakdown Card
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Rounded.LocationOn,
+                                        contentDescription = null,
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "ğŸ“ à¦‡à¦‰à¦œà¦¾à¦°à¦¦à§‡à¦° à¦²à¦¾à¦‡à¦­ à¦²à§‹à¦•à§‡à¦¶à¦¨ à¦“ à¦Ÿà§à¦°à¦¾à¦«à¦¿à¦• à¦¬à¦£à§à¦Ÿà¦¨",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "à¦°à¦¿à§Ÿà§‡à¦²-à¦Ÿà¦¾à¦‡à¦® à¦¶à¦¹à¦° à¦“ à¦¦à§‡à¦¶à¦­à¦¿à¦¤à§à¦¤à¦¿à¦• à¦Ÿà§à¦°à¦¾à¦«à¦¿à¦• à¦®à§‡à¦Ÿà§à¦°à¦¿à¦•à§à¦¸",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF065F46).copy(alpha = 0.4f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981))
+                                ) {
+                                    Text(
+                                        text = "${userAnalytics?.topLocations?.size ?: 0} à¦Ÿà¦¿ à¦…à¦à§à¦šà¦²",
+                                        color = Color(0xFF34D399),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            val locations = userAnalytics?.topLocations ?: emptyList()
+                            if (locations.isEmpty()) {
+                                Text(
+                                    text = "à¦²à§‹à¦•à§‡à¦¶à¦¨ à¦Ÿà§à¦°à¦¾à¦«à¦¿à¦• à¦¹à¦¿à¦¸à§à¦Ÿà§à¦°à¦¿ à¦²à§‹à¦¡ à¦¹à¦šà§à¦›à§‡...",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    locations.forEach { stat ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text(
+                                                        text = stat.flag,
+                                                        fontSize = 14.sp
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = stat.locationName,
+                                                        color = Color(0xFFE2E8F0),
+                                                        fontSize = 12.5.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${stat.count} à¦œà¦¨ à¦‡à¦‰à¦œà¦¾à¦°",
+                                                        color = Color(0xFF38BDF8),
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = Color(0xFF0F172A)
+                                                    ) {
+                                                        Text(
+                                                            text = "${(stat.percentage * 100).toInt()}%",
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 10.sp,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            LinearProgressIndicator(
+                                                progress = { stat.percentage.coerceIn(0.05f, 1f) },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(5.dp)
+                                                    .clip(RoundedCornerShape(3.dp)),
+                                                color = Color(0xFF10B981),
+                                                trackColor = Color(0xFF0F172A)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Network & ISP Connection Breakdown Card
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Rounded.Wifi,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ğŸ“¶ à¦¨à§‡à¦Ÿà¦“à§Ÿà¦¾à¦°à§à¦• à¦¸à¦‚à¦¯à§‹à¦— à¦“ à¦Ÿà§à¦°à¦¾à¦«à¦¿à¦• à¦šà§à¦¯à¦¾à¦¨à§‡à¦²",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            val networks = userAnalytics?.networkBreakdown ?: emptyMap()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Card(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("WiFi à¦¬à§à¦°à¦¡à¦¬à§à¦¯à¦¾à¦¨à§à¦¡", color = Color(0xFF94A3B8), fontSize = 10.5.sp)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text("${networks["WiFi"] ?: 0} à¦œà¦¨", color = Color(0xFF38BDF8), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Card(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("4G/5G à¦®à§‹à¦¬à¦¾à¦‡à¦²", color = Color(0xFF94A3B8), fontSize = 10.5.sp)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text("${networks["4G/5G Cellular"] ?: 0} à¦œà¦¨", color = Color(0xFFF59E0B), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Card(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("à¦…à¦¨à§à¦¯à¦¾à¦¨à§à¦¯ à¦¨à§‡à¦Ÿà¦“à§Ÿà¦¾à¦°à§à¦•", color = Color(0xFF94A3B8), fontSize = 10.5.sp)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text("${networks["Other"] ?: 0} à¦œà¦¨", color = Color(0xFFA78BFA), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Connected Active Devices with Location & Activity Details
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -2306,64 +2536,154 @@ fun AdminControlAppScreen(
                                         ),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Row(
+                                                modifier = Modifier.fillMaxWidth(),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.weight(1f)
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(34.dp)
-                                                        .clip(CircleShape)
-                                                        .background(
-                                                            if (user.isOnline) Color(0xFF10B981).copy(alpha = 0.2f)
-                                                            else Color(0xFF64748B).copy(alpha = 0.2f)
-                                                        ),
-                                                    contentAlignment = Alignment.Center
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
                                                 ) {
-                                                    Icon(
-                                                        imageVector = if (user.isOnline) Icons.Rounded.Smartphone else Icons.Rounded.PhoneAndroid,
-                                                        contentDescription = null,
-                                                        tint = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(34.dp)
+                                                            .clip(CircleShape)
+                                                            .background(
+                                                                if (user.isOnline) Color(0xFF10B981).copy(alpha = 0.2f)
+                                                                else Color(0xFF64748B).copy(alpha = 0.2f)
+                                                            ),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (user.isOnline) Icons.Rounded.Smartphone else Icons.Rounded.PhoneAndroid,
+                                                            contentDescription = null,
+                                                            tint = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = user.deviceModel,
+                                                            color = Color.White,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                        Text(
+                                                            text = "ID: ${user.id.take(12)} â€¢ App ${user.appVersion}",
+                                                            color = Color(0xFF64748B),
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
                                                 }
-                                                Spacer(modifier = Modifier.width(10.dp))
-                                                Column {
-                                                    Text(
-                                                        text = user.deviceModel,
-                                                        color = Color.White,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = FontWeight.Bold
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = if (user.isOnline) Color(0xFF065F46).copy(alpha = 0.4f) else Color(0xFF1E293B),
+                                                    border = androidx.compose.foundation.BorderStroke(
+                                                        0.5.dp,
+                                                        if (user.isOnline) Color(0xFF10B981) else Color(0xFF475569)
                                                     )
+                                                ) {
                                                     Text(
-                                                        text = "ID: ${user.id.take(12)} â€¢ App ${user.appVersion}",
-                                                        color = Color(0xFF64748B),
-                                                        fontSize = 10.sp
+                                                        text = timeText,
+                                                        color = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                                     )
                                                 }
                                             }
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = if (user.isOnline) Color(0xFF065F46).copy(alpha = 0.4f) else Color(0xFF1E293B),
-                                                border = androidx.compose.foundation.BorderStroke(
-                                                    0.5.dp,
-                                                    if (user.isOnline) Color(0xFF10B981) else Color(0xFF475569)
-                                                )
+
+                                            // Location & Network Info
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Text(
-                                                    text = timeText,
-                                                    color = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF1E293B),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Rounded.LocationOn,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF34D399),
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            text = user.location ?: "à¦¢à¦¾à¦•à¦¾, à¦¬à¦¾à¦‚à¦²à¦¾à¦¦à§‡à¦¶",
+                                                            color = Color(0xFFCBD5E1),
+                                                            fontSize = 10.sp,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF1E293B)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Rounded.Wifi,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF38BDF8),
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            text = user.networkType ?: "WiFi",
+                                                            color = Color(0xFFCBD5E1),
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            if (!user.currentActivity.isNullOrBlank()) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF1E1B4B).copy(alpha = 0.5f),
+                                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF6366F1).copy(alpha = 0.4f)),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Rounded.PlayCircle,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFA5B4FC),
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = user.currentActivity!!,
+                                                            color = Color(0xFFA5B4FC),
+                                                            fontSize = 10.5.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -2541,6 +2861,7 @@ fun AdminControlAppScreen(
                                             repository.saveMarqueeTickerText(marqueeTickerInput.trim())
                                             repository.pushMarqueeTickerToFirebase(marqueeTickerInput.trim())
                                             isSavingMarqueeTicker = false
+                                            onDataChanged()
                                             Toast.makeText(context, "âœ… à¦¨à¦¿à¦‰à¦œ à¦¬à¦¾à¦° à¦¸à¦«à¦²à¦­à¦¾à¦¬à§‡ à¦†à¦ªà¦¡à§‡à¦Ÿ à¦“ à¦•à§à¦²à¦¾à¦‰à¦¡à§‡ à¦¸à¦¿à¦™à§à¦• à¦¹à§Ÿà§‡à¦›à§‡!", Toast.LENGTH_LONG).show()
                                         }
                                     },
@@ -2569,6 +2890,7 @@ fun AdminControlAppScreen(
                                         coroutineScope.launch {
                                             repository.saveMarqueeTickerText(MediaRepository.DEFAULT_MARQUEE_TEXT)
                                             repository.pushMarqueeTickerToFirebase(MediaRepository.DEFAULT_MARQUEE_TEXT)
+                                            onDataChanged()
                                             Toast.makeText(context, "à¦¡à¦¿à¦«à¦²à§à¦Ÿ à¦Ÿà§‡à¦•à§à¦¸à¦Ÿ à¦°à¦¿à¦¸à§à¦Ÿà§‹à¦° à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡", Toast.LENGTH_SHORT).show()
                                         }
                                     },
@@ -8655,485 +8977,38 @@ fun JsonPosterEventCard(
         "GROUP STAGE"
     }
 
-    val rawTag = sport.tournament?.takeIf { it.isNotBlank() } ?: "${sport.category} 2026"
-    val tournamentTag = rawTag.replace("Tapmad BD", "", ignoreCase = true)
-        .replace("Tapmad", "", ignoreCase = true)
-        .trim()
-
-    val playlistSource = when {
-        sport.id.startsWith("custom_") || sport.id.startsWith("admin_") -> "à¦à¦¡à¦®à¦¿à¦¨ à¦ªà§à¦¯à¦¾à¦¨à§‡à¦²"
-        sport.id.startsWith("rtdb_") -> "Firebase RTDB"
-        else -> ""
-    }
-
-    val hasVideoLink = (sport.streamUrl.isNotBlank() && !sport.streamUrl.equals("null", ignoreCase = true)) ||
-            sport.getAllServers().any { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }
-
-    val handleEventClick: () -> Unit = {
-        if (hasVideoLink) {
-            onSelectMedia(sport)
-        } else {
-            showNoLinkDialog = true
-            Toast.makeText(context, "à¦®à§à¦¯à¦¾à¦š à¦¶à§à¦°à§ à¦¹à¦“à¦¯à¦¼à¦¾à¦° à¦¸à¦¾à¦¥à§‡ à¦¸à¦¾à¦¥à§‡ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦†à¦¸à¦¬à§‡ à¦…à¦ªà§‡à¦•à§à¦·à¦¾ à¦•à¦°à§à¦¨ à¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    if (showNoLinkDialog) {
-        AlertDialog(
-            onDismissRequest = { showNoLinkDialog = false },
-            icon = {
-                Icon(
-                    imageVector = Icons.Rounded.WarningAmber,
-                    contentDescription = null,
-                    tint = Color(0xFFF59E0B),
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "à¦²à¦¾à¦‡à¦­ à¦¸à§à¦Ÿà§à¦°à¦¿à¦® à¦¨à§‹à¦Ÿà¦¿à¦¶",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-            },
-            text = {
-                Text(
-                    text = "à¦®à§à¦¯à¦¾à¦š à¦¶à§à¦°à§ à¦¹à¦“à¦¯à¦¼à¦¾à¦° à¦¸à¦¾à¦¥à§‡ à¦¸à¦¾à¦¥à§‡ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦†à¦¸à¦¬à§‡ à¦…à¦ªà§‡à¦•à§à¦·à¦¾ à¦•à¦°à§à¦¨ à¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦",
-                    color = Color(0xFFE2E8F0),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    textAlign = TextAlign.Center
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showNoLinkDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                ) {
-                    Text("à¦ à¦¿à¦• à¦†à¦›à§‡", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            },
-            containerColor = Color(0xFF0F172A),
-            shape = RoundedCornerShape(16.dp),
-            tonalElevation = 8.dp
-        )
-    }
-
-    val sportCardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) 1.035f else 1.0f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "sportCardScale"
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(sportCardScale)
-            .onFocusChanged { isCardFocused = it.isFocused }
-            .focusable()
-            .clickable { handleEventClick() },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A)
-        ),
-        border = if (isCardFocused) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCardFocused) 8.dp else 3.dp)
-    ) {
-        // UNIFIED HORIZONTAL SIDE-BY-SIDE COMPACT CARD (TV & Mobile Portrait/Landscape)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Poster Thumbnail Column (Image + Tournament text below)
-            Column(
-                modifier = Modifier.width(135.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(82.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF090E1A)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val bannerModel = sport.logoUrl ?: sport.team1Logo ?: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800"
-                    AsyncImage(
-                        model = bannerModel,
-                        contentDescription = sport.title,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Top-Right Status Badge (LIVE / UPCOMING)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isLiveNow) Color(0xFFDC2626) else Color(0xFFF59E0B),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                    ) {
-                        Text(
-                            text = if (isLiveNow) "â€¢ LIVE" else "â€¢ UPCOMING",
-                            color = if (isLiveNow) Color.White else Color.Black,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                // Tournament Tag BELOW the photo with horizontal marquee marquee scrolling if long
-                if (tournamentTag.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF1E293B),
-                        border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF334155)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(text = "ğŸ†", fontSize = 9.sp)
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = tournamentTag,
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            // Right: Details, Countdown Timer & Action Button
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                // Stage Header & Time / Status Tag with Marquee for long stage text
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stageHeader,
-                        color = Color(0xFFF59E0B),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 0.4.sp,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Text(
-                        text = if (isLiveNow) "ğŸ”´ LIVE" else (sport.matchTimeFormatted ?: sport.eventTime ?: "UPCOMING"),
-                        color = if (isLiveNow) Color(0xFFEF4444) else Color(0xFF94A3B8),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Match Title (Auto-scrolls left-to-right news ticker style if text is long)
-                Text(
-                    text = sport.title,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            velocity = 40.dp
-                        )
-                )
-
-                // Countdown / Live Status Surface
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF090E1A),
-                    border = androidx.compose.foundation.BorderStroke(0.8.dp, if (isLiveNow) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF1E293B)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (isLiveNow) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF10B981))
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "à¦®à§à¦¯à¦¾à¦šà¦Ÿà¦¿ à¦à¦–à¦¨ à¦²à¦¾à¦‡à¦­ à¦šà¦²à¦›à§‡",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
-                            )
-                        } else if (remainingSecs > 0L) {
-                            val days = remainingSecs / 86400L
-                            val hours = (remainingSecs % 86400L) / 3600L
-                            val mins = (remainingSecs % 3600L) / 60L
-                            val secs = remainingSecs % 60L
-                            val countdownText = if (days > 0) {
-                                String.format("%dd %02dh %02dm %02ds", days, hours, mins, secs)
-                            } else {
-                                String.format("%02dh %02dm %02ds", hours, mins, secs)
-                            }
-                            Text(
-                                text = "âŒ› à¦¬à¦¾à¦•à¦¿: $countdownText",
-                                color = Color(0xFFFBBF24),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
-                            )
-                        } else {
-                            val timeDisplay = sport.matchTimeFormatted?.takeIf { it.isNotBlank() } ?: sport.eventTime?.takeIf { it.isNotBlank() } ?: "à¦¶à§€à¦˜à§à¦°à¦‡ à¦¶à§à¦°à§ à¦¹à¦¬à§‡"
-                            Text(
-                                text = "ğŸ•’ $timeDisplay",
-                                color = Color(0xFF60A5FA),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, velocity = 35.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Action Button (Play / Link Notice)
-                val playBtnScale by animateFloatAsState(
-                    targetValue = if (isPlayBtnFocused) 1.02f else 1.0f,
-                    animationSpec = tween(180, easing = FastOutSlowInEasing),
-                    label = "playBtnScale"
-                )
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = when {
-                        isPlayBtnFocused -> Color(0xFF0284C7)
-                        !hasVideoLink -> Color(0xFF334155)
-                        isLiveNow -> Color(0xFFDC2626)
-                        else -> Color(0xFF2563EB)
-                    },
-                    border = if (isPlayBtnFocused) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8)) else null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(28.dp)
-                        .scale(playBtnScale)
-                        .onFocusChanged { isPlayBtnFocused = it.isFocused }
-                        .focusable()
-                        .clickable { handleEventClick() }
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (hasVideoLink) Icons.Rounded.PlayArrow else Icons.Rounded.HourglassEmpty,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (hasVideoLink) (if (isLiveNow) "à¦²à¦¾à¦‡à¦­ à¦¦à§‡à¦–à§à¦¨" else "à¦“à¦ªà§‡à¦¨ à¦•à¦°à§à¦¨") else "à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦²à¦¿à¦‚à¦• à¦†à¦¸à¦›à§‡",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-// -------------------------------------------------------------
-// -------------------------------------------------------------
-// TAB 2: LIVE TV SCREEN (Playlist Category & Multi-Server Support)
-// -------------------------------------------------------------
-
-// Helper to merge channels with multiple servers/mirrors into single channel with servers list
-fun mergeChannelsWithServers(rawChannels: List<MediaItem>): List<MediaItem> {
-    if (rawChannels.isEmpty()) return emptyList()
-
-    val serverRegex = Regex("""\s*[\(\[\{]?(?:server|srv|backup|mirror|stream|link|à¦¸à¦¾à¦°à§à¦­à¦¾à¦°)\s*\d+[\)\]\}]?\s*""", RegexOption.IGNORE_CASE)
-    val qualityRegex = Regex("""\s*[\(\[\{]?(?:1080p|720p|4k|fhd|hd|sd|hevc|h265|50fps)[\)\]\}]?\s*""", RegexOption.IGNORE_CASE)
-
-    val grouped = linkedMapOf<String, MutableList<MediaItem>>()
-    for (item in rawChannels) {
-        val baseTitle = item.title
-            .replace(serverRegex, " ")
-            .replace(qualityRegex, " ")
-            .trim()
-            .ifBlank { item.title.trim() }
-
-        val key = (baseTitle.lowercase() + "___" + item.category.trim().lowercase())
-        grouped.getOrPut(key) { mutableListOf() }.add(item)
-    }
-
-    val result = mutableListOf<MediaItem>()
-    for ((_, items) in grouped) {
-        val primary = items.first()
-        val allServers = mutableListOf<StreamServer>()
-
-        var serverIdx = 1
-        for (it in items) {
-            val itemServers = it.getAllServers()
-            for (s in itemServers) {
-                if (s.url.isNotBlank() && allServers.none { existing -> existing.url.trim().equals(s.url.trim(), ignoreCase = true) }) {
-                    val sName = if (s.name.isNotBlank() && !s.name.startsWith("à¦¸à¦¾à¦°à§à¦­à¦¾à¦°")) {
-                        s.name
-                    } else {
-                        "à¦¸à¦¾à¦°à§à¦­à¦¾à¦° $serverIdx"
-                    }
-                    allServers.add(StreamServer(sName, s.url.trim()))
-                    serverIdx++
-                }
-            }
-        }
-
-        val cleanDisplayTitle = primary.title
-            .replace(serverRegex, " ")
-            .replace(qualityRegex, " ")
-            .trim()
-            .ifBlank { primary.title }
-
-        val finalServers = if (allServers.isEmpty() && primary.streamUrl.isNotBlank()) {
-            listOf(StreamServer("à¦¸à¦¾à¦°à§à¦­à¦¾à¦° à§§", primary.streamUrl.trim()))
-        } else {
-            allServers
-        }
-
-        result.add(
-            primary.copy(
-                title = cleanDisplayTitle,
-                servers = finalServers,
-                streamUrl = finalServers.firstOrNull()?.url ?: primary.streamUrl
-            )
-        )
-    }
-    return result
-}
-
-@Composable
-fun LiveTvTabScreen(
-    channels: List<MediaItem>,
-    favoriteIds: Set<String>,
-    isTvMode: Boolean = false,
-    onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
-    onToggleFavorite: (String) -> Unit,
-    onAddChannel: ((MediaItem) -> Unit)? = null
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("All") }
-    var showAddDialog by remember { mutableStateOf(false) }
-
-    // Dynamic Playlist Categories directly extracted from loaded M3U / Channels
-    val playlistCategories = remember(channels) {
-        channels.map { it.category.trim() }
-            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
-            .distinct()
-            .sorted()
-    }
-    val categories = remember(playlistCategories) {
-        listOf("All", "â¤ï¸ Favorites") + playlistCategories
-    }
-
-    val filtered = remember(channels, searchQuery, selectedCategory, favoriteIds) {
-        channels.filter { item ->
-            val matchesSearch = if (searchQuery.isBlank()) true else {
-                item.title.contains(searchQuery, ignoreCase = true) ||
-                item.category.contains(searchQuery, ignoreCase = true) ||
-                (item.country != null && item.country.contains(searchQuery, ignoreCase = true))
-            }
-
-            val matchesCategory = when (selectedCategory) {
-                "All" -> true
-                "â¤ï¸ Favorites" -> favoriteIds.contains(item.id)
-                else -> item.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
-            }
-
-            matchesSearch && matchesCategory
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF020617))
-    ) {
-        // Search Bar
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("à¦Ÿà¦¿à¦­à¦¿ à¦šà§à¦¯à¦¾à¦¨à§‡à¦² à¦–à§à¦à¦œà§à¦¨ (à¦¯à§‡à¦®à¦¨: Somoy, T Sports, BTV)", color = Color(0xFF94A3B8), fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF)) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White)
-                    }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = customFieldColors(),
-            singleLine = true
-        )
-
-        // Filter Categories Horizontal Scroll (Dynamic from Playlist)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 8.dp)
-        ) {
-            items(categories) { category ->
-                val isSelected = selectedCategory == category
-                var isCatFocused by remember { mutableStateOf(false) }
-                val catScale by animateFloatAsState(
-                    targetValue = if (isCatFocused) 1.12f else if (isSelected) 1.04f else 1.0f,
-                    animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                    label = "liveCatScale"
-                )
-           xœìÛnãÆõ}¿bV
-ğ2’|‰StğEJÚÙÂRœÇ€&GaŠTHÊ—8~H6AÑA -º°±A.‹<õ©ù¡_ĞOè9CÅË9”vƒl‘ó ó23<3ç~æŒ	èÏü¡aRí@06¦”<$ÇŞÌµ¨µçù.õûøPë´tkÚ\v3=Çó¡ÛÅ˜ºäZØÁöŒ°ç™³€ZäÁ#²‡İ´Öe¯×ju7{½fIÏ>u¨æûu6·Ö»»ò~Ô	h¶G»Ûyk]ÒãF<»SÏ·èÓ3\Ë÷lëR7½ÉÔ¨>ÄU5BÛsõ]6f?ô½3ª­ÃÊ®¥pìõö·Z­¦êr(§“ûN¼êÕË§ü…vîëëíÍMÉ$Ë<hy]‡³ÀºÛC¢¥·IÚ8•=dKñ@Ï²‡6£ÜQ|)©˜†C5Óûx!_İs{cÃÁú_gÉÈ†ºğÛù8ClbœÂGK>f:¶y†à;ALrøyş|Ëä—Åï4%Œ: —¡XöBx›W¼®\â‹¤aÄ×wÃ<‹5áË¼7¶C5X°K·Óİîµ$Jaè¹aßşU°@ !<oùµGãP€%ùè#’F©—4N#zzD-{6‘MÀjúÔ°,ÛicÏ·?„¡±Ş`rNıĞ6Ù“7Q­
-.>Í’yqws/¹|ãÒ‡Y¡àìçÂÇÄºr‰mÙfn˜´=ö.²¬ "1úĞvœ#ãò=Û
-ÇŞ•Ì{+?ï­¢9áow{äN¨‹¤K®õ=ø¡şIÜÆÉ1çâk;¾¢Éû/îôşß./(u“ÎyAH,ÿ>ùìcrhŸ×‚pOˆöÚ5,	 F-= Ş¼i6ŠŒÂå%ÅüÅFMó¤çXâÖ\6A2²t)zÕÕV]ñ WÜÚ½Ò¶\.RP(§»cYñâ’û‰;s™2+õeJü™m¹;ƒ!XÚ×¨§2
-|ì]ÀÜömÃñFĞ(ôgTb!dF3«¶jNBßÎË÷†T¯UMáÀô\=¦K·dìİpŸ¦oOcÿ Yd„6›iZÂ„è£Œjmô¹J<¦.|M4ÆS~
-c”›[\»üçŸŸ“ùí—ó»¿Ìo˜ßş{~ûl~÷ÉüöG‚÷wŸÎo¿è–<(éš<¤µI»Ô²¦{È´UigùŠ‰…¡ø´ødÙ¨F`…85@ì/ƒ<½Òg:6àuKoo‹SZÉÿjìÌBïAÿÊ5KÈ-ÅOÍ}j©»O•¦ˆƒ²¶(xë¡!ÉªÛ×_'*–åÜğ‰K/öÆïJN¯ˆ†lr
-Sº&“Yˆš¼‚wüx¨5Í*Iç>õaníûw–îŸ„åì‚vù0‡ŞÈ[ö}o
-QœÛ½œ(såÃğ·‹#9Ä¢Ccæ„0Ÿ ˜Ä±ƒ0…÷i¼C/üÛŸz>4œàM\hØÌŞáƒ×²¯~o[¬ıÑ,°ÍèÕĞK7=¦`(mo4š÷2Øì80fÄKEñõÜ};˜ØApL?˜Ñ e¦hîÙ$EAoÈüô‡…æ¾E/³­»ŠŞìà\Ù´ªe*mçv¹ídj²–YA0ß	|2¿ı	®à·ÊJÂÕçóÛçó»áecMh3Úpµa©Ö“ä0ŠÚI@àH«‹©(Í&®Ü$ÔÉb TÅg™¶œ±ú¦ï9Æ%4ºeÒ©5KìIÂ—Õ@»%×ğ%üúx:¶K-ä‡M«Âõ5œÒ3QáånŒç`‡(—Ã„v¡û1“#KQq˜:0»10#ÏuÂµŞd¿Ï	ŞãÓï‰Æ˜~Ï~C$Òak¤ïM¼+PeÍ<ß2ÉÛÚxsc¢B*¤Y…¬H³¼RŞŸá‚jØœ¡7aÔ`xU=Kü¯vIV9éîƒCâ IU¼>Š­ùR¬Ä=U¸é_Œc3ú.º&ó»;Â´#(Ä?‚²#š>YŸmÃ³o¡‰´äüö+öûY¦é¯|Å»ÿ"øª³_u^_=c<´Ğ_`Gÿ<¿ı&ÇmóÛ¿q5÷wöøW¶Jº¿ ¶Úõ.…¾Svª’(5™!Ã {•Û $\šÚª¨fSÇ8¥N†I?O±âöûòìíOBv{kcg}w;ÇnmvCJm¬‘$ÆX#vèºş‚9!ôh6B]ê2æïÎÂ\{ÏİÃŒ#C_†=$÷EoªX)ÿ¹|nÎ÷½uF­™¥+wQ9ÈwÒ’Õ«»ªNAX^¯ ¬¨[ØÊú¡|u9#QwV­è‚‹L¤¢%a²˜K¥ÁrD$=5Ì³‘+¬6şË×CER9	}èù]ÃGÓ )±rzÑB:©^x<Œ4|RÙ*))…¡Ü!¯ß™ZıKÈ®<NµN@¨Ö/åãÈßÊß¬âbÖm)Ÿ¥ëVqŒ’'ğKXÎå{ŸşãW×ïçrı”²I`\‡¶?‰¾Tnc@Š€ªÜc&=IŠèvğî:†{¦51¥q3/U)&xƒC›Ù8!|È2¼¿í‡>5&Ñ¸*rXlİ°,-İ³,vÖÛE¾ÍÌ ôí	à^ıÁdUâ8,7÷ºø<#Ú.Ø¬Ù4‡QG#\LĞı”jÙ†ºa±Qñ6Âó÷_»î_ĞM7g¾îÛÀĞ#;ÄæFaßç²,Í@­·¹°'û¢ÛC¶Ä ²ø€ª©¯˜\³¥Àµ~xpÒ}|y¥Ş£â»¾“K	ÕšÜ)£paNc=4ÎèÁÊÂ¬œ)N1`Ã¡Úcì§ÖÉ›‘B	MÈ‹ÂÇXŒ‚ŠPÍáéí;Y]A/ˆ¶`–5ö;±¸ğ‘ÒİÄ@?e·±åÁ˜tõ÷d•%õ³ãÜpÿÀ6:¢Pù©òŞÇKØé°"ÿ¾Â6!Ú‚xU²a¦² ß2Uú”¹#?–eV³»2ŠŠŠwÙê¼¤nìm4¯¶c ƒœ¼ÎöÌpëˆã“Á	ú>@)\xÁ3D€€¬q=iÓ Ks¹ä/¾ˆæ)©I³ƒîd^m2&™
-³Tİnâ:vlıw6Ä®Sœ&(ÛÕÌ.©€Ê¶ÏRj%Ÿø]ÒJVUc›«Xç&CAIœ?ëmÆ&¶´Úi£d·5•hû”íV}*İ\ı†İ6¿{í1°÷xóLSÑ4k…"ÆrÿÄ°AÌ"%÷ÓƒîT}onQÀÓ»OHÖãú2£	ğëdËDšjŒ¦şœi—oùXO£ÃÍ¿~ª“dÅË,gìü:fËu/Q¹r–ÅÊJöãÃ+}êG?„+^8€ú¨(G&“/4nj#â({Ôq½g_RK‹J¯ç¨Ìšd#Bu]®şéø^|ÅBİ [>””ÕTG³ -SX$)ó¬U¼šûÜâìdğú¢îĞ%¡±@klÁs
-ë°FÎè³¾èåE‰`bÆ5R’|5‚qÎlô9¬dH¬@$¸:QO,ÎX#„åø¾ÅëñëW¥‘1a$vlÇ1\{ızg„;ATÃ õBÃÑğ$N¿ğc	^M’'ŞncVÓ[[Ãfr=”»‡F &ı)5Ñ=Ÿúh-c2…¿ÇøŠ`áVÚÃ¡K”¸>k¨÷ù£èÂ¡wQqğ”FL„=¾6±wyOºªÆ98ŒI`Á	k¶ã8ñsM2Æ*ÅÙm‰ÇÀ!ü$E±‚W–?dÒêµßìì”®zŞ!ËÆ/õĞWô9»z'²6sêö6 
-U¬ÀÌåß^ù0Xe¾$Ä’
-K‘2‰ğÜ
-C¨]SÅO‡Å²TQUU§kÌ¼¡¼šÙj-LÚúfi%=Ex(mÁ—Ê§Ò"ôN¦±†éÃ İØq*–aá |ØÎÈÔwYpW±	Ù»ªD#‡ QÕ®a0`
-ÉÀ›’C:,ß°@Š$†Œ¥2Trš•J/%
-0ô¦€¶~C|dìÔƒ€yÒu-¹S#‚¢?Ë¿ZwÑúè¥j‹0jãZQİeV;5Á!9=ñÅ_	¦õS•K•àòç·õM¥3é®Â Oªó2êíó°òöÙâhŞ£`Á)yDÚ¯¤d©@Qú ìô¶ş¥ïµk!yoH¿{|Ò=î¿ÊRYzè%¯„PŠ]v`4{q`ÇrTqb»´OªI!•¿ÈúzîÀÊ?˜—, QZB‘ P[ÿ(­¶¾UI0™cY@µ-•‰1¢'àe¥‚X·&ÉæÚ1Í+~yêª>„ Ùà#)ïºaé‚K’Ôxæli]õçdóPŞ¢Z`¢¬`ÏÖª´uÕ‘K³vun¾ĞE|j¿NS-R{Q©÷4T§Õ{yPHäÑû\Å;¤¸:sœÇ~„àÊ5PnÕM*Ğåpr(Ô1 å£±-ú•ÌY-÷(Âl|»¹½Ô«uhaDˆ;§šìHï-^¦(uø‹.»Õ{¶Z=›‚%¥çe Ü““Á/4e¥—kÒÃPŸfÊ{†2X±àyÉ“%{tÑ&é+†.·W%G4ã¤T¼kX9’zÀÀÿ¿P}U´tLŠrI¶uâ[ùÿÊ·ZŒ01.±BóégÊ8x`ù†wï>oõ®Š0°E¬d³QÁ;R²šœ°¼«P0x¿Ğ‚~03œ@k¼ë¹ŞÒ´<Ÿî/R6¶KE®yŒ–ŒSë{¬êÿ‘!õÙ¡Š•~¦è³Ş›ª ’şÑïÍ½ÿ  ÿÿ p{]
+    val rawTag = sport.tournament?.takeIf { it.isNotBlaxœì=oÜÈuÿûSÌ-|··^ï®~X6b»Zi÷,T²\í¯mÔ’«%Ì%7$W²ÎHòGZ\Ñ«“â’öšâ"‚är8i
+ÍWî4¡ïÍpÈ!9$‡+éšKïáNŞåÎgŞ¼yóŞ›÷Ş8Ïµ:9%î’Úõ—şÌõ‚æHÌ×;>%Vgµv ê6	Ü¹çèSÓ	†ú¹G<ı>4=sfë#S«õÙT7Hw³Ö 5øß:p\ÏÜĞ}
+ŞÜ¬Ó¦Ò•j5Õê×¢Ş@ıcÛòƒôj„å&¦C^FØX,£éºøïZÁD«æ~àNŸÕêääD^B7¦–ƒnŞ'µó³÷ÏÏ~v~öéùÙïÏÏ>!çg¿8ı÷çg¿>?ûoø~şúçgŸ×Š_éÆ>o¯oyæ>no¸Ùë™6<ÂßÙ£Óxİb¦»m9Ïaˆ{ƒx¦>}Ç³›–ÿÈº¶îà,Ş¸AŞH0¿=×m_«9sÛ–"1u$Ä¬ÛöÀôMÏ×êMİ9&/‰4ç²·†ÏK_–šcØfïÈiÃ¶FÏï"éÇ
+ |<‘Ö˜h"êÂo®30msì˜†¥3ÅdsÊ›¬áOÜ£G´­MK·İƒ°{‰2CW÷ƒæTnÍ6r şm M|*ĞÀ‡@¿=ıİó³Ïà/|ùÏó³èÿEÿı~ú9PKúË‡Yj‚§ß§¥~ÉŠ|ÒüòŠ–ı(Kğ}£É×´2kè—´­3À>ÀvïÑÛÃ‡Ïw÷†õ&\#’¢9Õë¶éì±–Âÿ¦åO-ßßƒù7}:y2uœ‰ÓF¢²ˆMÌ6‡-øAË<¥U¦úù&Üõ &–ó›{îÜ1L£ù®î9–s°>İ7½†´6H'Ø4ı‘gÍ‹¾	V^<°Ğ†k»ÖzÑï÷WîôZİº¼ôÔ5¬±eb¿vÂMßzÏÔ–:McVÏÔI>I¡&°Û”â†R¤¼»ğT"ıœĞÍ¯(Ñ!y|Dÿ~FyÙ§„Íñ)~ÿm-]6E3E@óİ‰˜ò‚cÀë»¦u0Á÷÷£/Í®kù5€(ß^mú³ŠØa#]9_‰\>” {ŞZ¿•C"—ÇòR¶å˜ùÜuZ¹åë6°u(6äŸ›°œL¯ÚìÁ*[Ş´;‚œõÏ~’O¤ëĞ££‰ßˆó¡{Á¦9Öçvà7÷éWŠVŸr{âmdĞİYY]êuë’µ,¥G ¹£ëì£Ÿ A –­®Â•”}íi	šóÆÑê·owÖSdãOôÒJÈN7\êğ¡K8Xjºn÷lóPùè”‰JÔÓÂİš7tÏŒtàlûÇDw€™fßvõ`İğ9q¡@
+y¢ÛsìnO–µû.Hq¦Q'ífkieÌ6xø<;ÇÚ…>fæw÷#Ót4cîÑ‡;–‚#.‰µVƒ˜º;¢öËİy0°İ£-§GŸ
+ãµõ}ÓFî‘“ØB±ŸÆı—l	ì5ÇĞıÅ»–rbrf›>6®%ß•*â: H˜Jg"ze ‹úüëiêİøXß‡w¤ZáÊÂ Á´ˆ†šBŒ‘"bYNK´è°ƒÑ’Á—pÁS­dîcBn÷:w–ºuFú©1îÍ¾ëfN»0bÏµŒÍ‘;¹¾	ˆ‚ÑQ²ˆõç>75ÜĞÂû–Öº›ıµzØåfÚ©fÂÑ½5…õ•A_´ø4ƒ=W£dx¸@Y—"Dd\·n‘wmõ·z›$Æ­¿Ù}4\ß&ƒ­ÍŞÍî_ßÄÉÆîÎãõ!ÙXßÛ$Úğ	¹ä½oÁ<bõt+¸µÃ	»‚gb’ËVGÙ
+¡¿ÏtÃ€eªµ[YæŠK`Á²¡›*­ğ¦ès¸i=	ËØÇ1¤Ø8`dÛwat>Ô ÃÉ|ºïè–“6Ÿ:DÛBy”¼7W™¤üÂ=JvšUÉnj2¹ñˆº½´’ÂÄõ¬÷p¡ğaTJ¢l˜]÷…|¿U™«hNJæ,*7¡»š¶&—Œ£bÀfšŒÅĞ)/¨¸¯xXQ¸ÂV¯½^Ï‘–Bİ ¡ÊÛ>nxûºı”Ñƒ)Ö ¢¸ ˜£Á…=@SooÃSjƒ™ÁÌ¿{ëUrüæÜñg¶îOÜšMÜÀ½Ù^Ynİ^¾}§½´´¼z³}Ç\ê£%óÎmóÁÑ½µV«&íÎºìŒ(¥Ê§avTè¶O®’zT8"T\Jk2! E’øk³oùe«$¤6”qsˆ-Ü›Ó ëzèÎnîQ9%¹Oºº+YÛŞzÒ#À«Ûzô¶¼ÙÁÜ£+··Ûãš|IÇ·½mëĞ|ŒDØ$67:«ÕÌ–W¨šæ 0·,BSGê×â5 ë9!4Q‰3ååÜ…·fòÕ7¡—ÂNí‹ïü;Á™«1´Ğï|
+s”)EgR¹€êf×ÎRÜ  vİÉÕ¦ÄÂÕ4g²Á±ïğë
+•2øˆJ^!Ó•ÿršyzš]ZtYEû Ú‰»½íİwI01	å_äÈ
+&ÂîE¦º÷í¹iFÿ?qA>‘¦ÃvƒÌ;pš¶è„A2¸3X®&ÃY¸­äï(YíÅI„¬FÊ€ùU"VYÌl5×ÒòêÒr{e%o'D(`·E›{ÑâÎH*ïT¥èAI„j2aq[‚ æy¨‚ñöâoy2ƒ
+ª(/äV«?|ôş÷k4k)æÅ4ÏÄË¥b!*êDa	„°—‰eYŒ?„ŠÖ,*±X^a16‹0Õ_lƒJJ­
+¥%ß×}k´Ã˜œ[
+³E`ƒ[@);ëõìÉúö;=$jÛYÁ1üÂ„ÿÂ×åÿšå×ò§)R’§—R—ÃÓJ¬î’MTyÛGÎ3wÃ=rÈĞšBC7ÈúˆJÌ·¸šÄxw{,¡™h¹ç.P‡gtµ,¢e‹Æ¢"ÈˆMİ ƒÀÁ[\€Äıîoá<Ñyt#>­†«$Óh.S,gÀrJTáLt^»&5ŒÉ[YP.BB1;	ÙÅÃq•³T ÍáíB®‘Ç-z/O/f¶ jÁÌ®Øjæ[ŞÔXKeÙ=Z°g Ñp»x‰ğ~É\*Gù*å*«¦ÂA‰‚ÒÚÁ>ú§ßˆêAx’>ÕƒÑ×pßõàs`±bn¢İ“®oTÌ#Uâ"Š[¯¿QÜî,¯/u×é6ÿx†—ÌÛårf(ıD.Õï ¦€İá™¤¶>Ü›LP÷ŞÇÁMøîÑ·:æ‘O€)<‡iõƒc(Ø “bù”f_XzbWjV¨tJÉ¹”‹Èê¢Bù¾Zbµ.ì‚¥\"1GË|¹%î¤Av¸-££X¸Ep…ğ­3Ô°2U
+5¯Å´®ìÆšåÅ×¶rù@»Õ½³Ö®CC³cM·gî+ãkÈˆ°€Š–·/ªfÊjÙZZ-[.VÊ.K!» 2V¤ˆ¥&±XcË5¡‹Pu+çÀ\IVKU‚¨<µoXŞÈ6é¢P¬&µœ‡$»¨2‚Pºë`8TÒFÓÌÙ…P¯¾1Ï‹„›Ì‡ô;;›_@wmµz+ı~5İµDküÿR^#ÄÅç™SİB¯®9òÉ}ÒÚ.[…xöbèÇØ½då[dmu¹ÕÚ.­=qçô¼:õò7ÃúuhiiU¥¡©åHÛ¡µ±™U…F|¬“Ë›JUG|»Ær1Eà±°£Áa§CñX«½iäÍVÇ˜Ğ¿Sú×¯5(¶k:æítñìK}3U:!é@ÕW_"“ùâï~B¸ÛÖ+à/wÉõÖâ%ın·ßYşš—\"/)ç({›¸GZGVC|ĞôçæÖ˜ùC'|¡O%ÚcYñu?üÎùÙ?s÷ÌH<Ñ—P~²Ë¡Ñşá£WÿH®^ˆJW[ë+ı<¹Y„Ë£RôòOÿ4éTÙ`+S¬æT¢=F"FËyN€ä¬‘DúãaİÀQsÉAæ÷˜5&zèu¤z"Èõªøæ‰ùé‰Ë®œ,2®PÑLE¦¤!7Œ‚¤ÊÎÚòÆí|ªy##’¨ñ¼8Tk’ÕB÷‚Üj<\%ã+§ß­ZN9èV
+=ñò]û¯Ò«©³VìÕÄÜ;E-(,qôLL¡¯gr9~Ÿ‰Be> WgTH¸ó\†ºY¦‡ÊfƒüøÉ8–l”S2²g†k•’uòÇ‡ ıØºï÷¦³ äÜºb 1¦ÈÂÊ!7¦½´€ï	B©ù`¹Ø|PÉ³(9Zú8!e88£ñ?bñÜ‰†‘°ÈOµzTB>ò9øÛ(ZàwJF	e#8‡jBYå“uO"ù7¡vz$œ›Ki`¸Ş%»ô‰ŸÁÆ^¯÷ˆÉZŠJ6ÂÈYô‰Ûu“P‚l1ca‰î¶ğĞ´gĞhà’©	2MĞaÓöÙÑó_<Şí³àÍ[SØ†çXÀ.AÉÉª°aA‚C¸6;¬Ù°UŒbåq ~Ä ø7hĞåV`Nï×3OBîHm8qEØ§(—BO-ÏæCLü•Åø^Ö«=óÀ|‚ş«Õjµ§şŸ}ó©öô›O_~ëöà.+uâ{‡'h¶œÏNØpOXì‰ë÷„Çl}FWÛ¯Øç:´ôÔxë›OëO¿õôô[àkcé›v)cln½ıhw¯÷lc}Ğ«GÃ WöËzÖn­µf'·;ğgùùÉxbœÀ>ü5G'“ÎêÊÉJk<óëêˆz€ÆÙİöqx¦±£ÏvÇß`V’P^€{wj2î‡>z$ 63z Â´ˆ{ó]öÍaˆÅÙñ[b™FAÜÂT5HÔêòb"âdåÂïÄ3kL•eª<óN„E={üÜDL‹:ŞeÁôFğÊ¾EjÏ=«Á¿´â6%;¢c¡w½Çó@ƒ7 š`…EŞc?šºaPœfB<Ó‡åİJÔ¦EœíYƒöææ&|{z^fĞaİ;gÅ‰É£ëF,£G‘Û™7è²`¿Ş×ê"½pÉmHÖíè—b°Oaï’R¾ˆ_ieâÇhƒ>o/,#“¥hH²4â<aÓq”SÍ0@TA1áŸiÕp†ÃØt_x&P/rè÷éS®íÂ›á‹$Ÿ=S HùO-×Sµ"ß=ËÌYò÷‘ëÑôÊIr­AÀ4R¹H?EGƒˆ8Í‘¿¢W¿õV…½?AÔ#ÛÔĞXÅS¸şÏyS¢é-GÖ#Ò€Ôh7DâáíÈ<¤éÅf(1%9sşú5ì,Ùæ3“&%®¸»²Éa<RG¢=äÎÌ:nÏLkV
+õ#Ü‰¨””ãÃJ•d<r×{JV€ÔŠ†×6
+‘ƒ!Sgc¥2H¥×ş|ƒÚ'ÃRÑ	U„ááPßŒ<4cÑZ£<™‰a¬‚>˜[”˜A¸“‡¿Zşğcqî’®ë"²¸'û9‘ıâ.Ñ¢Æg×à‡îÈ‚ığíP—½7Snİ0B)ÊÄ/ˆÊÕ„ä5N¡l3Ñ½Ñä/ç&lVûÇxxebV†xÿ¤¶E ßZ›X5iD¢tq]Ød’Õ'îô7Œ/¬ËÜá8%ƒ\½y<×‘´8o™>1,ºeÃŞx:vŒ=wJlWœì,½Cn.KEÛ?ÏQ#4t/ê‘6’ˆ^üYsªÏØ‰AJTÉòZv@G—>\ó²ğœ,ï8Ï÷ÈÉKË’hÓ Ûç(È%ƒcš¸ (g–.;vqœ!ï¢óüö‹ùø~÷>á´è×PbË¶¯Øà©$œÁjC¤ÀF†®â²“Î€€Y–oŞÏ=ôhÈôô5\*ˆß	Ó1nDsŞ¶-¶aä³¯%º.™°TÎ¨™ˆX.Ò’ÆšÂ3LXo°µô$>W~C*Äµ<4F>´—ké“‰K”~eò÷Ğ_3d…E…yA‡fIBÛ¸±[ª6p¡2ÕÓù²Iz|§0“±ŠĞÒÎòªi$!“91³Öjûv],öµ«ÇïØ˜OÄ@s[ß2í”Tp‰T“(à:ôL‰Y»	Mñ!ì$¨\¤¨7qmvğ2Ê¸Á2ÛüŠ¹üÈ-mÌdÿı4ÌÅ¢aüõSø»±;uª‡d€öà)İá“z:qGÂ‡7ãbZOwöptœÛ
+31KqÒËĞÚ(°Õf…ŞG™×aH¾-¼O®e%Øì"‘‰F®f`ca†–D2–ÄLÕjùÚo$5ğÛÁF>îÚ`Î«5$¦èÍŒID]jF‚„W$M‡‘p‹”%,¨O!Ê©ÁrÚÑ¥fÓH7Lm~xNR‰ÎısŸmx‚°§ êíM4.$Qé‡KJ1"¶õ÷3§>át>f¸N„ŸèB÷%¸J@å¸'Šä‘W¹¯î»@ÅÓĞuUúStK-ÚH”e¸Üsœ–¨QÄ„åw)¹öŞ½¨Imfs	ø‰š +ë¼ãrÎöãŞà¹~›Ÿë³ù@é‘ÿrå#†Š‡fèÓü»‡?Q‡èÕÎ$·ÀÓGZĞ‚ÍÄ¼A¶İ£2o ô²WéĞ‘,lÊî ÂÄ']‹/¨œòñ<Bö@?t;—³Õ’ıŠÃS>é_Jó÷û›«­VÁ_göák)úNúÃc±« hĞpdé~„eÚ‰Òı Y^‚ó[à<¥šÏ‚0íWè¯å³1ŸVw\PŠ1ãíª„‰S#¤’óQyò	µiQí¨‡‹¥{‰9rÅ.‰‡¾qÇ+øæ)‡‘d¦Û!†é'
+eªº0‡9fK¦¡F(ÛP7*{µ©«’ã^M[â]v‘˜™ª¡Á¹ò|ÄŞ¥|—Ewq“Ñ®¿äÖêrZ—¸3(¹0Tó_×ÂJ:Ëhr^¤ŞJPª.»&{˜£°‰VYn¢ÉÍ|rõ©Š2²F5&`à	.SXrvˆ¥¹Ì\ ŒËm»,BC¢Aê”í<ãh‰¯ÖY‘Úÿú*× ókšÓøÇU½ÙUÜ¥.7Ú¢°òe'ö@ør‚i™¼œnm¯Œ+&Í-“¿j4}pìŒ
+¦{0½Ë‰¶¿1(#ä§íZH
+â)ßcv{ãQÙYĞ>á˜Gê¡xº—©ÌgÛ¬ßY¸¾âcöi[Ïo†æn\  >lzîÃÄz/f:®¹ì<4Ö‘å~…ñøÔ'Œ­…ınÚ#ócäjÌˆM†OğK78<üÀıl9†¥ãaí/,SWÛ™ûÖˆı4vÅ¢{&l”–;÷k© ÿÜKr/
+·ûÜäİùéğp»¯¶£W´L³ƒıÅLò¹ï)İ;×\šÓÎÈ
+Çá.™ôJ.HG.¦é¯š A²7I&8/£?B^J(•Óã(tĞ²œ°˜\ã+”}efÔ¢DzÒP±sÊÂnÉ™[¦C¡a7báÅbLöD.æı²ó¸4äÏIh“şıŒŞMO?MŸÇÅqôdäÆ­.ß^^ë¦Nã:²Ó¸4,št‹ƒú±LŠÎ
+¬ÊQõÜS4äSûEè(ÜÍ"%.	\„šrÜŞ’áZsº4_Ãµ	ã’ô†'øûA¢è×tÅ«ÿQĞUçtÕ¹ºú„ÒPÌ¿^Ñ@_¤¨íüì8›û	»şãk²âÕ/¬0ÛN9ÊŒ(‰!A ¥Ç r¨T8ª('S~ªé+?¢ÌnzR÷Ui«‚|¡0m£A"£APíh6›—Lñ¥>-2ÈñY‘©a÷È²Ç…Ş,²×¥ms¿‰­nB«­tj¹›ŠóšĞ‹%C¨ÂSç+ä-´	eş‚PŒ]N;¦3/gfLE"Rá5YN¥…7]‰ Ïo!Kóæ›+Æ–Â2l˜¸§§&l2oˆHGwórÄsàŠ$ãLğJ©f«Äh8C¹Bš¿Cg*Õ/˜våvÊyB9)n'ÿ×ü_."¢Õm!™šë."~ÎŒ'ğ—P›Ë§T?ıé×¢ß—%ú)Y“ÊoD(ºeAuİ£%=2Šdâ0DWé®
+hÜ!†ò²XÎ²–h+Ù(¾İYÛÑ-é61‚ÂH?)VB=,5öªıù„h]ãêQG½G<V×cRÛX,d¼µàğÙõ—ƒcŸÌ=/ÌñÅnÔê§
+çÜ–“L1 T{ï'‰ı…G%Äq‰ü@u«éº¦¨Âç&f:x²¼Rm1şNB0j°(şL#|’©)v2
+&¤ä§V‰_Ú%ì=—Õ–UDEFE(§pñøNˆI/éÌ¢›}ÉIìUÜ¼ŠPz¥T’¿ËUå•Ï>®à¤Ã`ò}ÉŞ„İ–ÅXÈÌTÀrT~LÅ‘Ï‹,Ûwó&PæT,D'¼ó"¿±·=à¼Úº¡ƒ‚ëä=3Ã£GšF`øeŒA¬À#T3ø•#B\"HÎ|åÇoÄí)òI²’$)Mé¬zÜ¤p?]tôßÉÉ•]õVB%ŸU¿IR¾Æ+sÉ³£¥,)ÃÃİñ¸Úal$hçz;-œ¶
+†¶²›ÓsWA¿pşú#vÆ@Ç/ŸHìq*œ¦‘qb,îã÷¢ÛÄ“ûıÍ¨;\¨úMZ| 
+—š³?L_Oş=¼îœ™äšÙĞÙõò¿äm}œN~uşóÕm’Ôy¹ğÚñ
+~/ÒÌ.û¶şŞqó ØOƒš¸ã ò£ì:Ñõ…››Z‹ØÊ†iÛ~³o½00¿ô¯“åğŠŞ|f J•l”úT‡9­´cQ›g%çÕÔëâØƒœÆ+ğ‹ªMW»)TêcKã½øîĞ“1)‚£Z9ö,Ö×é-	9ëK£Y^êJïÅ¢ÀxgFÊ7¯§¡ô&öô5Û­8l•ßj‘†ğ¥Å„!Dqaá$¤îsOCÎMD4×Ò!t"Å‚Ol:’´‹8gËb%EH‡Ÿ,pz~ãªñ^I2¾Ò /ö:\vÕ"²ÒYdÃ«šÒ^¬@ÌÅï¾p0X©¾@ÅÊ
+¦™°~.çF…!Tö©âÑaáZ*ñªªâ¦ÕM±™ÕV¼¥)dŞ–¥Åt©•Æº¯™FŠÁ‰l=|hDyLòØw‘rWrÎö»2Cã­[‰;°Aa
+ğzl²m‹,pF¢Œš2”n•(cz"0ÀÀ0Ï‰BÆX8wÏ1ò…H."eë_­ºÿ’»³i_Ëí1ª§ÌjQ¢è‰¿Ï.ÂS?ıZ(T‚ƒ Ï¯5W”b&ÄªR¥¨ün®Âß>>>‹£@ÓUNÉ}ÒşJ®,È®>P;ıÕ?ÁÕwı¥tzOÉ ·÷¤·7ø*¯J¥ûc8|%¥\dç€)SBÅÚ¨dW§ApBR0åÇVßt¶>Q{\ĞD	…²…<@ñ&9jV[*¿±NeÍ•'ÔçM¬O‚tFıhî$	õùoLRW•!dI‹xKÊ'ƒNìôÅo!?Ô³øÆ
+e×j•-fµƒŞS\–.ùà°0i—Ûæ3UäQûsšª“Úe™ŞE(7«\„ÉAeA"¾ÁÙPxBŠG sÛŞõ*88 ¬ûÇÎh×­ú–
+óNm8©.TÙ@%–·VpÛpNg"Bl&õÛ•µXQW¿õ3j‘Şş™Ò_AzÑÄL‡÷øÒ¥_›}KÍŸMa'V½AéšU„SSäzÙÈMÃP}Î”Ïóà‚ÏLœÑuJ.yAÁºx¿B(ÑRkwÕ‹ ®0ğüBÕYÑÂ: ¤Œl˜Ã2´±çJ7w1¡Úı}.ì|cÛ=
+O	wÃ¯ÍŒĞ·$	ÃePtØ¨ )íš|b£t²™ÄÍ™*iœ¯TsM÷hA=µºÄŠ ‘!ÕÉ¡Œ”¾$í³Ú/‹Üªô¿   ÿÿ zõ
