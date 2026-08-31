@@ -602,7 +602,7 @@ fun MoviePosterCard(
 ) {
     var isCardFocused by remember { mutableStateOf(false) }
     val cardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.05f) else 1.0f,
+        targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.04f) else 1.0f,
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "movieCardScale"
     )
@@ -611,123 +611,110 @@ fun MoviePosterCard(
         getMovieLanguageBadge(movie)
     }
 
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
-        border = when {
-            isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
-            isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
-            else -> BorderStroke(1.dp, Color(0xFF1E293B))
-        },
-        shadowElevation = if (isCardFocused) 12.dp else 4.dp,
+    Column(
         modifier = Modifier
             .scale(cardScale)
             .width(if (isTvMode) 140.dp else 115.dp)
-            .height(if (isTvMode) 210.dp else 170.dp)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable { onSelect() }
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Poster Image
-            if (!movie.logoUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = movie.logoUrl,
-                    contentDescription = movie.title,
+        // Poster Box (Full poster display with badge & favorite button)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
+            border = when {
+                isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
+                isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
+                else -> BorderStroke(1.dp, Color(0xFF1E293B))
+            },
+            shadowElevation = if (isCardFocused) 10.dp else 3.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isTvMode) 195.dp else 160.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Poster Image
+                if (!movie.logoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = movie.logoUrl,
+                        contentDescription = movie.title,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF1E293B)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Movie,
+                            contentDescription = null,
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+
+                // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc.)
+                Surface(
+                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                    color = when (langBadge) {
+                        "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
+                        "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
+                        "ইংরেজি" -> Color(0xFF2563EB)
+                        "তামিল", "তেলেগু", "মালায়ালাম", "সাউথ" -> Color(0xFFEA580C)
+                        "কোরিয়ান" -> Color(0xFF7C3AED)
+                        "অ্যানিমে" -> Color(0xFFDB2777)
+                        "তুর্কি" -> Color(0xFF0D9488)
+                        else -> Color(0xFF6366F1)
+                    },
+                    modifier = Modifier.align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = langBadge,
+                        color = Color.White,
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                // Top Right Favorite Button
+                IconButton(
+                    onClick = onToggleFav,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp)),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF1E293B)),
-                    contentAlignment = Alignment.Center
+                        .align(Alignment.TopEnd)
+                        .size(30.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Movie,
-                        contentDescription = null,
-                        tint = Color(0xFF64748B),
-                        modifier = Modifier.size(36.dp)
+                        imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (isFav) Color(0xFFEF4444) else Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
-
-            // Dark Gradient Overlay at Bottom for Readability
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.65f),
-                                Color.Black.copy(alpha = 0.95f)
-                            )
-                        )
-                    )
-            )
-
-            // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc., replacing "OTT")
-            Surface(
-                shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
-                color = when (langBadge) {
-                    "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
-                    "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
-                    "ইংরেজি" -> Color(0xFF2563EB)
-                    "তামিল", "তেলেগু", "মালায়ালাম", "সাউথ" -> Color(0xFFEA580C)
-                    "কোরিয়ান" -> Color(0xFF7C3AED)
-                    "অ্যানিমে" -> Color(0xFFDB2777)
-                    "তুর্কি" -> Color(0xFF0D9488)
-                    "NFT" -> Color(0xFF6366F1)
-                    else -> Color(0xFF6366F1)
-                },
-                modifier = Modifier.align(Alignment.TopStart)
-            ) {
-                Text(
-                    text = langBadge,
-                    color = Color.White,
-                    fontSize = 8.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
-
-            // Top Right Favorite Button
-            IconButton(
-                onClick = onToggleFav,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(32.dp)
-            ) {
-                Icon(
-                    imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                    contentDescription = "Favorite",
-                    tint = if (isFav) Color(0xFFEF4444) else Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
-            // Bottom Movie Name inside the movie card (মুভির নাম নিচের দিকে থাকবে মুভির ভিতরে থাকবে)
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(horizontal = 7.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = movie.title,
-                    color = Color.White,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    lineHeight = 14.sp,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
         }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Movie Title situated clearly below the poster card
+        Text(
+            text = movie.title,
+            color = if (isCardFocused) Color(0xFFFFD600) else Color.White,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            lineHeight = 15.sp,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp)
+        )
     }
 }

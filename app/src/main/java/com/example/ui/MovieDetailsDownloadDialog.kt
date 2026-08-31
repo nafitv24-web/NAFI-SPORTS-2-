@@ -428,7 +428,7 @@ fun MovieDetailsDownloadDialog(
                         Icon(Icons.Rounded.FileDownload, contentDescription = null, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "📥 মুভিটি ডাউনলোড করুন (অফলাইন)",
+                            text = "📥 ডাউনলোড করুন",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )

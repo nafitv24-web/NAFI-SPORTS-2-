@@ -2681,27 +2681,30 @@ fun VideoPlayerScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981).copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             Icon(
                                                 Icons.Rounded.FileDownload,
                                                 contentDescription = null,
                                                 tint = Color(0xFF10B981),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "মুভিটি অফলাইনে ডাউনলোড করুন",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
+                                                modifier = Modifier.size(20.dp)
                                             )
                                         }
-                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Spacer(modifier = Modifier.width(10.dp))
                                         Text(
-                                            text = "সর্বোচ্চ স্পিডে ব্যাকগ্রাউন্ডে ডাউনলোড করে পরে দেখুন",
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 11.sp
+                                            text = "ডাউনলোড অপশন",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp
                                         )
                                     }
                                     Button(
@@ -2712,7 +2715,7 @@ fun VideoPlayerScreen(
                                                 mediaItem = currentMedia,
                                                 preferredUrl = dlUrl
                                             )
-                                            Toast.makeText(downloadCtx, "📥 মুভি ডাউনলোড শুরু হয়েছে! নোটিফিকেশন বারে প্রগ্রেস দেখুন।", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(downloadCtx, "📥 মুভি ডাউনলোড শুরু হয়েছে!", Toast.LENGTH_SHORT).show()
                                         },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = Color(0xFF10B981),
@@ -2724,7 +2727,7 @@ fun VideoPlayerScreen(
                                         Icon(Icons.Rounded.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "ডাউনলোড করুন",
+                                            text = "ডাউনলোড",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         )
