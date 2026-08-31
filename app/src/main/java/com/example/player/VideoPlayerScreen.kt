@@ -546,39 +546,7 @@ fun VideoPlayerScreen(
             }
         }
 
-        // Custom MediaCodecSelector mapping MP2 (audio/mpeg-L2) and AC3/EAC3 to available Android decoders
-        val customMediaCodecSelector = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-            val directDecoders = androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(
-                mimeType,
-                requiresSecureDecoder,
-                requiresTunnelingDecoder
-            )
-            if (directDecoders.isNotEmpty()) {
-                directDecoders
-            } else if (mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L2, ignoreCase = true) ||
-                mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L1, ignoreCase = true) ||
-                mimeType.equals("audio/mp2", ignoreCase = true) ||
-                mimeType.equals("audio/mpeg-L2", ignoreCase = true)
-            ) {
-                androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(
-                    androidx.media3.common.MimeTypes.AUDIO_MPEG,
-                    requiresSecureDecoder,
-                    requiresTunnelingDecoder
-                )
-            } else if (mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_AC3, ignoreCase = true) ||
-                mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_E_AC3, ignoreCase = true)
-            ) {
-                androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(
-                    androidx.media3.common.MimeTypes.AUDIO_AC3,
-                    requiresSecureDecoder,
-                    requiresTunnelingDecoder
-                )
-            } else {
-                emptyList()
-            }
-        }
-
-        // Custom AudioSink with Float Output disabled and AudioCapabilities to prevent silent audio on MP2/AC3/EAC3 streams
+        // Custom AudioSink with Float Output disabled and AudioCapabilities to prevent silent audio on MP2/AC3/EAC3/DTS streams
         val audioSink = androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
             .setEnableAudioTrackPlaybackParams(true)
@@ -604,60 +572,33 @@ fun VideoPlayerScreen(
                 eventListener: androidx.media3.exoplayer.audio.AudioRendererEventListener,
                 out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
             ) {
-                val customAudioRenderer = object : androidx.media3.exoplayer.audio.MediaCodecAudioRenderer(
-                    context,
-                    customMediaCodecSelector,
-                    enableDecoderFallback,
-                    eventHandler,
-                    eventListener,
-                    audioSink
-                ) {
-                    override fun supportsFormat(
-                        mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
-                        format: androidx.media3.common.Format
-                    ): Int {
-                        val mimeType = format.sampleMimeType
-                        if (mimeType != null && (
-                            mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L2, ignoreCase = true) ||
-                            mimeType.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L1, ignoreCase = true) ||
-                            mimeType.equals("audio/mp2", ignoreCase = true) ||
-                            mimeType.equals("audio/mpeg-L2", ignoreCase = true)
-                        )) {
-                            val mp3Format = format.buildUpon()
-                                .setSampleMimeType(androidx.media3.common.MimeTypes.AUDIO_MPEG)
-                                .build()
-                            val support = super.supportsFormat(customMediaCodecSelector, mp3Format)
-                            if (androidx.media3.exoplayer.RendererCapabilities.getFormatSupport(support) == androidx.media3.common.C.FORMAT_UNSUPPORTED_TYPE) {
-                                return androidx.media3.exoplayer.RendererCapabilities.create(androidx.media3.common.C.FORMAT_HANDLED)
-                            }
-                            return support
-                        }
-                        return super.supportsFormat(customMediaCodecSelector, format)
-                    }
+                // 1. Hardware/Platform MediaCodec Audio Renderer with decoder fallback
+                out.add(
+                    androidx.media3.exoplayer.audio.MediaCodecAudioRenderer(
+                        context,
+                        mediaCodecSelector,
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        audioSink
+                    )
+                )
 
-                    override fun getMediaFormat(
-                        format: androidx.media3.common.Format,
-                        codecMimeType: String,
-                        codecMaxInputSize: Int,
-                        codecOperatingRate: Float
-                    ): android.media.MediaFormat {
-                        val mediaFormat = super.getMediaFormat(format, codecMimeType, codecMaxInputSize, codecOperatingRate)
-                        val sampleMime = format.sampleMimeType
-                        if (sampleMime != null && (
-                            sampleMime.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L2, ignoreCase = true) ||
-                            sampleMime.equals(androidx.media3.common.MimeTypes.AUDIO_MPEG_L1, ignoreCase = true) ||
-                            sampleMime.equals("audio/mp2", ignoreCase = true) ||
-                            sampleMime.equals("audio/mpeg-L2", ignoreCase = true)
-                        )) {
-                            mediaFormat.setString(android.media.MediaFormat.KEY_MIME, androidx.media3.common.MimeTypes.AUDIO_MPEG)
-                        }
-                        return mediaFormat
-                    }
+                // 2. FFmpeg Audio Renderer for MP2, MP1, AC3, EAC3, TrueHD, DTS, Opus, Vorbis, FLAC, ALAC, etc.
+                try {
+                    out.add(
+                        androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer(
+                            eventHandler,
+                            eventListener,
+                            audioSink
+                        )
+                    )
+                } catch (t: Throwable) {
+                    android.util.Log.w("VideoPlayer", "FFmpeg audio renderer init fallback", t)
                 }
-                out.add(customAudioRenderer)
             }
         }.apply {
-            setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+            setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             setEnableDecoderFallback(true)
             setEnableAudioFloatOutput(false)
             setEnableAudioTrackPlaybackParams(true)
