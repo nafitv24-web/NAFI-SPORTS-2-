@@ -252,6 +252,15 @@ fun AdminControlAppScreen(
                     }
                 },
                 actions = {
+                    val isAuthLoggedIn = repository.authManager.isUserLoggedIn()
+                    val isAuthAdmin = repository.authManager.isAuthorizedAdmin()
+                    IconButton(onClick = { showAuthDialog = true }) {
+                        Icon(
+                            imageVector = if (isAuthLoggedIn && isAuthAdmin) Icons.Rounded.AdminPanelSettings else Icons.Rounded.Lock,
+                            contentDescription = "Firebase Auth",
+                            tint = if (isAuthLoggedIn && isAuthAdmin) Color(0xFF10B981) else Color(0xFFF59E0B)
+                        )
+                    }
                     IconButton(onClick = { loadAnalyticsData() }) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "Refresh", tint = Color(0xFF00E5FF))
                     }
@@ -270,6 +279,118 @@ fun AdminControlAppScreen(
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Firebase Auth Status Banner (nafitv24@gmail.com Rule Check)
+            item {
+                val isAuthLoggedIn = repository.authManager.isUserLoggedIn()
+                val isAuthAdmin = repository.authManager.isAuthorizedAdmin()
+                val userEmail = repository.authManager.getLoggedInEmail()
+
+                if (!isAuthLoggedIn || !isAuthAdmin) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Rounded.Lock,
+                                    contentDescription = null,
+                                    tint = Color(0xFFF59E0B),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "ফায়ারবেস অথেন্টিকেশন প্রয়োজন (nafitv24@gmail.com)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                            Text(
+                                "ফায়ারবেস সিকিউরিটি রুলস (auth.token.email === 'nafitv24@gmail.com') অনুযায়ী নতুন ম্যাচ, চ্যানেল বা প্লেলিস্ট যুক্ত বা ডিলিট করতে nafitv24@gmail.com দিয়ে লগইন থাকা আবশ্যক।",
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
+                            )
+                            Button(
+                                onClick = { showAuthDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Login,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "nafitv24@gmail.com দিয়ে লগইন করুন",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF064E3B).copy(alpha = 0.4f)),
+                        border = BorderStroke(1.dp, Color(0xFF10B981))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        "ফায়ারবেস অথেন্টিকেটেড (রাইট পারমিশন সক্রিয়)",
+                                        color = Color(0xFF34D399),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp
+                                    )
+                                    Text(
+                                        userEmail ?: "nafitv24@gmail.com",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                            TextButton(
+                                onClick = { showAuthDialog = true },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF38BDF8))
+                            ) {
+                                Text("ম্যানেজ", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Overview summary cards (Active users, Total users)
             item {
                 Row(

@@ -4514,7 +4514,7 @@ class MediaRepository(private val context: Context) {
             val rtdbUrl = getSavedFirebaseUrl()
             if (rtdbUrl.isNotBlank()) {
                 val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
-                val targetUrl = "$cleanUrl/notifications.json"
+                val targetUrl = appendRtdbAuth("$cleanUrl/notifications.json")
                 val req = Request.Builder().url(targetUrl).delete().build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) anySuccess = true
