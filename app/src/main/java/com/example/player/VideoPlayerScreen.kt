@@ -3144,24 +3144,20 @@ fun VideoPlayerScreen(
 
                                         // Language Badge on top left (বাংলা, হিন্দি, etc., or NFT)
                                         val movieLang = remember(movie.id, movie.title, movie.category) {
-                                            val s = "${movie.category} ${movie.title} ${movie.description ?: ""}".lowercase()
-                                            when {
-                                                s.contains("bangla dubbed") || s.contains("বাংলা ডাবড") -> "বাংলা ডাবড"
-                                                s.contains("bangla") || s.contains("bengali") || s.contains("বাংলা") -> "বাংলা"
-                                                s.contains("hindi dubbed") || s.contains("হিন্দি ডাবড") -> "হিন্দি ডাবড"
-                                                s.contains("hindi") || s.contains("হিন্দি") -> "হিন্দি"
-                                                s.contains("english") || s.contains("ইংরেজি") -> "ইংরেজি"
-                                                s.contains("tamil") || s.contains("তামিল") -> "তামিল"
-                                                s.contains("telugu") || s.contains("তেলেগু") -> "তেলেগু"
-                                                s.contains("korean") || s.contains("কোরিয়ান") -> "কোরিয়ান"
-                                                else -> "NFT"
-                                            }
+                                            com.example.ui.getMovieLanguageBadge(movie)
                                         }
                                         Surface(
                                             color = when (movieLang) {
                                                 "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
                                                 "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
-                                                "ইংরেজি" -> Color(0xFF2563EB)
+                                                "তামিল", "তামিল ডাবড" -> Color(0xFFE11D48)
+                                                "তেলেগু", "তেলেগু ডাবড" -> Color(0xFFEA580C)
+                                                "মালায়ালাম" -> Color(0xFF0891B2)
+                                                "কন্নড়", "সাউথ" -> Color(0xFFCA8A04)
+                                                "ইংরেজি", "ইংরেজি ডাবড" -> Color(0xFF2563EB)
+                                                "কোরিয়ান" -> Color(0xFF7C3AED)
+                                                "অ্যানিমে" -> Color(0xFFDB2777)
+                                                "তুর্কি" -> Color(0xFF0D9488)
                                                 "NFT" -> Color(0xFF6366F1)
                                                 else -> Color(0xFF6366F1)
                                             },

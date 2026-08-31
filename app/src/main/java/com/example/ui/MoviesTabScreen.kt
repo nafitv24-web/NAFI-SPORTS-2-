@@ -528,31 +528,66 @@ fun MoviesTabScreen(
 
 /**
  * Helper to determine the movie language for badge display
- * (e.g., "বাংলা", "হিন্দি", "হিন্দি ডাবড", "ইংরেজি", "তামিল", etc.)
+ * (e.g., "বাংলা", "হিন্দি", "হিন্দি ডাবড", "তামিল", "তেলেগু", "ইংরেজি", etc.)
+ * Returns "NFT" when no specific language is confirmed.
  */
 fun getMovieLanguageBadge(movie: MediaItem): String {
-    val textToScan = "${movie.category} ${movie.title} ${movie.description ?: ""} ${movie.country ?: ""} ${movie.tournament ?: ""}".lowercase()
+    // Remove network/playlist tags like "BDIX", "NAFI OTT" before scanning language
+    val cleanCategory = movie.category.replace("BDIX", "", ignoreCase = true)
+        .replace("NAFI OTT", "", ignoreCase = true)
+        .replace("NAFI_OTT", "", ignoreCase = true)
+    val cleanTitle = movie.title.replace("BDIX", "", ignoreCase = true)
+    val cleanDesc = (movie.description ?: "").replace("BDIX", "", ignoreCase = true)
+
+    val textToScan = "$cleanCategory $cleanTitle $cleanDesc".lowercase()
+
     return when {
-        textToScan.contains("bangla dubbed") || textToScan.contains("বাংলা ডাবড") -> "বাংলা ডাবড"
-        textToScan.contains("bangla") || textToScan.contains("bengali") || textToScan.contains("বাংলা") || textToScan.contains("bd") || textToScan.contains("dhallywood") -> "বাংলা"
-        textToScan.contains("hindi dubbed") || textToScan.contains("hindi-dubbed") || textToScan.contains("dubbed in hindi") || textToScan.contains("হিন্দি ডাবড") -> "হিন্দি ডাবড"
-        textToScan.contains("hindi") || textToScan.contains("হিন্দি") || textToScan.contains("bollywood") -> "হিন্দি"
-        textToScan.contains("tamil") || textToScan.contains("তামিল") -> "তামিল"
-        textToScan.contains("telugu") || textToScan.contains("তেলেগু") -> "তেলেগু"
-        textToScan.contains("malayalam") || textToScan.contains("মালায়ালাম") -> "মালায়ালাম"
-        textToScan.contains("korean") || textToScan.contains("k-drama") || textToScan.contains("kdrama") || textToScan.contains("কোরিয়ান") -> "কোরিয়ান"
-        textToScan.contains("anime") || textToScan.contains("japanese") || textToScan.contains("অ্যানিমে") -> "অ্যানিমে"
-        textToScan.contains("turkish") || textToScan.contains("তুর্কি") -> "তুর্কি"
-        textToScan.contains("english") || textToScan.contains("ইংরেজি") || textToScan.contains("hollywood") -> "ইংরেজি"
-        textToScan.contains("south") || textToScan.contains("সাউথ") -> "সাউথ"
-        movie.country?.equals("Bangladesh", ignoreCase = true) == true -> "বাংলা"
-        movie.country?.equals("India", ignoreCase = true) == true -> "হিন্দি"
-        movie.country?.equals("USA", ignoreCase = true) == true || movie.country?.equals("UK", ignoreCase = true) == true -> "ইংরেজি"
-        movie.country?.equals("South Korea", ignoreCase = true) == true -> "কোরিয়ান"
-        movie.country?.equals("Japan", ignoreCase = true) == true -> "অ্যানিমে"
-        movie.country?.equals("Turkey", ignoreCase = true) == true -> "তুর্কি"
-        movie.category.contains("Bangla", ignoreCase = true) -> "বাংলা"
-        movie.category.contains("Hindi", ignoreCase = true) -> "হিন্দি"
+        // Specific Dubbed Tags
+        textToScan.contains("bangla dubbed") || textToScan.contains("bangla-dubbed") || textToScan.contains("বাংলা ডাবড") || textToScan.contains("বাংলা ডাবিং") -> "বাংলা ডাবড"
+        textToScan.contains("hindi dubbed") || textToScan.contains("hindi-dubbed") || textToScan.contains("dubbed in hindi") || textToScan.contains("হিন্দি ডাবড") || textToScan.contains("হিন্দি ডাবিং") -> "হিন্দি ডাবড"
+        textToScan.contains("tamil dubbed") || textToScan.contains("তামিল ডাবড") -> "তামিল ডাবড"
+        textToScan.contains("telugu dubbed") || textToScan.contains("তেলেগু ডাবড") -> "তেলেগু ডাবড"
+        textToScan.contains("english dubbed") || textToScan.contains("ইংরেজি ডাবড") -> "ইংরেজি ডাবড"
+
+        // Tamil / Telugu / Malayalam / Kannada / South
+        textToScan.contains("tamil") || textToScan.contains("তামিল") || textToScan.contains("kollywood") -> "তামিল"
+        textToScan.contains("telugu") || textToScan.contains("তেলেগু") || textToScan.contains("tollywood") -> "তেলেগু"
+        textToScan.contains("malayalam") || textToScan.contains("মালায়ালাম") || textToScan.contains("mollywood") -> "মালায়ালাম"
+        textToScan.contains("kannada") || textToScan.contains("কন্নড়") || textToScan.contains("sandalwood") -> "কন্নড়"
+        textToScan.contains("south movie") || textToScan.contains("south indian") || textToScan.contains("সাউথ") -> "সাউথ"
+
+        // Hindi / Bollywood / Hindi Shows
+        textToScan.contains("hindi") || textToScan.contains("হিন্দি") || textToScan.contains("bollywood") ||
+                textToScan.contains("khatron ke khiladi") || textToScan.contains("kapil show") ||
+                textToScan.contains("bigg boss") || textToScan.contains("indian idol") ||
+                textToScan.contains("dance deewane") || textToScan.contains("roadies") ||
+                textToScan.contains("splitsvilla") || textToScan.contains("anupamaa") ||
+                textToScan.contains("tmkoc") || textToScan.contains("taarak mehta") -> "হিন্দি"
+
+        // Bangla / Dhallywood / Tollywood Bangla
+        textToScan.contains("bangla") || textToScan.contains("bengali") || textToScan.contains("বাংলা") ||
+                textToScan.contains("dhallywood") || textToScan.contains("bangladesh") ||
+                textToScan.contains("hoichoi") || textToScan.contains("chorki") ||
+                textToScan.contains("kolkata") || textToScan.contains("নাটক") || textToScan.contains("natok") -> "বাংলা"
+
+        // Korean / K-Drama
+        textToScan.contains("korean") || textToScan.contains("k-drama") || textToScan.contains("kdrama") ||
+                textToScan.contains("k drama") || textToScan.contains("কোরিয়ান") || textToScan.contains("korea") -> "কোরিয়ান"
+
+        // Anime / Japanese
+        textToScan.contains("anime") || textToScan.contains("japanese") || textToScan.contains("অ্যানিমে") ||
+                textToScan.contains("japan") -> "অ্যানিমে"
+
+        // Turkish
+        textToScan.contains("turkish") || textToScan.contains("তুর্কি") || textToScan.contains("turkey") ||
+                textToScan.contains("kurulus") || textToScan.contains("ertugrul") || textToScan.contains("osman") -> "তুর্কি"
+
+        // English / Hollywood
+        textToScan.contains("english") || textToScan.contains("ইংরেজি") || textToScan.contains("hollywood") ||
+                textToScan.contains("marvel") || textToScan.contains("dc comics") || textToScan.contains("hbo") ||
+                textToScan.contains("netflix original") -> "ইংরেজি"
+
+        // If no explicit tag or language pattern is matched, show NFT
         else -> "NFT"
     }
 }
