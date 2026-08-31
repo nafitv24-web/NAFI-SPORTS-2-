@@ -526,7 +526,17 @@ fun VideoPlayerScreen(
         // Load error handling policy with 5 automatic retries for transient stream packet drops
         val loadErrorHandlingPolicy = androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(5)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory)
+        // TS Extractor Flags for IPTV streams (MP2, AC3, AAC in MPEG-TS with PES packet size variations)
+        val tsPayloadReaderFlags = androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
+
+        val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setTsExtractorFlags(tsPayloadReaderFlags)
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
 
         if (drmConfig != null) {
@@ -536,9 +546,27 @@ fun VideoPlayerScreen(
             }
         }
 
-        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
-            .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-            .setEnableDecoderFallback(true)
+        // Custom AudioSink with Float Output disabled and AudioCapabilities to prevent silent audio on MP2/AC3/EAC3 streams
+        val audioSink = androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(false)
+            .setEnableAudioTrackPlaybackParams(true)
+            .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(context))
+            .build()
+
+        val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(context) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink {
+                return audioSink
+            }
+        }.apply {
+            setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+            setEnableDecoderFallback(true)
+            setEnableAudioFloatOutput(false)
+            setEnableAudioTrackPlaybackParams(true)
+        }
 
         // High-responsiveness Adaptive Bitrate Track Selection:
         // Automatically steps down resolution in 300ms if bandwidth drops to prevent any buffering stalls,
@@ -554,8 +582,11 @@ fun VideoPlayerScreen(
             setParameters(
                 buildUponParameters()
                     .setExceedRendererCapabilitiesIfNecessary(true)
-                    .setAllowVideoMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
+                    .setAllowAudioMixedChannelCountAdaptiveness(true)
+                    .setAllowAudioMixedSampleRateAdaptiveness(true)
+                    .setAllowAudioNonSeamlessAdaptiveness(true)
+                    .setAllowVideoMixedMimeTypeAdaptiveness(true)
                     .setAllowMultipleAdaptiveSelections(true)
                     .setTunnelingEnabled(false)
                     .setForceLowestBitrate(false)
@@ -576,15 +607,22 @@ fun VideoPlayerScreen(
             .setTargetBufferBytes(androidx.media3.common.C.LENGTH_UNSET)
             .build()
 
+        val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
             .setBandwidthMeter(bandwidthMeter)
             .setSeekParameters(androidx.media3.exoplayer.SeekParameters.EXACT)
+            .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
             .build().apply {
+                volume = if (isMuted) 0f else 1.0f
                 val finalMediaUri = when {
                     finalCleanUrl.startsWith("file://") -> android.net.Uri.parse(finalCleanUrl)
                     finalCleanUrl.startsWith("content://") -> android.net.Uri.parse(finalCleanUrl)
@@ -1207,12 +1245,19 @@ fun VideoPlayerScreen(
 
     fun selectAudioTrack(audio: AudioTrackOption) {
         selectedAudioTrack = audio
-        if (audio.language.isNotBlank()) {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .setPreferredAudioLanguage(audio.language)
-                .build()
+        val builder = exoPlayer.trackSelectionParameters.buildUpon()
+        if (audio.groupIndex >= 0 && audio.trackIndex >= 0) {
+            val currentTracks = exoPlayer.currentTracks
+            if (audio.groupIndex < currentTracks.groups.size) {
+                val group = currentTracks.groups[audio.groupIndex]
+                val override = androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, listOf(audio.trackIndex))
+                builder.setOverrideForType(override)
+            }
         }
+        if (audio.language.isNotBlank()) {
+            builder.setPreferredAudioLanguage(audio.language)
+        }
+        exoPlayer.trackSelectionParameters = builder.build()
         android.widget.Toast.makeText(context, "অডিও ভাষা: ${audio.displayName}", android.widget.Toast.LENGTH_SHORT).show()
     }
 
