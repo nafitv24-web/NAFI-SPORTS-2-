@@ -1060,7 +1060,7 @@ fun VideoPlayerScreen(
                         showQuickChannelDrawer = false
                         return true
                     }
-                    showControls = false
+                    onBack()
                     return true
                 }
             }
@@ -1194,16 +1194,10 @@ fun VideoPlayerScreen(
                 true
             }
 
-            // Back / Escape
+            // Back / Escape - Single click exits video player cleanly on TV remote
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                 if (showQuickChannelDrawer) {
                     showQuickChannelDrawer = false
-                    true
-                } else if (showControls) {
-                    showControls = false
-                    true
-                } else if (isFullscreen) {
-                    toggleFullscreen()
                     true
                 } else {
                     onBack()
@@ -1758,22 +1752,46 @@ fun VideoPlayerScreen(
                             ) {
                                 items(filteredDrawerPlaylist) { item ->
                                     val isCurrent = item.id == currentMedia.id
+                                    var isFocused by remember { mutableStateOf(false) }
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .onFocusChanged { focusState ->
+                                                isFocused = focusState.isFocused
+                                                if (focusState.isFocused && !isCurrent) {
+                                                    isBuffering = true
+                                                    currentMedia = item
+                                                    selectedServerIndex = 0
+                                                    val newServers = item.getAllServers()
+                                                    currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                    errorMessage = null
+                                                    onSelectMedia(item)
+                                                }
+                                            }
+                                            .focusable()
                                             .clickable {
-                                                isBuffering = true
-                                                currentMedia = item
-                                                selectedServerIndex = 0
-                                                val newServers = item.getAllServers()
-                                                currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                                errorMessage = null
-                                                onSelectMedia(item)
+                                                if (!isCurrent) {
+                                                    isBuffering = true
+                                                    currentMedia = item
+                                                    selectedServerIndex = 0
+                                                    val newServers = item.getAllServers()
+                                                    currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                    errorMessage = null
+                                                    onSelectMedia(item)
+                                                }
                                             },
                                         shape = RoundedCornerShape(8.dp),
-                                        border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else null,
+                                        border = when {
+                                            isFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                                            isCurrent -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8))
+                                            else -> null
+                                        },
                                         colors = CardDefaults.cardColors(
-                                            containerColor = if (isCurrent) Color(0xFF00E5FF).copy(alpha = 0.25f) else Color(0xFF1E293B)
+                                            containerColor = when {
+                                                isFocused -> Color(0xFF2563EB).copy(alpha = 0.85f)
+                                                isCurrent -> Color(0xFF00E5FF).copy(alpha = 0.25f)
+                                                else -> Color(0xFF1E293B)
+                                            }
                                         )
                                     ) {
                                         Row(
@@ -1796,7 +1814,7 @@ fun VideoPlayerScreen(
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Text(
                                                         text = item.title,
-                                                        color = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                                        color = if (isFocused || isCurrent) Color(0xFF00E5FF) else Color.White,
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 11.5.sp,
                                                         maxLines = 1,
@@ -1814,7 +1832,7 @@ fun VideoPlayerScreen(
                                                 }
                                                 Text(
                                                     text = item.category,
-                                                    color = Color(0xFF94A3B8),
+                                                    color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color(0xFF94A3B8),
                                                     fontSize = 9.5.sp
                                                 )
                                             }
@@ -3503,24 +3521,48 @@ fun VideoPlayerScreen(
                         ) {
                             items(filteredPlayerChannels) { item ->
                                 val isCurrent = item.id == currentMedia.id || item.streamUrl == currentMedia.streamUrl
+                                var isFocused by remember { mutableStateOf(false) }
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(130.dp)
+                                        .onFocusChanged { focusState ->
+                                            isFocused = focusState.isFocused
+                                            if (focusState.isFocused && !isCurrent) {
+                                                isBuffering = true
+                                                currentMedia = item
+                                                selectedServerIndex = 0
+                                                val newServers = item.getAllServers()
+                                                currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                errorMessage = null
+                                                onSelectMedia(item)
+                                            }
+                                        }
+                                        .focusable()
                                         .clickable {
-                                            isBuffering = true
-                                            currentMedia = item
-                                            selectedServerIndex = 0
-                                            val newServers = item.getAllServers()
-                                            currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                            errorMessage = null
-                                            onSelectMedia(item)
+                                            if (!isCurrent) {
+                                                isBuffering = true
+                                                currentMedia = item
+                                                selectedServerIndex = 0
+                                                val newServers = item.getAllServers()
+                                                currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                errorMessage = null
+                                                onSelectMedia(item)
+                                            }
                                         },
                                     shape = RoundedCornerShape(14.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (isCurrent) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                        containerColor = when {
+                                            isFocused -> Color(0xFF2563EB).copy(alpha = 0.85f)
+                                            isCurrent -> Color(0xFF1E3A8A)
+                                            else -> Color(0xFF1E293B)
+                                        }
                                     ),
-                                    border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
+                                    border = when {
+                                        isFocused -> androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFF00E5FF))
+                                        isCurrent -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                                        else -> androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155).copy(alpha = 0.8f))
+                                    }
                                 ) {
                                     Column(
                                         modifier = Modifier
