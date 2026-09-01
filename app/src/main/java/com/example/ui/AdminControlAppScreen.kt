@@ -200,6 +200,20 @@ fun AdminControlAppScreen(
     var editPlaylistDescription by remember { mutableStateOf("") }
     var playlistToDelete by remember { mutableStateOf<PlaylistInfo?>(null) }
 
+    // Admin Search & Filter States
+    var channelAdminSearchQuery by remember { mutableStateOf("") }
+    var channelFilterType by remember { mutableStateOf("ALL") } // "ALL", "CUSTOM", "M3U"
+    var channelFilterCategory by remember { mutableStateOf("All") }
+
+    var playlistAdminSearchQuery by remember { mutableStateOf("") }
+    var playlistFilterType by remember { mutableStateOf("ALL") } // "ALL", "CUSTOM", "SYSTEM"
+
+    var sportsAdminSearchQuery by remember { mutableStateOf("") }
+    var sportsFilterType by remember { mutableStateOf("ALL") } // "ALL", "CUSTOM", "LIVE", "UPCOMING"
+
+    var moviesAdminSearchQuery by remember { mutableStateOf("") }
+    var moviesFilterType by remember { mutableStateOf("ALL") } // "ALL", "CUSTOM"
+
     // App Update Form State
     val currentUpdate = repository.getCachedAppUpdateInfo()
     var updateVersionName by remember { mutableStateOf(currentUpdate?.versionName ?: "") }
@@ -2262,45 +2276,206 @@ fun AdminControlAppScreen(
                     }
                 }
 
-                items(liveTvList) { item ->
+                // Search & Filter Header for Channels
+                val customTvChannels = (repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV } + liveTvList.filter { it.id.startsWith("tv_") || it.id.startsWith("channel_") || it.id.startsWith("c_") }).distinctBy { it.id }
+
+                val filteredTvChannels = (customTvChannels + liveTvList).distinctBy { it.id }.filter { item ->
+                    val matchesSearch = channelAdminSearchQuery.isBlank() ||
+                        item.title.contains(channelAdminSearchQuery, ignoreCase = true) ||
+                        item.category.contains(channelAdminSearchQuery, ignoreCase = true) ||
+                        item.streamUrl.contains(channelAdminSearchQuery, ignoreCase = true)
+
+                    val isCustom = customTvChannels.any { it.id == item.id } || item.id.startsWith("tv_") || item.id.startsWith("c_")
+                    val matchesType = when (channelFilterType) {
+                        "CUSTOM" -> isCustom
+                        "M3U" -> !isCustom
+                        else -> true
+                    }
+
+                    val matchesCategory = channelFilterCategory == "All" || item.category.equals(channelFilterCategory, ignoreCase = true)
+
+                    matchesSearch && matchesType && matchesCategory
+                }
+
+                item {
+                    // Search & Filter Card
                     Card(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.3f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.title, color = Color.White, fontWeight = FontWeight.Bold)
-                                Text("${item.category} • ${item.getAllServers().size} টি সার্ভার", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                            }
-                            // Edit Channel Button
-                            Button(
-                                onClick = {
-                                    editingChannelItem = item
-                                    editChannelName = item.title
-                                    editChannelCategory = item.category
-                                    editChannelLogoUrl = item.logoUrl ?: ""
-                                    val curServers = item.getAllServers()
-                                    editChannelServers = if (curServers.isNotEmpty()) curServers else listOf(StreamServer("সার্ভার ১ (Main)", item.streamUrl))
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Search Field
+                            OutlinedTextField(
+                                value = channelAdminSearchQuery,
+                                onValueChange = { channelAdminSearchQuery = it },
+                                placeholder = { Text("চ্যানেলের নাম বা ক্যাটাগরি দিয়ে খুঁজুন...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(20.dp)) },
+                                trailingIcon = {
+                                    if (channelAdminSearchQuery.isNotBlank()) {
+                                        IconButton(onClick = { channelAdminSearchQuery = "" }) {
+                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                singleLine = true,
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // Type Filter Chips
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("এডিট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                FilterChip(
+                                    selected = channelFilterType == "ALL",
+                                    onClick = { channelFilterType = "ALL" },
+                                    label = { Text("সব চ্যানেল (${liveTvList.size})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF2563EB),
+                                        selectedLabelColor = Color.White,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFF94A3B8)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = channelFilterType == "CUSTOM",
+                                    onClick = { channelFilterType = "CUSTOM" },
+                                    label = { Text("⭐ কাস্টম চ্যানেল (${customTvChannels.size})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFF59E0B),
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFFFBBF24)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = channelFilterType == "M3U",
+                                    onClick = { channelFilterType = "M3U" },
+                                    label = { Text("📺 M3U চ্যানেল", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF06B6D4),
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFF22D3EE)
+                                    )
+                                )
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
-                                onClick = {
-                                    itemToDelete = item
-                                }
+                        }
+                    }
+                }
+
+                if (filteredTvChannels.isEmpty()) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444))
+                                Icon(Icons.Rounded.SearchOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(40.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("কোনো চ্যানেল পাওয়া যায়নি", color = Color(0xFF94A3B8), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                } else {
+                    items(filteredTvChannels) { item ->
+                        val isCustomItem = customTvChannels.any { it.id == item.id } || item.id.startsWith("tv_") || item.id.startsWith("c_")
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCustomItem) Color(0xFF1E293B) else Color(0xFF172033)
+                            ),
+                            border = if (isCustomItem) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)) else null,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Channel Logo
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF0F172A)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!item.logoUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = item.logoUrl,
+                                            contentDescription = item.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.LiveTv, contentDescription = null, tint = if (isCustomItem) Color(0xFFFBBF24) else Color(0xFF00E5FF))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (isCustomItem) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text("কাস্টম", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        "${item.category} • ${item.getAllServers().size} টি সার্ভার",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp
+                                    )
+                                    if (item.streamUrl.isNotBlank()) {
+                                        Text(
+                                            item.streamUrl,
+                                            color = Color(0xFF64748B),
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                // Edit Channel Button
+                                Button(
+                                    onClick = {
+                                        editingChannelItem = item
+                                        editChannelName = item.title
+                                        editChannelCategory = item.category
+                                        editChannelLogoUrl = item.logoUrl ?: ""
+                                        val curServers = item.getAllServers()
+                                        editChannelServers = if (curServers.isNotEmpty()) curServers else listOf(StreamServer("সার্ভার ১ (Main)", item.streamUrl))
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("এডিট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = {
+                                        itemToDelete = item
+                                    }
+                                ) {
+                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444))
+                                }
                             }
                         }
                     }
@@ -2738,63 +2913,192 @@ fun AdminControlAppScreen(
                     }
                 }
 
-                items(playlistsList) { playlist ->
+                // Search & Filter Header for Playlists
+                val customPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + playlistsList.filter { it.id.startsWith("pl_admin_") || it.id.startsWith("pl_user_") || it.id.startsWith("pl_custom_") }).distinctBy { it.id }
+
+                val filteredPlaylists = (customPlaylists + playlistsList).distinctBy { it.id }.filter { p ->
+                    val matchesSearch = playlistAdminSearchQuery.isBlank() ||
+                        p.title.contains(playlistAdminSearchQuery, ignoreCase = true) ||
+                        p.url.contains(playlistAdminSearchQuery, ignoreCase = true) ||
+                        (p.description?.contains(playlistAdminSearchQuery, ignoreCase = true) == true)
+
+                    val isCustom = customPlaylists.any { it.id == p.id } || p.id.startsWith("pl_admin_") || p.id.startsWith("pl_user_") || p.id.startsWith("pl_custom_")
+                    val matchesType = when (playlistFilterType) {
+                        "CUSTOM" -> isCustom
+                        "SYSTEM" -> !isCustom
+                        else -> true
+                    }
+
+                    matchesSearch && matchesType
+                }
+
+                item {
+                    // Search & Filter Card
                     Card(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.3f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF2563EB).copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!playlist.logoUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = playlist.logoUrl,
-                                        contentDescription = playlist.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = Color(0xFF00E5FF))
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(playlist.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
-                                Text(playlist.url, color = Color(0xFF94A3B8), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            // Edit Playlist Button
-                            Button(
-                                onClick = {
-                                    editingPlaylistItem = playlist
-                                    editPlaylistTitle = playlist.title
-                                    editPlaylistUrl = playlist.url
-                                    editPlaylistLogoUrl = playlist.logoUrl ?: ""
-                                    editPlaylistDescription = playlist.description ?: ""
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Search Field
+                            OutlinedTextField(
+                                value = playlistAdminSearchQuery,
+                                onValueChange = { playlistAdminSearchQuery = it },
+                                placeholder = { Text("প্লেলিস্টের নাম বা URL দিয়ে খুঁজুন...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(20.dp)) },
+                                trailingIcon = {
+                                    if (playlistAdminSearchQuery.isNotBlank()) {
+                                        IconButton(onClick = { playlistAdminSearchQuery = "" }) {
+                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                singleLine = true,
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // Type Filter Chips
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("এডিট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                FilterChip(
+                                    selected = playlistFilterType == "ALL",
+                                    onClick = { playlistFilterType = "ALL" },
+                                    label = { Text("সব প্লেলিস্ট (${playlistsList.size})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF00E5FF),
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFF00E5FF)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = playlistFilterType == "CUSTOM",
+                                    onClick = { playlistFilterType = "CUSTOM" },
+                                    label = { Text("⭐ কাস্টম প্লেলিস্ট (${customPlaylists.size})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFF59E0B),
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFFFBBF24)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = playlistFilterType == "SYSTEM",
+                                    onClick = { playlistFilterType = "SYSTEM" },
+                                    label = { Text("🌐 সিস্টেম প্লেলিস্ট", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF2563EB),
+                                        selectedLabelColor = Color.White,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFF94A3B8)
+                                    )
+                                )
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
-                                onClick = {
-                                    playlistToDelete = playlist
-                                }
+                        }
+                    }
+                }
+
+                if (filteredPlaylists.isEmpty()) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444))
+                                Icon(Icons.Rounded.SearchOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(40.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("কোনো প্লেলিস্ট পাওয়া যায়নি", color = Color(0xFF94A3B8), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                } else {
+                    items(filteredPlaylists) { playlist ->
+                        val isCustomPl = customPlaylists.any { it.id == playlist.id } || playlist.id.startsWith("pl_admin_") || playlist.id.startsWith("pl_user_") || playlist.id.startsWith("pl_custom_")
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCustomPl) Color(0xFF1E293B) else Color(0xFF172033)
+                            ),
+                            border = if (isCustomPl) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)) else null,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isCustomPl) Color(0xFFF59E0B).copy(alpha = 0.2f) else Color(0xFF2563EB).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!playlist.logoUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = playlist.logoUrl,
+                                            contentDescription = playlist.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = if (isCustomPl) Color(0xFFFBBF24) else Color(0xFF00E5FF))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(playlist.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (isCustomPl) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text("কাস্টম", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(playlist.url, color = Color(0xFF94A3B8), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (!playlist.description.isNullOrBlank()) {
+                                        Text(playlist.description!!, color = Color(0xFF64748B), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                // Edit Playlist Button
+                                Button(
+                                    onClick = {
+                                        editingPlaylistItem = playlist
+                                        editPlaylistTitle = playlist.title
+                                        editPlaylistUrl = playlist.url
+                                        editPlaylistLogoUrl = playlist.logoUrl ?: ""
+                                        editPlaylistDescription = playlist.description ?: ""
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("এডিট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = {
+                                        playlistToDelete = playlist
+                                    }
+                                ) {
+                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444))
+                                }
                             }
                         }
                     }
@@ -5458,6 +5762,59 @@ fun AdminControlAppScreen(
             dismissButton = {
                 OutlinedButton(
                     onClick = { itemToDelete = null },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))
+                ) {
+                    Text("Cancel (বাতিল)", fontSize = 12.sp)
+                }
+            }
+        )
+    }
+
+    // Dialog for Deleting Playlist (Confirmation)
+    if (playlistToDelete != null) {
+        val target = playlistToDelete!!
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            containerColor = Color(0xFF1E293B),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.DeleteSweep, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("প্লেলিস্ট ডিলিট নিশ্চিতকরণ", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Text(
+                    text = "আপনি কি '${target.title}' প্লেলিস্টটি নিশ্চিতভাবে ডিলিট করতে চান?\nএটি লোকাল মেমোরি ও ক্লাউড ডেটাবেস থেকে স্থায়ীভাবে মুছে যাবে।",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toRemove = target
+                        playlistToDelete = null
+                        coroutineScope.launch {
+                            repository.deletePlaylist(toRemove.id)
+                            onDataChanged()
+                            Toast.makeText(context, "${toRemove.title} প্লেলিস্ট সফলভাবে মুছে ফেলা হয়েছে!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444), contentColor = Color.White),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Delete (মুছে ফেলুন)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { playlistToDelete = null },
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))

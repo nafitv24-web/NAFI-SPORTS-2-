@@ -361,26 +361,22 @@ fun NafiTvMainApp(
                 val customTv = customStreams.filter { it.type == MediaType.LIVE_TV }
                 val customMov = customStreams.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
 
-                // 2. Playlists: separate admin/cloud playlists and user-local playlists
+                // 2. Playlists: separate admin/cloud playlists, user-local playlists and initial system defaults
+                val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
                 val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
                 val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
 
-                // Admin panel ONLY sees Firebase Cloud playlists + Admin saved playlists
-                val adminOnlyPlaylists = (fbPlaylists + adminPlaylists)
+                // All playlists combined for admin panel and playlist tab (custom added playlists at top)
+                val allPlaylists = (adminPlaylists + userPlaylists + fbPlaylists + initialPlaylists)
                     .distinctBy { it.id }
                     .filterNot { deleted.contains(it.id) }
-                    .map { it.copy(isAdmin = true, isReadOnly = true) }
-                adminPlaylistsList = adminOnlyPlaylists
 
-                // Users see everything: Cloud/Admin playlists + User private playlists
-                val allPlaylists = (adminOnlyPlaylists + userPlaylists)
-                    .distinctBy { it.id }
-                    .filterNot { deleted.contains(it.id) }
+                adminPlaylistsList = allPlaylists
                 playlistsList = allPlaylists
                 val playlistIds = allPlaylists.map { it.id }.toSet()
 
-                // 3. Set distinct channel, sports & movie lists from Tapmad Events + Firebase Cloud + Sports M3U + Admin custom additions (Excluding Playlists)
-                sportsList = (tapmadSports + customSports + fbSports + parsedSportsM3u)
+                // 3. Set distinct channel, sports & movie lists from Custom Additions + Tapmad Events + Firebase Cloud + M3U (Excluding Playlists)
+                sportsList = (customSports + fbSports + tapmadSports + parsedSportsM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
 

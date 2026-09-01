@@ -217,6 +217,13 @@ class MediaRepository(private val context: Context) {
         prefs.edit().putStringSet("deleted_ids", current).apply()
     }
 
+    fun removeDeletedId(id: String) {
+        val current = getDeletedIds().toMutableSet()
+        if (current.remove(id)) {
+            prefs.edit().putStringSet("deleted_ids", current).apply()
+        }
+    }
+
     fun clearDeletedIds() {
         prefs.edit().remove("deleted_ids").apply()
     }
@@ -257,6 +264,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCustomStream(item: MediaItem) {
+        removeDeletedId(item.id)
         val current = getCustomStreams().toMutableList()
         current.removeAll { it.id == item.id }
         current.add(0, item)
@@ -1884,6 +1892,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveUserPlaylist(playlist: PlaylistInfo) {
+        removeDeletedId(playlist.id)
         val current = getUserPlaylists().toMutableList()
         current.removeAll { it.id == playlist.id }
         current.add(0, playlist.copy(isAdmin = false, isReadOnly = false))
@@ -1957,6 +1966,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveAdminPlaylist(playlist: PlaylistInfo) {
+        removeDeletedId(playlist.id)
         val current = getAdminPlaylists().toMutableList()
         current.removeAll { it.id == playlist.id }
         current.add(0, playlist.copy(isAdmin = true, isReadOnly = true))
