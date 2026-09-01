@@ -7,6 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -91,7 +93,7 @@ fun NafiLogoLoadingView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Branded Pulsing Logo with Glowing Aura
+                // Branded Pulsing Logo with Glowing Aura (100% Crash-Proof Native Compose)
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.size(76.dp)
@@ -110,21 +112,58 @@ fun NafiLogoLoadingView(
                             )
                     )
 
-                    // Sharp Logo
-                    Image(
-                        painter = painterResource(id = R.drawable.app_logo),
-                        contentDescription = "NAFI TV 24 Logo",
+                    // Sharp Branded Badge
+                    Box(
                         modifier = Modifier
                             .size(62.dp)
                             .scale(pulseScale)
                             .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF020617))
+                                )
+                            )
                             .border(
                                 1.5.dp,
-                                Color(0xFF00E5FF).copy(alpha = glowAlpha),
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF00E5FF), Color(0xFF818CF8), Color(0xFFEC4899))
+                                ),
                                 RoundedCornerShape(16.dp)
                             ),
-                        contentScale = ContentScale.Fit
-                    )
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFF00E5FF), Color(0xFF3B82F6), Color(0xFF8B5CF6))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Rounded.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "NAFI TV",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
                 }
 
                 // Loading Title & Bengali Status

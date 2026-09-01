@@ -228,113 +228,42 @@ class MediaRepository(private val context: Context) {
         prefs.edit().remove("deleted_ids").apply()
     }
 
-    // Fast Local Disk/Memory Cache for Live TV, Sports & Movies (0ms instant loading on startup)
-    fun getCachedLiveTvChannels(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val jsonStr = prefs.getString("cached_live_tv_channels", "[]") ?: "[]"
-        val list = mutableListOf<MediaItem>()
+    init {
         try {
-            val jsonArray = JSONArray(jsonStr)
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val id = obj.optString("id", "c_$i")
-                if (!deleted.contains(id)) {
-                    list.add(parseMediaFromJsonObj(id, obj))
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return list
-    }
-
-    fun saveCachedLiveTvChannels(list: List<MediaItem>) {
-        try {
-            val jsonArray = JSONArray()
-            list.forEach { item ->
-                jsonArray.put(serializeMediaToJsonObj(item))
-            }
-            prefs.edit().putString("cached_live_tv_channels", jsonArray.toString()).apply()
+            // Remove heavy cache keys from SharedPreferences to prevent memory overhead and crashes on normal/budget devices
+            prefs.edit()
+                .remove("cached_live_tv_channels")
+                .remove("cached_sports_matches")
+                .remove("cached_movies_list")
+                .apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    fun getCachedSportsMatches(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val jsonStr = prefs.getString("cached_sports_matches", "[]") ?: "[]"
-        val list = mutableListOf<MediaItem>()
-        try {
-            val jsonArray = JSONArray(jsonStr)
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val id = obj.optString("id", "s_$i")
-                if (!deleted.contains(id)) {
-                    list.add(parseMediaFromJsonObj(id, obj))
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return list
+    // Lightweight initial loaders (crash-proof on all devices)
+    fun getInitialSports(): List<MediaItem> {
+        return emptyList()
+    }
+
+    fun getInitialLiveTv(): List<MediaItem> {
+        return emptyList()
+    }
+
+    fun getInitialMoviesSeries(): List<MediaItem> {
+        return emptyList()
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
-        try {
-            val jsonArray = JSONArray()
-            list.forEach { item ->
-                jsonArray.put(serializeMediaToJsonObj(item))
-            }
-            prefs.edit().putString("cached_sports_matches", jsonArray.toString()).apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // No-op for SharedPreferences to protect device RAM and prevent ANR
     }
 
-    fun getCachedMoviesList(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val jsonStr = prefs.getString("cached_movies_list", "[]") ?: "[]"
-        val list = mutableListOf<MediaItem>()
-        try {
-            val jsonArray = JSONArray(jsonStr)
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val id = obj.optString("id", "m_$i")
-                if (!deleted.contains(id)) {
-                    list.add(parseMediaFromJsonObj(id, obj))
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return list
+    fun saveCachedLiveTvChannels(list: List<MediaItem>) {
+        // No-op for SharedPreferences to protect device RAM and prevent ANR
     }
 
     fun saveCachedMoviesList(list: List<MediaItem>) {
-        try {
-            val jsonArray = JSONArray()
-            list.forEach { item ->
-                jsonArray.put(serializeMediaToJsonObj(item))
-            }
-            prefs.edit().putString("cached_movies_list", jsonArray.toString()).apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    // Loads cached sports matches or empty list
-    fun getInitialSports(): List<MediaItem> {
-        return getCachedSportsMatches()
-    }
-
-    // Loads cached Live TV channels or empty list
-    fun getInitialLiveTv(): List<MediaItem> {
-        return getCachedLiveTvChannels()
-    }
-
-    // Loads cached movies or empty list
-    fun getInitialMoviesSeries(): List<MediaItem> {
-        return getCachedMoviesList()
+        // No-op for SharedPreferences to protect device RAM and prevent ANR
     }
 
     // Custom streams saved locally in SharedPreferences
