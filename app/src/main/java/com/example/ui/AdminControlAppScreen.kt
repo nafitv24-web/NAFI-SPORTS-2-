@@ -132,7 +132,7 @@ fun AdminControlAppScreen(
     val statusOptions = listOf("UPCOMING", "LIVE", "FINISHED")
 
     // Sports M3U
-    var sportsM3uInput by remember { mutableStateOf("") }
+    var sportsM3uInput by remember { mutableStateOf(repository.getSavedSportsM3uUrl()) }
 
     // Edit/Update/Delete Match State
     var editingMatchItem by remember { mutableStateOf<MediaItem?>(null) }
@@ -162,7 +162,7 @@ fun AdminControlAppScreen(
     var server1Url by remember { mutableStateOf("") }
     var server2Url by remember { mutableStateOf("") }
     var channelLogoUrl by remember { mutableStateOf("") }
-    var liveTvM3uInput by remember { mutableStateOf("") }
+    var liveTvM3uInput by remember { mutableStateOf(repository.getSavedLiveTvM3uUrl()) }
     var addChannelCatDropdownExpanded by remember { mutableStateOf(false) }
     val channelCategoryOptions = listOf("Sports", "News", "Entertainment", "Movies", "Kids", "Music", "Infotainment", "Religious")
 
@@ -179,7 +179,7 @@ fun AdminControlAppScreen(
     var movieCategory by remember { mutableStateOf("Movies") }
     var movieCategoryOptions = listOf("Movies", "Web Series", "Action", "Drama", "Animation", "Comedy", "Thriller", "Horror")
     var moviePosterUrl by remember { mutableStateOf("") }
-    var moviesM3uInput by remember { mutableStateOf("") }
+    var moviesM3uInput by remember { mutableStateOf(repository.getSavedMoviesM3uUrl()) }
     var editingMovieItem by remember { mutableStateOf<MediaItem?>(null) }
     var editMovieTitle by remember { mutableStateOf("") }
     var editMoviePosterUrl by remember { mutableStateOf("") }
@@ -213,6 +213,17 @@ fun AdminControlAppScreen(
 
     var moviesAdminSearchQuery by remember { mutableStateOf("") }
     var moviesFilterType by remember { mutableStateOf("ALL") } // "ALL", "CUSTOM"
+
+    LaunchedEffect(Unit) {
+        try {
+            val remoteConfig = repository.fetchAppConfigFromFirebase()
+            if (remoteConfig != null) {
+                if (remoteConfig.first.isNotBlank()) liveTvM3uInput = remoteConfig.first
+                if (remoteConfig.second.isNotBlank()) sportsM3uInput = remoteConfig.second
+                if (remoteConfig.third.isNotBlank()) moviesM3uInput = remoteConfig.third
+            }
+        } catch (_: Exception) {}
+    }
 
     // App Update Form State
     val currentUpdate = repository.getCachedAppUpdateInfo()
@@ -2486,7 +2497,33 @@ fun AdminControlAppScreen(
             // TAB 3 CONTENT: MOVIES & SERIES ADMIN
             // -------------------------------------------------------------
             if (selectedAdminTab == AdminTab.MOVIES) {
-                // 1. Primary M3U Playlist Manager for Movies (User: "এবং মুভি অপশনেও প্লেলি লিঙ্ক এড করা এতে firebase উপর চাপ পড়বে কম")
+                val customMovies = repository.getCustomStreams().filter { it.type == MediaType.MOVIE }
+                val allMovies = (customMovies + moviesList).distinctBy { it.id }
+                val filteredMovies = allMovies.filter { mov ->
+                    val matchesSearch = moviesAdminSearchQuery.isBlank() ||
+                        mov.title.contains(moviesAdminSearchQuery, ignoreCase = true) ||
+                        mov.category.contains(moviesAdminSearchQuery, ignoreCase = true)
+                    val isCustom = customMovies.any { it.id == mov.id } || mov.id.startsWith("mov_") || mov.id.startsWith("custom_")
+                    val matchesType = when (moviesFilterType) {
+                        "CUSTOM" -> isCustom
+                        "M3U" -> !isCustom
+                        else -> true
+                    }
+                    matchesSearch && matchesType
+                }
+
+                val allAdminAndUserPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + playlistsList).distinctBy { it.id }
+                val moviePlaylists = allAdminAndUserPlaylists.filter {
+                    it.id == "pl_nafi_movies_json" ||
+                    it.title.contains("movie", ignoreCase = true) ||
+                    it.title.contains("cinema", ignoreCase = true) ||
+                    it.type.equals("JSON", ignoreCase = true) ||
+                    it.url.contains("movie", ignoreCase = true) ||
+                    it.description?.contains("মুভি", ignoreCase = true) == true ||
+                    it.description?.contains("movie", ignoreCase = true) == true
+                }
+
+                // 1. Primary M3U / JSON Playlist Manager for Movies
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -2498,10 +2535,10 @@ fun AdminControlAppScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("🎬 মুভি ও সিরিজ প্লেলিস্ট লিংক (Movies M3U)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("🎬 মুভি ও সিরিজ প্লেলিস্ট লিংক (Movies M3U / JSON)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                             Text(
-                                text = "এখানে এক বা একাধিক মুভি M3U প্লেলিস্ট লিঙ্ক যোগ করতে পারবেন (প্রতি লাইনে একটি করে অথবা কমা দিয়ে)। এতে Firebase এ চাপ পড়বে না এবং সহজে ব্রাউজ করা যাবে:",
+                                text = "এখানে আপনার সক্রিয় মুভি প্লেলিস্ট লিঙ্কগুলো দেওয়া আছে। আপনি নতুন লিংক যোগ করতে পারেন বা বিদ্যমান লিংক এডিট করতে পারেন (প্রতি লাইনে একটি করে অথবা কমা দিয়ে):",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.sp
                             )
@@ -2529,7 +2566,7 @@ fun AdminControlAppScreen(
                                                 repository.pushAppConfigToFirebase(moviesM3u = url)
                                             }
                                             onDataChanged()
-                                            Toast.makeText(context, "✅ মুভি M3U ক্লাউডে সেভ ও সিঙ্ক হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "✅ মুভি প্লেলিস্ট ক্লাউডে সেভ ও সিঙ্ক হয়েছে!", Toast.LENGTH_SHORT).show()
                                         } else {
                                             Toast.makeText(context, "অনুগ্রহ করে একটি সঠিক মুভি M3U URL দিন", Toast.LENGTH_SHORT).show()
                                         }
@@ -2564,6 +2601,85 @@ fun AdminControlAppScreen(
                     }
                 }
 
+                // 2. Movie Playlists Quick Manager & Editor
+                if (moviePlaylists.isNotEmpty()) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("📑 মুভি প্লেলিস্টসমূহ (${moviePlaylists.size} টি)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                }
+                                Text("নিচে আপনার সব মুভি প্লেলিস্টের তালিকা ও লিঙ্ক দেওয়া হলো। যেকোনো প্লেলিস্ট সরাসরি এডিট করতে 'এডিট' বাটনে চাপুন:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+
+                                moviePlaylists.forEach { pl ->
+                                    Card(
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (!pl.logoUrl.isNullOrBlank()) {
+                                                    AsyncImage(
+                                                        model = pl.logoUrl,
+                                                        contentDescription = pl.title,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                } else {
+                                                    Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(20.dp))
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(pl.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                                Text(pl.url, color = Color(0xFF38BDF8), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                if (!pl.description.isNullOrBlank()) {
+                                                    Text(pl.description!!, color = Color(0xFF64748B), fontSize = 9.sp, maxLines = 1)
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Button(
+                                                onClick = {
+                                                    editingPlaylistItem = pl
+                                                    editPlaylistTitle = pl.title
+                                                    editPlaylistUrl = pl.url
+                                                    editPlaylistLogoUrl = pl.logoUrl ?: ""
+                                                    editPlaylistDescription = pl.description ?: ""
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("এডিট", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Add Single Movie or Series Form
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -2571,7 +2687,7 @@ fun AdminControlAppScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(text = "➕ Add Single Movie or Series (একক মুভি)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(text = "➕ Add Single Movie or Series (একক মুভি যোগ)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
 
                             OutlinedTextField(
                                 value = movieTitle,
@@ -2663,46 +2779,152 @@ fun AdminControlAppScreen(
                     }
                 }
 
-                items(moviesList) { item ->
+                // 4. Movies Search & Filter Header
+                item {
                     Card(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.3f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.title, color = Color.White, fontWeight = FontWeight.Bold)
-                                Text("${item.category} • ${item.getAllServers().size} টি সার্ভার", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                            }
-                            // Edit Movie Button
-                            Button(
-                                onClick = {
-                                    editingMovieItem = item
-                                    editMovieTitle = item.title
-                                    editMovieCategory = item.category
-                                    editMoviePosterUrl = item.logoUrl ?: ""
-                                    editMovieDesc = item.description ?: ""
-                                    val curServers = item.getAllServers()
-                                    editMovieServers = if (curServers.isNotEmpty()) curServers else listOf(StreamServer("সার্ভার ১ (HD)", item.streamUrl))
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Search Field
+                            OutlinedTextField(
+                                value = moviesAdminSearchQuery,
+                                onValueChange = { moviesAdminSearchQuery = it },
+                                placeholder = { Text("মুভির নাম বা ক্যাটাগরি দিয়ে খুঁজুন...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(20.dp)) },
+                                trailingIcon = {
+                                    if (moviesAdminSearchQuery.isNotBlank()) {
+                                        IconButton(onClick = { moviesAdminSearchQuery = "" }) {
+                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                singleLine = true,
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // Type Filter Chips
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("এডিট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                FilterChip(
+                                    selected = moviesFilterType == "ALL",
+                                    onClick = { moviesFilterType = "ALL" },
+                                    label = { Text("সব মুভি (${allMovies.size})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFF59E0B),
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFFF59E0B)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = moviesFilterType == "CUSTOM",
+                                    onClick = { moviesFilterType = "CUSTOM" },
+                                    label = { Text("⭐ কাস্টম মুভি (${customMovies.size})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFF59E0B),
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFFFBBF24)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = moviesFilterType == "M3U",
+                                    onClick = { moviesFilterType = "M3U" },
+                                    label = { Text("🌐 M3U মুভি", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF2563EB),
+                                        selectedLabelColor = Color.White,
+                                        containerColor = Color(0xFF0F172A),
+                                        labelColor = Color(0xFF94A3B8)
+                                    )
+                                )
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
-                                onClick = {
-                                    itemToDelete = item
-                                }
+                        }
+                    }
+                }
+
+                if (filteredMovies.isEmpty()) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444))
+                                Icon(Icons.Rounded.SearchOff, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(40.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("কোনো মুভি পাওয়া যায়নি", color = Color(0xFF94A3B8), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                } else {
+                    items(filteredMovies) { item ->
+                        val isCustomMovie = customMovies.any { it.id == item.id } || item.id.startsWith("mov_") || item.id.startsWith("custom_")
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCustomMovie) Color(0xFF1E293B) else Color(0xFF172033)
+                            ),
+                            border = if (isCustomMovie) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)) else null,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (isCustomMovie) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text("কাস্টম", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text("${item.category} • ${item.getAllServers().size} টি সার্ভার", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                }
+                                // Edit Movie Button
+                                Button(
+                                    onClick = {
+                                        editingMovieItem = item
+                                        editMovieTitle = item.title
+                                        editMovieCategory = item.category
+                                        editMoviePosterUrl = item.logoUrl ?: ""
+                                        editMovieDesc = item.description ?: ""
+                                        val curServers = item.getAllServers()
+                                        editMovieServers = if (curServers.isNotEmpty()) curServers else listOf(StreamServer("সার্ভার ১ (HD)", item.streamUrl))
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("এডিট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = {
+                                        itemToDelete = item
+                                    }
+                                ) {
+                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444))
+                                }
                             }
                         }
                     }
@@ -5336,6 +5558,13 @@ fun AdminControlAppScreen(
                                     )
 
                                     repository.saveAdminPlaylist(updatedPl)
+                                    if (target.id == "pl_nafi_movies_json" || target.title.contains("movie", ignoreCase = true) || target.url.contains("movie", ignoreCase = true) || target.type.equals("JSON", ignoreCase = true)) {
+                                        repository.saveMoviesM3uUrl(updatedPl.url)
+                                        moviesM3uInput = updatedPl.url
+                                        coroutineScope.launch {
+                                            repository.pushAppConfigToFirebase(moviesM3u = updatedPl.url)
+                                        }
+                                    }
                                     coroutineScope.launch {
                                         repository.pushPlaylistToFirebase(updatedPl)
                                     }
