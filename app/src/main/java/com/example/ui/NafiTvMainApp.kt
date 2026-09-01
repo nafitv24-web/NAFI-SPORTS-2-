@@ -3098,7 +3098,7 @@ fun LiveEventMatchCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Top Header: Stage on left & Live text / Match Time on right
+                // Top Header: Stage on left & Live text / UPCOMING status with Match Time on right
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3116,32 +3116,79 @@ fun LiveEventMatchCard(
                     Spacer(modifier = Modifier.width(6.dp))
 
                     if (isLiveNow) {
-                        Text(
-                            text = "🔴 LIVE",
-                            color = Color(0xFFEF4444),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFEF4444).copy(alpha = 0.2f),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFEF4444))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFEF4444))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "LIVE NOW",
+                                    color = Color(0xFFF87171),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
                     } else {
-                        Text(
-                            text = formattedTime,
-                            color = Color(0xFF94A3B8),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFD97706).copy(alpha = 0.2f),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "🟡 UPCOMING",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (formattedTime.isNotBlank()) {
+                                    Text(
+                                        text = " • $formattedTime",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Match Title
-                Text(
-                    text = displayTitle,
-                    color = Color.White,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 17.sp
-                )
+                // Match Title (News Notice Marquee effect - scrolls continuously horizontally like a breaking news ticker)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                ) {
+                    Text(
+                        text = displayTitle,
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                velocity = 40.dp
+                            )
+                    )
+                }
 
                 // Status / Countdown Banner
                 if (isLiveNow) {
