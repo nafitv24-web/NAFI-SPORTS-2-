@@ -67,11 +67,14 @@ import com.example.BuildConfig
 import com.example.model.AppUpdateInfo
 import com.example.util.AppUpdateHelper
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Visibility
 import java.io.File
 
 @Composable
 fun AppUpdateDialog(
     updateInfo: AppUpdateInfo,
+    isPreview: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -97,13 +100,13 @@ fun AppUpdateDialog(
 
     Dialog(
         onDismissRequest = {
-            if (!updateInfo.isForceUpdate && !isDownloading) {
+            if ((!updateInfo.isForceUpdate || isPreview) && !isDownloading) {
                 onDismiss()
             }
         },
         properties = DialogProperties(
-            dismissOnBackPress = !updateInfo.isForceUpdate && !isDownloading,
-            dismissOnClickOutside = !updateInfo.isForceUpdate && !isDownloading,
+            dismissOnBackPress = (!updateInfo.isForceUpdate || isPreview) && !isDownloading,
+            dismissOnClickOutside = (!updateInfo.isForceUpdate || isPreview) && !isDownloading,
             usePlatformDefaultWidth = false
         )
     ) {
@@ -132,6 +135,50 @@ fun AppUpdateDialog(
                     .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Admin Preview Mode Banner
+                if (isPreview) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Visibility,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFBBF24),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "👀 অ্যাডমিন পপআপ প্রিভিউ (Preview)",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            androidx.compose.material3.IconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Close Preview",
+                                    tint = Color(0xFFFBBF24),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
                 // Header Rocket / Sparkle Icon with animated glowing halo
                 Box(
                     modifier = Modifier
@@ -497,8 +544,25 @@ fun AppUpdateDialog(
                         Text("🌐 ব্রাউজার থেকে ডাউনলোড লিংক খুলুন", fontSize = 12.sp)
                     }
 
-                    // Dismiss Button (Only if NOT force update)
-                    if (!updateInfo.isForceUpdate) {
+                    // Dismiss Button
+                    if (isPreview) {
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1E293B),
+                                contentColor = Color(0xFFFBBF24)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("❌ প্রিভিউ বন্ধ করুন (Close Preview)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (!updateInfo.isForceUpdate) {
                         Button(
                             onClick = onDismiss,
                             modifier = Modifier

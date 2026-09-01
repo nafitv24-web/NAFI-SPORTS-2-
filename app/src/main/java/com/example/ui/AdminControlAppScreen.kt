@@ -3538,13 +3538,13 @@ fun AdminControlAppScreen(
                                 OutlinedButton(
                                     onClick = {
                                         previewUpdateDialog = AppUpdateInfo(
-                                            versionCode = updateVersionCode.toIntOrNull() ?: 2,
-                                            versionName = updateVersionName.ifBlank { "2.5.0" },
-                                            downloadUrl = updateDownloadUrl,
-                                            releaseNotes = updateReleaseNotes,
+                                            versionCode = updateVersionCode.toIntOrNull() ?: (com.example.BuildConfig.VERSION_CODE + 1),
+                                            versionName = updateVersionName.ifBlank { "2.5.3" },
+                                            downloadUrl = updateDownloadUrl.ifBlank { "https://example.com/nafitv24_update.apk" },
+                                            releaseNotes = updateReleaseNotes.ifBlank { "• নতুন লাইভ স্ট্রিমিং ও স্পোর্টস সার্ভার সংযোজন\n• ভিডিও প্লেয়ার ফুলস্ক্রিন ও স্ট্যাবিলিটি বৃদ্ধি\n• দ্রুত লোডিং ও বাগ ফিক্স" },
                                             isForceUpdate = updateIsForce,
-                                            apkSize = updateApkSize,
-                                            releaseDate = updateReleaseDate
+                                            apkSize = updateApkSize.ifBlank { "18.5 MB" },
+                                            releaseDate = updateReleaseDate.ifBlank { "01 Sep 2026" }
                                         )
                                     },
                                     modifier = Modifier
@@ -6170,6 +6170,15 @@ fun AdminControlAppScreen(
                 showAuthDialog = false
                 onDataChanged()
             }
+        )
+    }
+
+    // App Update Popup Preview Dialog (Admin Mode)
+    if (previewUpdateDialog != null) {
+        AppUpdateDialog(
+            updateInfo = previewUpdateDialog!!,
+            isPreview = true,
+            onDismiss = { previewUpdateDialog = null }
         )
     }
 }
