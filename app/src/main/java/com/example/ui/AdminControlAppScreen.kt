@@ -112,6 +112,13 @@ fun AdminControlAppScreen(
     var marqueeTickerInput by remember { mutableStateOf(repository.getMarqueeTickerText()) }
     var isSavingMarqueeTicker by remember { mutableStateOf(false) }
 
+    // Auto-sync Ticker text when switching to TICKER tab
+    LaunchedEffect(selectedAdminTab) {
+        if (selectedAdminTab == AdminTab.TICKER) {
+            marqueeTickerInput = repository.getMarqueeTickerText()
+        }
+    }
+
     // Sports Match Form State
     var tournamentName by remember { mutableStateOf("") }
     var matchPosterUrl by remember { mutableStateOf("") }
@@ -1308,17 +1315,23 @@ fun AdminControlAppScreen(
                             ) {
                                 Button(
                                     onClick = {
-                                        if (marqueeTickerInput.isBlank()) {
+                                        val cleanText = marqueeTickerInput.trim()
+                                        if (cleanText.isBlank()) {
                                             Toast.makeText(context, "অনুগ্রহ করে নিউজ টেক্সট লিখুন!", Toast.LENGTH_SHORT).show()
                                             return@Button
                                         }
+                                        repository.saveMarqueeTickerText(cleanText)
+                                        onDataChanged()
                                         isSavingMarqueeTicker = true
                                         coroutineScope.launch {
-                                            repository.saveMarqueeTickerText(marqueeTickerInput.trim())
-                                            repository.pushMarqueeTickerToFirebase(marqueeTickerInput.trim())
+                                            val pushed = repository.pushMarqueeTickerToFirebase(cleanText)
                                             isSavingMarqueeTicker = false
                                             onDataChanged()
-                                            Toast.makeText(context, "✅ নিউজ বার সফলভাবে আপডেট ও ক্লাউডে সিঙ্ক হয়েছে!", Toast.LENGTH_LONG).show()
+                                            if (pushed) {
+                                                Toast.makeText(context, "✅ ব্রেকিং নিউজ সফলভাবে ক্লাউডে সিঙ্ক ও আপডেট হয়েছে!", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "✅ ব্রেকিং নিউজ অ্যাপে আপডেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     },
                                     modifier = Modifier.weight(1f).height(48.dp),
@@ -1332,7 +1345,7 @@ fun AdminControlAppScreen(
                                     if (isSavingMarqueeTicker) {
                                         CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("সংরক্ষণ হচ্ছে...", fontWeight = FontWeight.Bold)
+                                        Text("সিঙ্ক হচ্ছে...", fontWeight = FontWeight.Bold)
                                     } else {
                                         Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
@@ -1343,8 +1356,9 @@ fun AdminControlAppScreen(
                                 OutlinedButton(
                                     onClick = {
                                         marqueeTickerInput = MediaRepository.DEFAULT_MARQUEE_TEXT
+                                        repository.saveMarqueeTickerText(MediaRepository.DEFAULT_MARQUEE_TEXT)
+                                        onDataChanged()
                                         coroutineScope.launch {
-                                            repository.saveMarqueeTickerText(MediaRepository.DEFAULT_MARQUEE_TEXT)
                                             repository.pushMarqueeTickerToFirebase(MediaRepository.DEFAULT_MARQUEE_TEXT)
                                             onDataChanged()
                                             Toast.makeText(context, "ডিফল্ট টেক্সট রিস্টোর করা হয়েছে", Toast.LENGTH_SHORT).show()

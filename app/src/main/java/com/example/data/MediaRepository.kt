@@ -93,41 +93,76 @@ class MediaRepository(private val context: Context) {
         return if (!stored.isNullOrBlank()) stored else DEFAULT_MARQUEE_TEXT
     }
 
-    fun saveMarqueeTickerText(text: String) {
-        prefs.edit().putString("marquee_ticker_text", text).apply()
+    fun saveMarqueeTickerText(text: String, isRemoteUpdate: Boolean = false) {
+        val editor = prefs.edit().putString("marquee_ticker_text", text)
+        if (!isRemoteUpdate) {
+            editor.putLong("marquee_ticker_local_modified", System.currentTimeMillis())
+        }
+        editor.apply()
     }
 
     suspend fun pushMarqueeTickerToFirebase(text: String, url: String = getSavedFirebaseUrl()): Boolean = withContext(Dispatchers.IO) {
         var success = false
-        saveMarqueeTickerText(text)
-        // 1. RTDB
+        saveMarqueeTickerText(text, isRemoteUpdate = false)
+        val token = authManager.getValidIdToken()
+
+        // 1. RTDB Multi-endpoint Push
         if (url.isNotBlank()) {
-            try {
-                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val obj = JSONObject()
-                obj.put("marquee_ticker", text)
-                val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                val targetUrl = appendRtdbAuth("$cleanUrl/marquee_news.json")
-                val req = Request.Builder().url(targetUrl).put(body).build()
-                val resp = client.newCall(req).execute()
-                if (resp.isSuccessful) success = true
-            } catch (e: Exception) {
-                e.printStackTrace()
+            val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+            val obj = JSONObject()
+            obj.put("marquee_ticker", text)
+            obj.put("text", text)
+            obj.put("updated_at", System.currentTimeMillis())
+            val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+            val endpoints = listOf(
+                "$cleanUrl/marquee_news.json",
+                "$cleanUrl/settings/marquee_news.json",
+                "$cleanUrl/settings/ticker.json",
+                "$cleanUrl/app_config/marquee_ticker.json"
+            )
+
+            for (ep in endpoints) {
+                try {
+                    val targetUrl = appendRtdbAuth(ep)
+                    val req = Request.Builder().url(targetUrl).put(body).build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) success = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
-        // 2. Firestore
+
+        // 2. Firestore Multi-database Push
         try {
             val firestoreObj = JSONObject()
             val fields = JSONObject()
             fields.put("marquee_ticker", JSONObject().put("stringValue", text))
+            fields.put("text", JSONObject().put("stringValue", text))
+            fields.put("updated_at", JSONObject().put("integerValue", System.currentTimeMillis().toString()))
             firestoreObj.put("fields", fields)
             val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
             val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+
             for (dbId in databases) {
-                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/marquee_news?key=$FIREBASE_API_KEY"
-                val fsReq = Request.Builder().url(fsUrl).patch(fsBody).build()
-                val fsResp = client.newCall(fsReq).execute()
-                if (fsResp.isSuccessful) success = true
+                val targets = listOf(
+                    "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/marquee_news?key=$FIREBASE_API_KEY",
+                    "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/app_config/marquee_ticker?key=$FIREBASE_API_KEY"
+                )
+                for (fsUrl in targets) {
+                    try {
+                        val reqBuilder = Request.Builder().url(fsUrl).patch(fsBody)
+                        if (!token.isNullOrBlank()) {
+                            reqBuilder.header("Authorization", "Bearer $token")
+                        }
+                        val fsReq = reqBuilder.build()
+                        val fsResp = client.newCall(fsReq).execute()
+                        if (fsResp.isSuccessful) success = true
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -135,55 +170,93 @@ class MediaRepository(private val context: Context) {
         success
     }
 
-    suspend fun fetchMarqueeTickerFromFirebase(url: String = getSavedFirebaseUrl()): String? = withContext(Dispatchers.IO) {
+    suspend fun fetchMarqueeTickerFromFirebase(url: String = getSavedFirebaseUrl()): String = withContext(Dispatchers.IO) {
         var remoteText: String? = null
-        // 1. Firestore
+        val token = authManager.getValidIdToken()
+
+        // 1. Firestore Check
         val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
         for (dbId in databases) {
-            try {
-                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/marquee_news?key=$FIREBASE_API_KEY"
-                val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                val resp = client.newCall(req).execute()
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    if (body.isNotBlank() && body.startsWith("{")) {
-                        val json = JSONObject(body)
-                        val fields = json.optJSONObject("fields")
-                        if (fields != null) {
-                            remoteText = fields.optJSONObject("marquee_ticker")?.optString("stringValue")
+            if (!remoteText.isNullOrBlank()) break
+            val targets = listOf(
+                "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/marquee_news?key=$FIREBASE_API_KEY",
+                "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/app_config/marquee_ticker?key=$FIREBASE_API_KEY"
+            )
+            for (fsUrl in targets) {
+                try {
+                    val reqBuilder = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0")
+                    if (!token.isNullOrBlank()) {
+                        reqBuilder.header("Authorization", "Bearer $token")
+                    }
+                    val resp = client.newCall(reqBuilder.build()).execute()
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        if (body.isNotBlank() && body.startsWith("{")) {
+                            val json = JSONObject(body)
+                            val fields = json.optJSONObject("fields")
+                            if (fields != null) {
+                                val txt = fields.optJSONObject("marquee_ticker")?.optString("stringValue")
+                                    ?: fields.optJSONObject("text")?.optString("stringValue")
+                                if (!txt.isNullOrBlank()) {
+                                    remoteText = txt
+                                    break
+                                }
+                            }
                         }
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
-        // 2. RTDB
-        if (url.isNotBlank()) {
-            try {
-                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val targetUrl = appendRtdbAuth("$cleanUrl/marquee_news.json")
-                val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                val resp = client.newCall(req).execute()
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    if (body.isNotBlank() && body != "null" && body.startsWith("{")) {
-                        val obj = JSONObject(body)
-                        if (obj.has("marquee_ticker")) {
-                            remoteText = obj.optString("marquee_ticker")
+
+        // 2. RTDB Check
+        if (remoteText.isNullOrBlank() && url.isNotBlank()) {
+            val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+            val endpoints = listOf(
+                "$cleanUrl/marquee_news.json",
+                "$cleanUrl/settings/marquee_news.json",
+                "$cleanUrl/settings/ticker.json",
+                "$cleanUrl/app_config/marquee_ticker.json"
+            )
+            for (ep in endpoints) {
+                try {
+                    val targetUrl = appendRtdbAuth(ep)
+                    val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                    val resp = client.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string()?.trim() ?: ""
+                        if (body.isNotBlank() && body != "null") {
+                            if (body.startsWith("{")) {
+                                val obj = JSONObject(body)
+                                val txt = obj.optString("marquee_ticker", obj.optString("text", "")).trim()
+                                if (txt.isNotBlank()) {
+                                    remoteText = txt
+                                    break
+                                }
+                            } else if (body.startsWith("\"") && body.endsWith("\"") && body.length > 2) {
+                                remoteText = body.substring(1, body.length - 1)
+                                break
+                            }
                         }
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
+
+        val lastLocalModified = prefs.getLong("marquee_ticker_local_modified", 0L)
+        val isRecentLocalEdit = (System.currentTimeMillis() - lastLocalModified) < 15_000L
+
         if (!remoteText.isNullOrBlank()) {
-            saveMarqueeTickerText(remoteText!!)
-            remoteText
-        } else {
-            null
+            if (!isRecentLocalEdit) {
+                saveMarqueeTickerText(remoteText!!, isRemoteUpdate = true)
+                return@withContext remoteText!!
+            }
         }
+
+        getMarqueeTickerText()
     }
 
     // Admin Privacy / PIN Management

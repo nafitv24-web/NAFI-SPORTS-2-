@@ -420,8 +420,12 @@ fun NafiTvMainApp(
                     val remoteTicker = repository.fetchMarqueeTickerFromFirebase()
                     if (!remoteTicker.isNullOrBlank()) {
                         breakingNewsText = remoteTicker
+                    } else {
+                        breakingNewsText = repository.getMarqueeTickerText()
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    breakingNewsText = repository.getMarqueeTickerText()
+                }
 
                 // 6. App update check
                 checkForUpdates(isManualCheck = false)
@@ -569,6 +573,7 @@ fun NafiTvMainApp(
             onDataChanged = {
                 cloudStreamRepos = repository.getSavedCloudStreamRepos()
                 allMovieProviders = repository.getAllMovieProviders()
+                breakingNewsText = repository.getMarqueeTickerText()
                 refreshAllData()
             }
         )
