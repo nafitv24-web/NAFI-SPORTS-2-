@@ -1,15 +1,20 @@
 package com.example.player
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
+import android.util.Rational
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
@@ -288,6 +293,66 @@ fun VideoPlayerScreen(
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var showQuickChannelDrawer by remember { mutableStateOf(false) }
+
+    var isInPipMode by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity != null) {
+                activity.isInPictureInPictureMode
+            } else false
+        )
+    }
+
+    DisposableEffect(activity) {
+        if (activity is androidx.activity.ComponentActivity) {
+            val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+                isInPipMode = info.isInPictureInPictureMode
+                if (info.isInPictureInPictureMode) {
+                    showControls = false
+                    showQuickChannelDrawer = false
+                }
+            }
+            activity.addOnPictureInPictureModeChangedListener(listener)
+            onDispose {
+                activity.removeOnPictureInPictureModeChangedListener(listener)
+            }
+        } else {
+            onDispose {}
+        }
+    }
+
+    fun enterPictureInPictureMode() {
+        if (activity != null) {
+            try {
+                showControls = false
+                showQuickChannelDrawer = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val aspectRatio = Rational(16, 9)
+                    val params = PictureInPictureParams.Builder()
+                        .setAspectRatio(aspectRatio)
+                        .build()
+                    activity.enterPictureInPictureMode(params)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    @Suppress("DEPRECATION")
+                    activity.enterPictureInPictureMode()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "PiP মোড এই ডিভাইসে সমর্থিত নয়", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    LaunchedEffect(isPlaying) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
+            try {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .setAutoEnterEnabled(isPlaying)
+                    .build()
+                activity.setPictureInPictureParams(params)
+            } catch (_: Exception) {}
+        }
+    }
 
     // TV Remote OSD & Number Input
     var showChannelOsd by remember { mutableStateOf(false) }
@@ -1357,6 +1422,52 @@ fun VideoPlayerScreen(
         )
     }
 
+    // Picture-in-Picture (PiP) Window Layout - Clean, clutter-free floating player
+    if (isInPipMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            if (useWebPlayer) {
+                WebStreamPlayer(
+                    embedUrl = currentUrl,
+                    title = currentMedia.title,
+                    modifier = Modifier.fillMaxSize(),
+                    onDirectStreamDetected = { directStream: String ->
+                        currentUrl = directStream
+                        forceWebEngine = false
+                    },
+                    onClose = {}
+                )
+            } else {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            this.resizeMode = resizeMode
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            setKeepContentOnPlayerReset(true)
+                            keepScreenOn = true
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        }
+                    },
+                    update = { playerView ->
+                        playerView.player = exoPlayer
+                        playerView.resizeMode = resizeMode
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+        return
+    }
+
     if (isFullscreen) {
         // FULLSCREEN LANDSCAPE VIEW (Edge-to-Edge)
         Box(
@@ -1609,6 +1720,7 @@ fun VideoPlayerScreen(
                             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                         }
                     },
+                    onEnterPip = { enterPictureInPictureMode() },
                     onToggleFullscreen = { toggleFullscreen() },
                     onToggleChannelDrawer = { showQuickChannelDrawer = !showQuickChannelDrawer },
                     onClose = { toggleFullscreen() }
@@ -2081,6 +2193,22 @@ fun VideoPlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        // Picture-in-Picture (PiP) Button
+                        IconButton(
+                            onClick = { enterPictureInPictureMode() },
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E293B).copy(alpha = 0.85f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PictureInPictureAlt,
+                                contentDescription = "PiP Mode",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+
                         // Quality quick badge
                         Surface(
                             shape = RoundedCornerShape(6.dp),
@@ -2428,6 +2556,18 @@ fun VideoPlayerScreen(
                                         contentDescription = "Aspect Ratio",
                                         tint = Color.White,
                                         modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                // Picture in Picture (PiP)
+                                IconButton(
+                                    onClick = { enterPictureInPictureMode() },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PictureInPictureAlt,
+                                        contentDescription = "Picture in Picture",
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                                 // Fullscreen Toggle (Auto Rotates to Landscape)
@@ -4051,6 +4191,7 @@ private fun FullscreenControlsOverlay(
     onPrevChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onToggleAspect: () -> Unit,
+    onEnterPip: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     onToggleChannelDrawer: () -> Unit,
     onClose: () -> Unit
@@ -4172,6 +4313,16 @@ private fun FullscreenControlsOverlay(
                     onClick = onToggleAspect,
                     icon = Icons.Rounded.AspectRatio,
                     contentDescription = "Aspect Ratio",
+                    size = 38.dp,
+                    iconSize = 22.dp
+                )
+
+                // Picture-in-Picture (PiP)
+                TvPlayerIconButton(
+                    onClick = onEnterPip,
+                    icon = Icons.Rounded.PictureInPictureAlt,
+                    contentDescription = "Picture in Picture",
+                    tint = Color(0xFF00E5FF),
                     size = 38.dp,
                     iconSize = 22.dp
                 )
