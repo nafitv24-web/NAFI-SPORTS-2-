@@ -228,19 +228,113 @@ class MediaRepository(private val context: Context) {
         prefs.edit().remove("deleted_ids").apply()
     }
 
-    // No hardcoded sample sports - strictly loads from Sports M3U, Firebase RTDB & Admin Added streams
+    // Fast Local Disk/Memory Cache for Live TV, Sports & Movies (0ms instant loading on startup)
+    fun getCachedLiveTvChannels(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val jsonStr = prefs.getString("cached_live_tv_channels", "[]") ?: "[]"
+        val list = mutableListOf<MediaItem>()
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.optString("id", "c_$i")
+                if (!deleted.contains(id)) {
+                    list.add(parseMediaFromJsonObj(id, obj))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveCachedLiveTvChannels(list: List<MediaItem>) {
+        try {
+            val jsonArray = JSONArray()
+            list.forEach { item ->
+                jsonArray.put(serializeMediaToJsonObj(item))
+            }
+            prefs.edit().putString("cached_live_tv_channels", jsonArray.toString()).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCachedSportsMatches(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val jsonStr = prefs.getString("cached_sports_matches", "[]") ?: "[]"
+        val list = mutableListOf<MediaItem>()
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.optString("id", "s_$i")
+                if (!deleted.contains(id)) {
+                    list.add(parseMediaFromJsonObj(id, obj))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveCachedSportsMatches(list: List<MediaItem>) {
+        try {
+            val jsonArray = JSONArray()
+            list.forEach { item ->
+                jsonArray.put(serializeMediaToJsonObj(item))
+            }
+            prefs.edit().putString("cached_sports_matches", jsonArray.toString()).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCachedMoviesList(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val jsonStr = prefs.getString("cached_movies_list", "[]") ?: "[]"
+        val list = mutableListOf<MediaItem>()
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.optString("id", "m_$i")
+                if (!deleted.contains(id)) {
+                    list.add(parseMediaFromJsonObj(id, obj))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveCachedMoviesList(list: List<MediaItem>) {
+        try {
+            val jsonArray = JSONArray()
+            list.forEach { item ->
+                jsonArray.put(serializeMediaToJsonObj(item))
+            }
+            prefs.edit().putString("cached_movies_list", jsonArray.toString()).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Loads cached sports matches or empty list
     fun getInitialSports(): List<MediaItem> {
-        return emptyList()
+        return getCachedSportsMatches()
     }
 
-    // No hardcoded sample TV channels - strictly loads from Live TV M3U (Nafitv24.m3u), Firebase RTDB & Admin Added channels
+    // Loads cached Live TV channels or empty list
     fun getInitialLiveTv(): List<MediaItem> {
-        return emptyList()
+        return getCachedLiveTvChannels()
     }
 
-    // No hardcoded sample movies - strictly loads from Movies M3U, Firebase RTDB & Admin Added movies
+    // Loads cached movies or empty list
     fun getInitialMoviesSeries(): List<MediaItem> {
-        return emptyList()
+        return getCachedMoviesList()
     }
 
     // Custom streams saved locally in SharedPreferences

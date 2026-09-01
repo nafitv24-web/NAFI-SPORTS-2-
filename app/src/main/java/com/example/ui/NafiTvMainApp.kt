@@ -78,6 +78,7 @@ import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
 import com.example.model.NotificationType
+import com.example.ui.components.NafiLogoLoadingView
 import com.example.model.PlaylistInfo
 import com.example.model.StreamServer
 import com.example.player.VideoPlayerScreen
@@ -250,7 +251,7 @@ fun NafiTvMainApp(
     var m3uList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var favoriteIds by remember { mutableStateOf(repository.getFavoriteIds()) }
     var breakingNewsText by remember { mutableStateOf(repository.getMarqueeTickerText()) }
-    var isRefreshing by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(sportsList.isEmpty() && liveTvList.isEmpty() && moviesList.isEmpty()) }
 
     fun checkForUpdates(isManualCheck: Boolean = false) {
         coroutineScope.launch {
@@ -387,6 +388,11 @@ fun NafiTvMainApp(
                 moviesList = (customMov + fbMov + parsedMoviesM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
+
+                // Save updated fetched items to persistent cache for instant loading next time
+                repository.saveCachedSportsMatches(sportsList)
+                repository.saveCachedLiveTvChannels(liveTvList)
+                repository.saveCachedMoviesList(moviesList)
 
                 m3uList = (parsedSportsM3u + parsedTvM3u + parsedMoviesM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
@@ -888,6 +894,7 @@ fun NafiTvMainApp(
                             AppTab.EVENTS -> EventsScreen(
                                 sports = sportsList.distinctBy { it.id },
                                 favoriteIds = favoriteIds,
+                                isLoading = isRefreshing,
                                 isTvMode = isTvMode,
                                 onSelectMedia = {
                                     selectedMediaItem = it
@@ -906,6 +913,7 @@ fun NafiTvMainApp(
                             LiveTvTabScreen(
                                 channels = mergedTvList,
                                 favoriteIds = favoriteIds,
+                                isLoading = isRefreshing,
                                 isTvMode = isTvMode,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
@@ -922,6 +930,7 @@ fun NafiTvMainApp(
                             AppTab.MOVIES -> MoviesTabScreen(
                                 movies = moviesList,
                                 favoriteIds = favoriteIds,
+                                isLoading = isRefreshing,
                                 isTvMode = isTvMode,
                                 onSelectMedia = { item ->
                                     selectedMediaItem = item
@@ -1231,6 +1240,7 @@ fun NafiTvMainApp(
                         AppTab.EVENTS -> EventsScreen(
                             sports = sportsList.distinctBy { it.id },
                             favoriteIds = favoriteIds,
+                            isLoading = isRefreshing,
                             isTvMode = isTvMode,
                             onSelectMedia = {
                                 selectedMediaItem = it
@@ -1249,6 +1259,7 @@ fun NafiTvMainApp(
                             LiveTvTabScreen(
                                 channels = mergedTvList,
                                 favoriteIds = favoriteIds,
+                                isLoading = isRefreshing,
                                 isTvMode = isTvMode,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
@@ -1265,6 +1276,7 @@ fun NafiTvMainApp(
                         AppTab.MOVIES -> MoviesTabScreen(
                             movies = moviesList,
                             favoriteIds = favoriteIds,
+                            isLoading = isRefreshing,
                             isTvMode = isTvMode,
                             onSelectMedia = { item ->
                                 selectedMediaItem = item
@@ -2687,6 +2699,7 @@ fun formatEventCountdownString(seconds: Long): String {
 fun EventsScreen(
     sports: List<MediaItem>,
     favoriteIds: Set<String>,
+    isLoading: Boolean = false,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit,
     onToggleFavorite: (String) -> Unit
@@ -2830,7 +2843,13 @@ fun EventsScreen(
         }
 
         // MATCH LISTING
-        if (filteredSports.isEmpty()) {
+        if (isLoading && sports.isEmpty()) {
+            NafiLogoLoadingView(
+                title = "লাইভ ম্যাচ ও ইভেন্ট লোড হচ্ছে...",
+                subtitle = "অনুগ্রহ করে অপেক্ষা করুন, খেলার লিংক আপডেট হচ্ছে...",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (filteredSports.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

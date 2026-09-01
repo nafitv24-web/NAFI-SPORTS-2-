@@ -29,6 +29,8 @@ import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MediaServer
 
+import com.example.ui.components.NafiLogoLoadingView
+
 fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     val grouped = linkedMapOf<String, MutableList<MediaItem>>()
     for (item in channels) {
@@ -52,6 +54,7 @@ fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
 fun LiveTvTabScreen(
     channels: List<MediaItem>,
     favoriteIds: Set<String>,
+    isLoading: Boolean = false,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -123,7 +126,7 @@ fun LiveTvTabScreen(
             items(categories) { cat ->
                 val isSelected = selectedCategory == cat
                 val label = when (cat) {
-                    "ALL" -> "সকল চ্যানেল (${channels.size})"
+                    "ALL" -> if (isLoading && channels.isEmpty()) "সকল চ্যানেল (লোড হচ্ছে...)" else "সকল চ্যানেল (${channels.size})"
                     "FAVORITE" -> "⭐ প্রিয় (${favoriteIds.size})"
                     else -> cat
                 }
@@ -149,8 +152,16 @@ fun LiveTvTabScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Channels Grid
-        if (filteredChannels.isEmpty()) {
+        // Channels Grid or Loading View
+        if (isLoading && channels.isEmpty()) {
+            NafiLogoLoadingView(
+                title = "লাইভ টিভি চ্যানেল লোড হচ্ছে...",
+                subtitle = "অনুগ্রহ করে অপেক্ষা করুন, টিভি চ্যানেল ও সার্ভার প্রস্তুত হচ্ছে...",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
+        } else if (filteredChannels.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

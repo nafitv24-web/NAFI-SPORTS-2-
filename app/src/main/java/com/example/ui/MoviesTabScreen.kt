@@ -71,10 +71,13 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.MediaItem
 
+import com.example.ui.components.NafiLogoLoadingView
+
 @Composable
 fun MoviesTabScreen(
     movies: List<MediaItem>,
     favoriteIds: Set<String>,
+    isLoading: Boolean = false,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -271,7 +274,44 @@ fun MoviesTabScreen(
         }
 
         // MAIN CONTENT AREA
-        if (searchQuery.isBlank() && selectedCategory == "All") {
+        if (isLoading && movies.isEmpty()) {
+            NafiLogoLoadingView(
+                title = "মুভি ও ওয়েব সিরিজ লোড হচ্ছে...",
+                subtitle = "অনুগ্রহ করে অপেক্ষা করুন, মুভি ক্যাটালগ প্রস্তুত হচ্ছে...",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (movies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Movie,
+                        contentDescription = null,
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(54.dp)
+                    )
+                    Text(
+                        text = "কোনো মুভি বা সিরিজ পাওয়া যায়নি",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "মুভি এম৩ইউ অথবা ক্লাউড থেকে লোড করা হচ্ছে না। মেনু থেকে চেক করুন।",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else if (searchQuery.isBlank() && selectedCategory == "All") {
             // HOME / ALL VIEW: FEATURED BANNER + CATEGORY CAROUSELS (Matching Screenshot 1)
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
