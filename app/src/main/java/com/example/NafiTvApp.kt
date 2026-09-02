@@ -30,11 +30,18 @@ class NafiTvApp : Application(), ImageLoaderFactory {
                 // Background thread error (e.g. MediaCodec, DNS resolution, Coil decoding) -> ignore & recover
                 Log.w("NafiTvApp", "Suppressed background thread exception: ${throwable.message}")
             } else {
-                // Try to catch non-fatal runtime exceptions
-                if (throwable is NullPointerException || throwable is IndexOutOfBoundsException || throwable is IllegalStateException) {
-                    Log.w("NafiTvApp", "Recovered from main thread UI exception: ${throwable.message}")
-                } else {
-                    defaultHandler?.uncaughtException(thread, throwable)
+                Log.w("NafiTvApp", "Suppressed main thread uncaught exception: ${throwable.message}")
+            }
+        }
+
+        // 2. Cockroach-pattern Main Looper watchdog: Keeps the UI loop alive even if a transient
+        // render/codec error or NPE occurs during playback or recomposition
+        android.os.Handler(Looper.getMainLooper()).post {
+            while (true) {
+                try {
+                    Looper.loop()
+                } catch (t: Throwable) {
+                    Log.e("NafiTvApp", "Caught exception in Main Looper - preventing app exit", t)
                 }
             }
         }
@@ -47,14 +54,8 @@ class NafiTvApp : Application(), ImageLoaderFactory {
     }
 
     private fun buildOptimizedImageLoader(): ImageLoader {
-        val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-
         return ImageLoader.Builder(this)
-            .okHttpClient(okHttpClient)
+            .okHttpClient(sharedOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.15) // Safe 15% memory limit prevents Low Memory Killer (LMK)
@@ -104,5 +105,14 @@ class NafiTvApp : Application(), ImageLoaderFactory {
     companion object {
         lateinit var instance: NafiTvApp
             private set
+
+        val sharedOkHttpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .connectionPool(okhttp3.ConnectionPool(8, 2, TimeUnit.MINUTES))
+                .retryOnConnectionFailure(true)
+                .build()
+        }
     }
 }

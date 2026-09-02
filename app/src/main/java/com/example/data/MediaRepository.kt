@@ -18,6 +18,7 @@ import com.example.model.NotificationType
 import com.example.model.PlaylistInfo
 import com.example.model.StreamServer
 import com.example.util.NotificationHelper
+import com.example.NafiTvApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -43,11 +44,14 @@ class MediaRepository(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("nafitv_prefs", Context.MODE_PRIVATE)
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    private val client: OkHttpClient = NafiTvApp.sharedOkHttpClient
+
+    private val repositoryScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
+    )
+
+    private var lastPresenceTimestamp = 0L
+    private var lastPresenceActivity: String = ""
 
     val dexPluginManager: com.example.cloudstream.DexPluginManager =
         com.example.cloudstream.DexPluginManager(context, client)
@@ -5196,7 +5200,7 @@ class MediaRepository(private val context: Context) {
         val cachedIsp = prefs.getString("cached_user_isp", null)
         val cachedIp = prefs.getString("cached_user_ip", null)
 
-        if (!cachedCity.isNullOrBlank() && !cachedCountry.isNullOrBlank() && (now - lastGeoCheck < 2 * 3600 * 1000L)) {
+        if (!cachedCity.isNullOrBlank() && !cachedCountry.isNullOrBlank() && (now - lastGeoCheck < 24 * 3600 * 1000L)) {
             val locName = "$cachedCity, $cachedCountry"
             return mapOf(
                 "location" to locName,
@@ -5226,57 +5230,59 @@ class MediaRepository(private val context: Context) {
                     .url(endpoint)
                     .header("User-Agent", "NAFITV24/2.5.6 (Android)")
                     .build()
-                val resp = client.newCall(geoReq).execute()
-                if (resp.isSuccessful) {
-                    val bodyStr = resp.body?.string()?.trim() ?: ""
-                    if (bodyStr.startsWith("{")) {
-                        val root = JSONObject(bodyStr)
-                        if (endpoint.contains("freeipapi")) {
-                            val c = root.optString("cityName", "").trim()
-                            val cn = root.optString("countryName", "").trim()
-                            val cc = root.optString("countryCode", "").trim()
-                            val qIp = root.optString("ipAddress", "").trim()
-                            if (cn.isNotBlank() && cn != "-") {
-                                city = if (c.isNotBlank() && c != "-") c else "ঢাকা"
-                                country = cn
-                                countryCode = cc.ifBlank { "BD" }
-                                ip = qIp
-                                break
-                            }
-                        } else if (endpoint.contains("ipapi.co")) {
-                            val c = root.optString("city", "").trim()
-                            val cn = root.optString("country_name", "").trim()
-                            val cc = root.optString("country_code", "").trim()
-                            val org = root.optString("org", "").trim()
-                            val qIp = root.optString("ip", "").trim()
-                            if (cn.isNotBlank()) {
-                                city = if (c.isNotBlank()) c else "ঢাকা"
-                                country = cn
-                                countryCode = cc.ifBlank { "BD" }
-                                isp = org
-                                ip = qIp
-                                break
-                            }
-                        } else if (endpoint.contains("ipwho.is")) {
-                            if (root.optBoolean("success", true)) {
+                client.newCall(geoReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val bodyStr = resp.body?.string()?.trim() ?: ""
+                        if (bodyStr.startsWith("{")) {
+                            val root = JSONObject(bodyStr)
+                            if (endpoint.contains("freeipapi")) {
+                                val c = root.optString("cityName", "").trim()
+                                val cn = root.optString("countryName", "").trim()
+                                val cc = root.optString("countryCode", "").trim()
+                                val qIp = root.optString("ipAddress", "").trim()
+                                if (cn.isNotBlank() && cn != "-") {
+                                    city = if (c.isNotBlank() && c != "-") c else "ঢাকা"
+                                    country = cn
+                                    countryCode = cc.ifBlank { "BD" }
+                                    ip = qIp
+                                    return@use
+                                }
+                            } else if (endpoint.contains("ipapi.co")) {
                                 val c = root.optString("city", "").trim()
-                                val cn = root.optString("country", "").trim()
+                                val cn = root.optString("country_name", "").trim()
                                 val cc = root.optString("country_code", "").trim()
-                                val connObj = root.optJSONObject("connection")
-                                val connIsp = connObj?.optString("isp", "") ?: ""
+                                val org = root.optString("org", "").trim()
                                 val qIp = root.optString("ip", "").trim()
                                 if (cn.isNotBlank()) {
                                     city = if (c.isNotBlank()) c else "ঢাকা"
                                     country = cn
                                     countryCode = cc.ifBlank { "BD" }
-                                    isp = connIsp
+                                    isp = org
                                     ip = qIp
-                                    break
+                                    return@use
+                                }
+                            } else if (endpoint.contains("ipwho.is")) {
+                                if (root.optBoolean("success", true)) {
+                                    val c = root.optString("city", "").trim()
+                                    val cn = root.optString("country", "").trim()
+                                    val cc = root.optString("country_code", "").trim()
+                                    val connObj = root.optJSONObject("connection")
+                                    val connIsp = connObj?.optString("isp", "") ?: ""
+                                    val qIp = root.optString("ip", "").trim()
+                                    if (cn.isNotBlank()) {
+                                        city = if (c.isNotBlank()) c else "ঢাকা"
+                                        country = cn
+                                        countryCode = cc.ifBlank { "BD" }
+                                        isp = connIsp
+                                        ip = qIp
+                                        return@use
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                if (country.isNotBlank()) break
             } catch (_: Exception) {}
         }
 
@@ -5326,8 +5332,14 @@ class MediaRepository(private val context: Context) {
 
     fun recordUserPresence(currentActivity: String = "ব্রাউজিং") {
         try {
-            val deviceId = getOrCreateDeviceId()
             val now = System.currentTimeMillis()
+            if (currentActivity == lastPresenceActivity && (now - lastPresenceTimestamp < 90_000L)) {
+                return
+            }
+            lastPresenceTimestamp = now
+            lastPresenceActivity = currentActivity
+
+            val deviceId = getOrCreateDeviceId()
             val isFirstInstall = !prefs.contains("app_installed_at_timestamp")
             if (isFirstInstall) {
                 prefs.edit().putLong("app_installed_at_timestamp", now).apply()
@@ -5344,9 +5356,8 @@ class MediaRepository(private val context: Context) {
             val versionCode = com.example.BuildConfig.VERSION_CODE
             val netType = detectNetworkType()
 
-            // Fire and forget background sync to Firebase Realtime Database
-            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-            GlobalScope.launch(Dispatchers.IO) {
+            // Background sync to Firebase Realtime Database with managed lifecycle scope
+            repositoryScope.launch {
                 try {
                     val locInfo = detectDeviceLocation()
                     val city = locInfo["city"] ?: "ঢাকা"
@@ -5385,7 +5396,7 @@ class MediaRepository(private val context: Context) {
                             .url(activeTargetUrl)
                             .put(activeBody)
                             .build()
-                        client.newCall(activeReq).execute()
+                        try { client.newCall(activeReq).execute().close() } catch (_: Exception) {}
 
                         // 2. Register / Update in permanent lifetime users index (all_users)
                         val userObj = JSONObject().apply {
@@ -5406,7 +5417,7 @@ class MediaRepository(private val context: Context) {
                             .url(allTargetUrl)
                             .put(userBody)
                             .build()
-                        client.newCall(userReq).execute()
+                        try { client.newCall(userReq).execute().close() } catch (_: Exception) {}
                     }
                 } catch (_: Exception) {
                     // Ignore transient network errors

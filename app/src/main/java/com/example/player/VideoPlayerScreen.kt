@@ -666,13 +666,15 @@ fun VideoPlayerScreen(
 
                 // 2. FFmpeg Audio Renderer for MP2, MP1, AC3, EAC3, TrueHD, DTS, Opus, Vorbis, FLAC, ALAC, etc.
                 try {
-                    out.add(
-                        androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer(
-                            eventHandler,
-                            eventListener,
-                            audioSink
+                    if (androidx.media3.decoder.ffmpeg.FfmpegLibrary.isAvailable()) {
+                        out.add(
+                            androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer(
+                                eventHandler,
+                                eventListener,
+                                audioSink
+                            )
                         )
-                    )
+                    }
                 } catch (t: Throwable) {
                     android.util.Log.w("VideoPlayer", "FFmpeg audio renderer init fallback", t)
                 }
@@ -718,14 +720,14 @@ fun VideoPlayerScreen(
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, androidx.media3.common.C.DEFAULT_BUFFER_SEGMENT_SIZE))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isLiveStream) 8000 else 15000,
-                /* maxBufferMs = */ if (isLiveStream) 25000 else 45000,
+                /* minBufferMs = */ if (isLiveStream) 5000 else 10000,
+                /* maxBufferMs = */ if (isLiveStream) 15000 else 30000,
                 /* bufferForPlaybackMs = */ if (isLiveStream) 500 else 800,
-                /* bufferForPlaybackAfterRebufferMs = */ if (isLiveStream) 1200 else 2000
+                /* bufferForPlaybackAfterRebufferMs = */ if (isLiveStream) 1000 else 1800
             )
-            .setPrioritizeTimeOverSizeThresholds(false)
-            .setBackBuffer(if (isLiveStream) 0 else 10000, false)
-            .setTargetBufferBytes(if (isLiveStream) 15 * 1024 * 1024 else 30 * 1024 * 1024)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(0, false)
+            .setTargetBufferBytes(if (isLiveStream) 8 * 1024 * 1024 else 16 * 1024 * 1024)
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
@@ -741,7 +743,7 @@ fun VideoPlayerScreen(
             .setSeekParameters(androidx.media3.exoplayer.SeekParameters.EXACT)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
+            .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
             .build().apply {
                 volume = if (isMuted) 0f else 1.0f
                 val finalMediaUri = when {
@@ -1454,7 +1456,7 @@ fun VideoPlayerScreen(
                             player = exoPlayer
                             useController = false
                             this.resizeMode = resizeMode
-                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            setShutterBackgroundColor(android.graphics.Color.BLACK)
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             setKeepContentOnPlayerReset(true)
                             keepScreenOn = true
@@ -1567,7 +1569,7 @@ fun VideoPlayerScreen(
                             player = exoPlayer
                             useController = false
                             this.resizeMode = resizeMode
-                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            setShutterBackgroundColor(android.graphics.Color.BLACK)
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             setKeepContentOnPlayerReset(true)
                             keepScreenOn = true
@@ -2132,7 +2134,7 @@ fun VideoPlayerScreen(
                                 player = exoPlayer
                                 useController = false
                                 this.resizeMode = resizeMode
-                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                setShutterBackgroundColor(android.graphics.Color.BLACK)
                                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                                 setKeepContentOnPlayerReset(true)
                                 keepScreenOn = true
