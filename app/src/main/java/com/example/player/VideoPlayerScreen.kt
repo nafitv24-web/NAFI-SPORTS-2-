@@ -698,6 +698,8 @@ fun VideoPlayerScreen(
             setParameters(
                 buildUponParameters()
                     .setExceedRendererCapabilitiesIfNecessary(true)
+                    .setMaxVideoSize(1920, 1080)
+                    .setMaxVideoFrameRate(60)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedChannelCountAdaptiveness(true)
                     .setAllowAudioMixedSampleRateAdaptiveness(true)
