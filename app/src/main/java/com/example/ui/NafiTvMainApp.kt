@@ -261,133 +261,159 @@ fun NafiTvMainApp(
         }
     }
 
-    // Auto-fetch data (Firebase Firestore + RTDB + Sports M3U + TV M3U + Playlists + App Updates)
+    // Auto-fetch data: Sequential Loading (Events -> TV Channels -> Movies -> Playlists & Cloud)
     fun refreshAllData() {
         coroutineScope.launch {
             isRefreshing = true
             try {
                 val deleted = repository.getDeletedIds()
 
-                // 0. Fetch latest remote App Config in background
-                launch {
-                    try {
-                        repository.fetchAppConfigFromFirebase()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                // Step 0: Sync Remote App Config & Playlists immediately so latest Admin Panel URLs are in place
+                try {
+                    repository.fetchAppConfigFromFirebase()
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                // 1. Fetch Sports independently and update UI immediately
-                launch {
-                    try {
-                        val tapmad = try { repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) } } catch (_: Exception) { emptyList() }
-                        val sportsM3uUrl = repository.getSavedSportsM3uUrl()
-                        val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
-                            try {
-                                repository.parseM3uFromUrl(sportsM3uUrl).map {
-                                    it.copy(
-                                        type = MediaType.LIVE_EVENT,
-                                        isLive = true,
-                                        status = if (it.status.isBlank()) "LIVE" else it.status
-                                    )
-                                }.filterNot { deleted.contains(it.id) }
-                            } catch (_: Exception) { emptyList() }
-                        } else emptyList()
+                val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
+                val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
+                val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
+                val fbPlaylists = try { repository.fetchPlaylistsFromFirebase() } catch (_: Exception) { emptyList() }
+                val allPlaylists = (adminPlaylists + userPlaylists + fbPlaylists + initialPlaylists)
+                    .distinctBy { it.id }
+                    .filterNot { deleted.contains(it.id) }
+                adminPlaylistsList = allPlaylists
+                playlistsList = allPlaylists
+                val playlistIds = allPlaylists.map { it.id }.toSet()
 
-                        val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }
-                        val updated = (customSports + tapmad + sportsM3u).filterNot { it.id.startsWith("pl_") }.distinctBy { it.id }
-                        if (updated.isNotEmpty()) {
-                            sportsList = (updated + sportsList.filter { it.type == MediaType.LIVE_EVENT && !updated.any { u -> u.id == it.id } }).distinctBy { it.id }
-                            repository.saveCachedSportsMatches(sportsList)
+                // -------------------------------------------------------------
+                // ধাপ ১: প্রথমে Events / লাইভ খেলাধুলা লোড হবে (First: Events)
+                // -------------------------------------------------------------
+                try {
+                    val sportsM3uUrl = repository.getSavedSportsM3uUrl()
+                    val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
+                        try {
+                            repository.parseM3uFromUrl(sportsM3uUrl).map {
+                                it.copy(
+                                    type = MediaType.LIVE_EVENT,
+                                    isLive = true,
+                                    status = if (it.status.isBlank()) "LIVE" else it.status
+                                )
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            emptyList()
                         }
+                    } else emptyList()
+
+                    val tapmad = try {
+                        repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        emptyList()
                     }
+
+                    val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }
+                    val updatedSports = (customSports + tapmad + sportsM3u)
+                        .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
+                        .distinctBy { it.id }
+
+                    if (updatedSports.isNotEmpty()) {
+                        sportsList = updatedSports
+                        repository.saveCachedSportsMatches(sportsList)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                // 2. Fetch Live TV independently and update UI immediately
-                launch {
-                    try {
-                        val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
-                        if (liveTvM3uUrl.isNotBlank()) {
-                            val tvM3u = try {
-                                repository.parseM3uFromUrl(liveTvM3uUrl).map { it.copy(type = MediaType.LIVE_TV) }.filterNot { deleted.contains(it.id) }
-                            } catch (_: Exception) { emptyList() }
-                            val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
-                            val updated = (customTv + tvM3u).filterNot { it.id.startsWith("pl_") }.distinctBy { it.id }
-                            if (updated.isNotEmpty()) {
-                                liveTvList = (updated + liveTvList.filter { !updated.any { u -> u.id == it.id } }).distinctBy { it.id }
-                                repository.saveCachedLiveTvChannels(liveTvList)
-                            }
+                // -------------------------------------------------------------
+                // ধাপ ২: তারপর টিভি চ্যানেল লোড হবে (Second: TV Channels)
+                // -------------------------------------------------------------
+                try {
+                    val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
+                    val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
+                        try {
+                            repository.parseM3uFromUrl(liveTvM3uUrl).map {
+                                it.copy(type = MediaType.LIVE_TV)
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            emptyList()
                         }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    } else emptyList()
+
+                    val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
+                    val updatedTv = (customTv + tvM3u)
+                        .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
+                        .distinctBy { it.id }
+
+                    if (updatedTv.isNotEmpty()) {
+                        liveTvList = updatedTv
+                        repository.saveCachedLiveTvChannels(liveTvList)
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                // 3. Fetch Movies independently and update UI immediately
-                launch {
-                    try {
-                        val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
-                        if (moviesM3uUrl.isNotBlank()) {
-                            val moviesM3u = try {
-                                repository.parseM3uFromUrl(moviesM3uUrl).map {
-                                    it.copy(
-                                        type = MediaType.MOVIE,
-                                        tournament = "NAFI_OTT",
-                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
-                                    )
-                                }.filterNot { deleted.contains(it.id) }
-                            } catch (_: Exception) { emptyList() }
-                            val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                            val updated = (customMov + moviesM3u).filterNot { it.id.startsWith("pl_") }.distinctBy { it.id }
-                            if (updated.isNotEmpty()) {
-                                moviesList = (updated + moviesList.filter { !updated.any { u -> u.id == it.id } }).distinctBy { it.id }
-                                repository.saveCachedMoviesList(moviesList)
-                            }
+                // -------------------------------------------------------------
+                // ধাপ ৩: তার পর মুভি ও সিরিজ লোড হবে (Third: Movies)
+                // -------------------------------------------------------------
+                try {
+                    val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
+                    val moviesM3u = if (moviesM3uUrl.isNotBlank()) {
+                        try {
+                            repository.parseM3uFromUrl(moviesM3uUrl).map {
+                                it.copy(
+                                    type = MediaType.MOVIE,
+                                    tournament = "NAFI_OTT",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                )
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            emptyList()
                         }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    } else emptyList()
+
+                    val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
+                    val updatedMov = (customMov + moviesM3u)
+                        .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
+                        .distinctBy { it.id }
+
+                    if (updatedMov.isNotEmpty()) {
+                        moviesList = updatedMov
+                        repository.saveCachedMoviesList(moviesList)
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                // 4. Fetch Firebase items, Playlists & Notifications
-                launch {
-                    try {
-                        val fbItems = try { repository.fetchFromFirebase().filterNot { deleted.contains(it.id) } } catch (_: Exception) { emptyList() }
-                        val fbPlaylists = try { repository.fetchPlaylistsFromFirebase() } catch (_: Exception) { emptyList() }
-                        try { repository.fetchRemoteNotifications() } catch (_: Exception) {}
-                        notificationsList = repository.getStoredNotifications()
+                // -------------------------------------------------------------
+                // ধাপ ৪: অতিরিক্ত Firebase আইটেম, নোটিফিকেশন ও ক্লাউডস্ট্রিম
+                // -------------------------------------------------------------
+                try {
+                    val fbItems = try { repository.fetchFromFirebase().filterNot { deleted.contains(it.id) } } catch (_: Exception) { emptyList() }
+                    val fbSports = fbItems.filter { it.type == MediaType.LIVE_EVENT }
+                    val fbTv = fbItems.filter { it.type == MediaType.LIVE_TV }
+                    val fbMov = fbItems.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
 
-                        val fbSports = fbItems.filter { it.type == MediaType.LIVE_EVENT }
-                        val fbTv = fbItems.filter { it.type == MediaType.LIVE_TV }
-                        val fbMov = fbItems.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
-
-                        if (fbSports.isNotEmpty()) {
-                            sportsList = (sportsList + fbSports).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                            repository.saveCachedSportsMatches(sportsList)
-                        }
-                        if (fbTv.isNotEmpty()) {
-                            liveTvList = (liveTvList + fbTv).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                            repository.saveCachedLiveTvChannels(liveTvList)
-                        }
-                        if (fbMov.isNotEmpty()) {
-                            moviesList = (moviesList + fbMov).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                            repository.saveCachedMoviesList(moviesList)
-                        }
-
-                        val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
-                        val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
-                        val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
-                        val allPlaylists = (adminPlaylists + userPlaylists + fbPlaylists + initialPlaylists)
-                            .distinctBy { it.id }
-                            .filterNot { deleted.contains(it.id) }
-
-                        adminPlaylistsList = allPlaylists
-                        playlistsList = allPlaylists
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    if (fbSports.isNotEmpty()) {
+                        sportsList = (sportsList + fbSports).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        repository.saveCachedSportsMatches(sportsList)
                     }
+                    if (fbTv.isNotEmpty()) {
+                        liveTvList = (liveTvList + fbTv).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        repository.saveCachedLiveTvChannels(liveTvList)
+                    }
+                    if (fbMov.isNotEmpty()) {
+                        moviesList = (moviesList + fbMov).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        repository.saveCachedMoviesList(moviesList)
+                    }
+
+                    try { repository.fetchRemoteNotifications() } catch (_: Exception) {}
+                    notificationsList = repository.getStoredNotifications()
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
                 // 5. Custom streams & favorites
@@ -395,7 +421,7 @@ fun NafiTvMainApp(
                 customList = customStreams
                 favoriteIds = repository.getFavoriteIds()
 
-                // 5. Sync CloudStream repositories & providers from Firebase
+                // 6. Sync CloudStream repositories & providers from Firebase
                 try {
                     val fbRepos = repository.fetchCloudStreamReposFromFirebase()
                     if (fbRepos.isNotEmpty()) {
@@ -420,7 +446,7 @@ fun NafiTvMainApp(
                     breakingNewsText = repository.getMarqueeTickerText()
                 }
 
-                // 6. App update check
+                // 7. App update check
                 checkForUpdates(isManualCheck = false)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -567,6 +593,11 @@ fun NafiTvMainApp(
                 cloudStreamRepos = repository.getSavedCloudStreamRepos()
                 allMovieProviders = repository.getAllMovieProviders()
                 breakingNewsText = repository.getMarqueeTickerText()
+                val initial = repository.getInitialPlaylists()
+                val adminPl = repository.getAdminPlaylists().map { it.copy(isAdmin = true, isReadOnly = true) }
+                val userPl = repository.getUserPlaylists().map { it.copy(isAdmin = false, isReadOnly = false) }
+                adminPlaylistsList = (adminPl + userPl + initial).distinctBy { it.id }
+                playlistsList = adminPlaylistsList
                 refreshAllData()
             }
         )

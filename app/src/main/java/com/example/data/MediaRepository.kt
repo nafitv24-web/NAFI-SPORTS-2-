@@ -994,15 +994,43 @@ class MediaRepository(private val context: Context) {
 
     private suspend fun fetchSingleM3uUrl(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(url.trim())
-                .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
-                .build()
+            var raw = url.trim()
+            val headersMap = mutableMapOf<String, String>()
+            if (raw.contains("|")) {
+                val pipeParts = raw.split("|", limit = 2)
+                raw = pipeParts[0].trim()
+                if (pipeParts.size > 1) {
+                    val headerTokens = pipeParts[1].split("&")
+                    for (token in headerTokens) {
+                        val kv = token.split("=", limit = 2)
+                        if (kv.size == 2) {
+                            headersMap[kv[0].trim()] = kv[1].trim()
+                        }
+                    }
+                }
+            }
 
-            val response = client.newCall(request).execute()
+            if (!raw.startsWith("http://", ignoreCase = true) && !raw.startsWith("https://", ignoreCase = true)) {
+                return@withContext emptyList()
+            }
+
+            val reqBuilder = Request.Builder()
+                .url(raw)
+                .header("User-Agent", headersMap["User-Agent"] ?: "NAFITV24/2.5.0 (Android ExoPlayer)")
+
+            for ((k, v) in headersMap) {
+                if (!k.equals("User-Agent", ignoreCase = true)) {
+                    reqBuilder.header(k, v)
+                }
+            }
+
+            val response = client.newCall(reqBuilder.build()).execute()
             if (!response.isSuccessful) return@withContext emptyList()
 
-            val content = response.body?.string()?.trim() ?: return@withContext emptyList()
+            var content = response.body?.string()?.trim() ?: return@withContext emptyList()
+            if (content.startsWith("\uFEFF")) {
+                content = content.removePrefix("\uFEFF").trim()
+            }
             if (content.startsWith("[") || content.startsWith("{")) {
                 return@withContext parseMediaFromJsonString(content)
             }
@@ -2554,38 +2582,64 @@ class MediaRepository(private val context: Context) {
                 if (url.isNotBlank()) {
                     try {
                         val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                        val targetUrl = "$cleanUrl/playlists.json"
+                        val targetUrl = appendRtdbAuth("$cleanUrl/playlists.json")
                         val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
                         val resp = client.newCall(req).execute()
                         if (resp.isSuccessful) {
-                            val body = resp.body?.string() ?: ""
-                            if (body.isNotEmpty() && body != "null" && body.startsWith("{")) {
-                                val jsonObject = JSONObject(body)
-                                val keys = jsonObject.keys()
-                                while (keys.hasNext()) {
-                                    val k = keys.next()
-                                    if (!deleted.contains(k)) {
-                                        val obj = jsonObject.optJSONObject(k)
-                                        if (obj != null) {
-                                            val id = obj.optString("id", k)
-                                            if (!deleted.contains(id)) {
-                                                rtdbList.add(
-                                                    PlaylistInfo(
-                                                        id = id,
-                                                        title = obj.optString("title", obj.optString("name", "Playlist")),
-                                                        url = obj.optString("url", ""),
-                                                        logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
-                                                        description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
-                                                        channelCount = obj.optInt("channelCount", 0),
-                                                        serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
-                                                        username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
-                                                        password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
-                                                        type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
-                                                        isAdmin = true,
-                                                        isReadOnly = true
+                            val body = resp.body?.string()?.trim() ?: ""
+                            if (body.isNotEmpty() && body != "null") {
+                                if (body.startsWith("{")) {
+                                    val jsonObject = JSONObject(body)
+                                    val keys = jsonObject.keys()
+                                    while (keys.hasNext()) {
+                                        val k = keys.next()
+                                        if (!deleted.contains(k)) {
+                                            val obj = jsonObject.optJSONObject(k)
+                                            if (obj != null) {
+                                                val id = obj.optString("id", k)
+                                                if (!deleted.contains(id)) {
+                                                    rtdbList.add(
+                                                        PlaylistInfo(
+                                                            id = id,
+                                                            title = obj.optString("title", obj.optString("name", "Playlist")),
+                                                            url = obj.optString("url", ""),
+                                                            logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
+                                                            description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                                                            channelCount = obj.optInt("channelCount", 0),
+                                                            serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
+                                                            username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
+                                                            password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
+                                                            type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
+                                                            isAdmin = true,
+                                                            isReadOnly = true
+                                                        )
                                                     )
-                                                )
+                                                }
                                             }
+                                        }
+                                    }
+                                } else if (body.startsWith("[")) {
+                                    val jsonArr = JSONArray(body)
+                                    for (i in 0 until jsonArr.length()) {
+                                        val obj = jsonArr.optJSONObject(i) ?: continue
+                                        val id = obj.optString("id", "pl_rtdb_$i")
+                                        if (!deleted.contains(id)) {
+                                            rtdbList.add(
+                                                PlaylistInfo(
+                                                    id = id,
+                                                    title = obj.optString("title", obj.optString("name", "Playlist")),
+                                                    url = obj.optString("url", ""),
+                                                    logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
+                                                    description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                                                    channelCount = obj.optInt("channelCount", 0),
+                                                    serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
+                                                    username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
+                                                    password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
+                                                    type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
+                                                    isAdmin = true,
+                                                    isReadOnly = true
+                                                )
+                                            )
                                         }
                                     }
                                 }
