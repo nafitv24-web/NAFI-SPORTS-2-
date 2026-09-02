@@ -412,67 +412,6 @@ fun MoviesTabScreen(
                                                 .padding(14.dp),
                                             verticalArrangement = Arrangement.Bottom
                                         ) {
-                                            // Badges Row
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                // Red Spotlight Badge
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = Color(0xFFE11D48)
-                                                ) {
-                                                    Text(
-                                                        text = "✨ FEATURED SPOTLIGHT",
-                                                        color = Color.White,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                                    )
-                                                }
-
-                                                // Category Badge
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = Color(0xFF2563EB)
-                                                ) {
-                                                    Text(
-                                                        text = currentMovie.category.ifBlank { "Movie" },
-                                                        color = Color.White,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                                    )
-                                                }
-
-                                                // Teal Download Support Badge
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = Color(0xFF0D9488)
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Download,
-                                                            contentDescription = null,
-                                                            tint = Color.White,
-                                                            modifier = Modifier.size(11.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(3.dp))
-                                                        Text(
-                                                            text = "ডাউনলোড সাপোর্ট",
-                                                            color = Color.White,
-                                                            fontSize = 9.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            Spacer(modifier = Modifier.height(6.dp))
-
                                             // Main Title (Marquee effect if long title)
                                             Text(
                                                 text = currentMovie.title,
