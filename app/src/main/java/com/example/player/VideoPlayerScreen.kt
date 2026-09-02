@@ -505,36 +505,31 @@ fun VideoPlayerScreen(
 
     // Setup ExoPlayer instance with custom http data source, headers and dynamic pipe parsing
     val exoPlayer = remember(currentUrl, currentMedia) {
-        var cleanUrl = currentUrl.trim()
+        val streamInfo = com.example.util.DrmHelper.extractStreamInfo(
+            rawUrl = currentUrl,
+            itemScheme = currentMedia.drmScheme,
+            itemLicenseUrl = currentMedia.drmLicenseUrl,
+            itemLicenseKey = currentMedia.drmLicenseKey,
+            itemHeaders = currentMedia.drmHeaders,
+            itemManifestType = currentMedia.manifestType
+        )
+        val finalCleanUrl = streamInfo.cleanUrl
+        val drmConfig = streamInfo.drmConfig
+
         var extractedUa: String? = currentMedia.userAgent
         var extractedReferer: String? = currentMedia.referrer
         var extractedOrigin: String? = currentMedia.origin
         var extractedCookie: String? = currentMedia.cookie
         val dynamicHeaders = mutableMapOf<String, String>()
 
-        // Parse pipe syntax: http://stream.m3u8|User-Agent=...&Referer=...
-        if (cleanUrl.contains("|")) {
-            val parts = cleanUrl.split("|", limit = 2)
-            cleanUrl = parts[0].trim()
-            val pairs = parts[1].split("&")
-            for (pair in pairs) {
-                val kv = pair.split("=", limit = 2)
-                if (kv.size == 2) {
-                    val k = kv[0].trim()
-                    val rawV = kv[1].trim()
-                    val v = try {
-                        java.net.URLDecoder.decode(rawV, "UTF-8")
-                    } catch (_: Exception) {
-                        rawV
-                    }
-                    when {
-                        k.equals("User-Agent", ignoreCase = true) || k.equals("http-user-agent", ignoreCase = true) -> extractedUa = v
-                        k.equals("Referer", ignoreCase = true) || k.equals("Referrer", ignoreCase = true) || k.equals("http-referrer", ignoreCase = true) || k.equals("http-referer", ignoreCase = true) -> extractedReferer = v
-                        k.equals("Origin", ignoreCase = true) || k.equals("http-origin", ignoreCase = true) -> extractedOrigin = v
-                        k.equals("Cookie", ignoreCase = true) || k.equals("http-cookie", ignoreCase = true) -> extractedCookie = v
-                        else -> dynamicHeaders[k] = v
-                    }
-                }
+        // Apply headers parsed from URL pipe/query syntax
+        streamInfo.headers.forEach { (k, v) ->
+            when {
+                k.equals("User-Agent", ignoreCase = true) || k.equals("http-user-agent", ignoreCase = true) -> extractedUa = v
+                k.equals("Referer", ignoreCase = true) || k.equals("Referrer", ignoreCase = true) || k.equals("http-referrer", ignoreCase = true) || k.equals("http-referer", ignoreCase = true) -> extractedReferer = v
+                k.equals("Origin", ignoreCase = true) || k.equals("http-origin", ignoreCase = true) -> extractedOrigin = v
+                k.equals("Cookie", ignoreCase = true) || k.equals("http-cookie", ignoreCase = true) -> extractedCookie = v
+                else -> dynamicHeaders[k] = v
             }
         }
 
@@ -542,9 +537,9 @@ fun VideoPlayerScreen(
         currentMedia.customHeaders?.let { dynamicHeaders.putAll(it) }
 
         // Domain-specific smart headers (Toffee, Bioscope, TSports, etc.)
-        val isToffee = cleanUrl.contains("toffeelive.com", ignoreCase = true) ||
-                cleanUrl.contains("toffee", ignoreCase = true) ||
-                cleanUrl.contains("bldcmprod-cdn", ignoreCase = true) ||
+        val isToffee = finalCleanUrl.contains("toffeelive.com", ignoreCase = true) ||
+                finalCleanUrl.contains("toffee", ignoreCase = true) ||
+                finalCleanUrl.contains("bldcmprod-cdn", ignoreCase = true) ||
                 currentMedia.category.contains("toffee", ignoreCase = true)
 
         if (isToffee) {
@@ -553,15 +548,15 @@ fun VideoPlayerScreen(
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://toffeelive.com"
         }
 
-        val isHakuna = cleanUrl.contains("hakunaymatata", ignoreCase = true) ||
-                cleanUrl.contains("sacdn", ignoreCase = true)
+        val isHakuna = finalCleanUrl.contains("hakunaymatata", ignoreCase = true) ||
+                finalCleanUrl.contains("sacdn", ignoreCase = true)
 
         if (isHakuna) {
             if (extractedReferer.isNullOrBlank()) extractedReferer = "https://hakunaymatata.com/"
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://hakunaymatata.com"
         }
 
-        val finalUserAgent = extractedUa ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 NAFITV24"
+        val finalUserAgent = extractedUa ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
@@ -592,15 +587,6 @@ fun VideoPlayerScreen(
         val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
             context,
             httpDataSourceFactory
-        )
-
-        val (finalCleanUrl, drmConfig) = com.example.util.DrmHelper.extractDrmConfig(
-            rawUrl = currentUrl,
-            itemScheme = currentMedia.drmScheme,
-            itemLicenseUrl = currentMedia.drmLicenseUrl,
-            itemLicenseKey = currentMedia.drmLicenseKey,
-            itemHeaders = currentMedia.drmHeaders,
-            itemManifestType = currentMedia.manifestType
         )
 
         // Load error handling policy with 5 automatic retries for transient stream packet drops

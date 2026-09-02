@@ -22,49 +22,78 @@ object DrmHelper {
         val schemeUuid: UUID,
         val licenseUrl: String? = null,
         val localKeyBytes: ByteArray? = null,
+        val rawKeyString: String? = null,
         val headers: Map<String, String> = emptyMap(),
         val manifestType: String? = null
     )
 
+    data class StreamParsedInfo(
+        val cleanUrl: String,
+        val drmConfig: DrmConfig?,
+        val headers: Map<String, String>
+    )
+
     /**
-     * Resolves DRM configuration from MediaItem metadata or pipe-delimited parameters in URL
+     * Resolves stream URL, DRM configuration, and HTTP request headers from metadata or URL parameters
+     * Supports |, ?|, %7C, ?%7C, and query parameter syntax (?drmScheme=...&drmLicense=...)
      */
-    fun extractDrmConfig(
+    fun extractStreamInfo(
         rawUrl: String,
         itemScheme: String? = null,
         itemLicenseUrl: String? = null,
         itemLicenseKey: String? = null,
         itemHeaders: Map<String, String>? = null,
         itemManifestType: String? = null
-    ): Pair<String, DrmConfig?> {
+    ): StreamParsedInfo {
         var cleanUrl = rawUrl.trim()
-        var schemeStr = itemScheme
-        var licenseKeyOrUrl = itemLicenseUrl ?: itemLicenseKey
-        var manifestType = itemManifestType
-        val drmHeaders = mutableMapOf<String, String>()
-        itemHeaders?.let { drmHeaders.putAll(it) }
+        var schemeStr = itemScheme?.takeIf { it.isNotBlank() }
+        var licenseKeyOrUrl = itemLicenseUrl?.takeIf { it.isNotBlank() } ?: itemLicenseKey?.takeIf { it.isNotBlank() }
+        var manifestType = itemManifestType?.takeIf { it.isNotBlank() }
+        val dynamicHeaders = mutableMapOf<String, String>()
+        itemHeaders?.let { dynamicHeaders.putAll(it) }
 
-        // Extract from pipe syntax: url|license_type=clearkey&license_key=...
-        if (cleanUrl.contains("|")) {
-            val parts = cleanUrl.split("|", limit = 2)
-            cleanUrl = parts[0].trim()
-            val pairs = parts[1].split("&")
+        // Normalize URL-encoded pipes (?%7C, %7C) and ?| to standard |
+        val normalized = cleanUrl
+            .replace("?%7C", "|", ignoreCase = true)
+            .replace("%7C", "|", ignoreCase = true)
+            .replace("?|", "|")
+
+        var paramString: String? = null
+        if (normalized.contains("|")) {
+            val parts = normalized.split("|", limit = 2)
+            cleanUrl = parts[0].trim().removeSuffix("?").trim()
+            paramString = parts[1].trim()
+        } else if (cleanUrl.contains("?") && (
+                    cleanUrl.contains("drmScheme=", ignoreCase = true) ||
+                    cleanUrl.contains("drmLicense=", ignoreCase = true) ||
+                    cleanUrl.contains("license_key=", ignoreCase = true) ||
+                    cleanUrl.contains("license_type=", ignoreCase = true) ||
+                    cleanUrl.contains("clearkey=", ignoreCase = true)
+                )) {
+            val base = cleanUrl.substringBefore("?")
+            paramString = cleanUrl.substringAfter("?")
+            cleanUrl = base.trim()
+        }
+
+        if (!paramString.isNullOrBlank()) {
+            val pairs = paramString.split("&")
             for (pair in pairs) {
                 val kv = pair.split("=", limit = 2)
                 if (kv.size == 2) {
                     val k = kv[0].trim().lowercase()
+                    val rawV = kv[1].trim()
                     val v = try {
-                        java.net.URLDecoder.decode(kv[1].trim(), "UTF-8")
+                        java.net.URLDecoder.decode(rawV, "UTF-8")
                     } catch (_: Exception) {
-                        kv[1].trim()
+                        rawV
                     }
                     when {
-                        k == "license_type" || k == "drm_type" || k == "drmscheme" || k == "license_type=clearkey" || k.contains("clearkey") -> {
+                        k == "drmscheme" || k == "drm_scheme" || k == "license_type" || k == "drm_type" || k == "scheme" -> {
                             if (schemeStr.isNullOrBlank()) {
                                 schemeStr = if (v.isNotBlank()) v else "clearkey"
                             }
                         }
-                        k == "license_key" || k == "drm_key" || k == "key" || k == "clearkey" || k == "drmlicense" -> {
+                        k == "drmlicense" || k == "drm_license" || k == "license_key" || k == "drm_key" || k == "clearkey" || k == "license_data" || k == "key" || k == "license" -> {
                             if (licenseKeyOrUrl.isNullOrBlank()) {
                                 licenseKeyOrUrl = v
                             }
@@ -72,21 +101,35 @@ object DrmHelper {
                                 schemeStr = "clearkey"
                             }
                         }
-                        k == "manifest_type" || k == "type" -> {
+                        k == "manifest_type" || k == "stream_type" || k == "type" -> {
                             if (manifestType.isNullOrBlank()) {
                                 manifestType = v
                             }
                         }
+                        k == "user-agent" || k == "http-user-agent" -> dynamicHeaders["User-Agent"] = v
+                        k == "referer" || k == "referrer" || k == "http-referer" || k == "http-referrer" -> dynamicHeaders["Referer"] = v
+                        k == "origin" || k == "http-origin" -> dynamicHeaders["Origin"] = v
+                        k == "cookie" || k == "http-cookie" -> dynamicHeaders["Cookie"] = v
                         k.startsWith("drm_header_") -> {
                             val headerName = k.removePrefix("drm_header_")
-                            drmHeaders[headerName] = v
+                            dynamicHeaders[headerName] = v
                         }
+                        else -> dynamicHeaders[kv[0].trim()] = v
                     }
                 }
             }
         }
 
-        // Auto-detect if rawUrl or license key specifies ClearKey or Widevine
+        // Auto-detect manifest type if not set
+        if (manifestType.isNullOrBlank()) {
+            manifestType = when {
+                cleanUrl.contains(".mpd", ignoreCase = true) || cleanUrl.contains("dash", ignoreCase = true) -> "mpd"
+                cleanUrl.contains(".m3u8", ignoreCase = true) || cleanUrl.contains("hls", ignoreCase = true) -> "hls"
+                else -> null
+            }
+        }
+
+        // Auto-detect DRM scheme if key/license is provided
         if (schemeStr.isNullOrBlank() && !licenseKeyOrUrl.isNullOrBlank()) {
             schemeStr = if (licenseKeyOrUrl.startsWith("http://", ignoreCase = true) || licenseKeyOrUrl.startsWith("https://", ignoreCase = true)) {
                 if (licenseKeyOrUrl.contains("widevine", ignoreCase = true)) "widevine" else "clearkey"
@@ -96,7 +139,7 @@ object DrmHelper {
         }
 
         if (schemeStr.isNullOrBlank() && licenseKeyOrUrl.isNullOrBlank()) {
-            return Pair(cleanUrl, null)
+            return StreamParsedInfo(cleanUrl, null, dynamicHeaders)
         }
 
         val uuid = when {
@@ -105,36 +148,64 @@ object DrmHelper {
             else -> C.CLEARKEY_UUID
         }
 
-        // Process ClearKey or Widevine
         val finalLicense = licenseKeyOrUrl?.trim() ?: ""
         if (finalLicense.isBlank()) {
-            return Pair(cleanUrl, DrmConfig(uuid, manifestType = manifestType))
+            return StreamParsedInfo(
+                cleanUrl,
+                DrmConfig(uuid, manifestType = manifestType, headers = dynamicHeaders),
+                dynamicHeaders
+            )
         }
 
-        // If it is an HTTP/HTTPS license server URL
+        // HTTP/HTTPS license server
         if (finalLicense.startsWith("http://", ignoreCase = true) || finalLicense.startsWith("https://", ignoreCase = true)) {
-            return Pair(
+            return StreamParsedInfo(
                 cleanUrl,
                 DrmConfig(
                     schemeUuid = uuid,
                     licenseUrl = finalLicense,
-                    headers = drmHeaders,
+                    headers = dynamicHeaders,
                     manifestType = manifestType
-                )
+                ),
+                dynamicHeaders
             )
         }
 
-        // Otherwise, it's local ClearKey key pairs (hex keyId:key or JWK JSON)
+        // Local ClearKey key pairs (hex or JWK JSON)
         val jwkBytes = buildClearKeyJwkBytes(finalLicense)
-        return Pair(
+        return StreamParsedInfo(
             cleanUrl,
             DrmConfig(
                 schemeUuid = uuid,
                 localKeyBytes = jwkBytes,
-                headers = drmHeaders,
+                rawKeyString = finalLicense,
+                headers = dynamicHeaders,
                 manifestType = manifestType
-            )
+            ),
+            dynamicHeaders
         )
+    }
+
+    /**
+     * Backward-compatible Pair return of (cleanUrl, DrmConfig?)
+     */
+    fun extractDrmConfig(
+        rawUrl: String,
+        itemScheme: String? = null,
+        itemLicenseUrl: String? = null,
+        itemLicenseKey: String? = null,
+        itemHeaders: Map<String, String>? = null,
+        itemManifestType: String? = null
+    ): Pair<String, DrmConfig?> {
+        val info = extractStreamInfo(
+            rawUrl = rawUrl,
+            itemScheme = itemScheme,
+            itemLicenseUrl = itemLicenseUrl,
+            itemLicenseKey = itemLicenseKey,
+            itemHeaders = itemHeaders,
+            itemManifestType = itemManifestType
+        )
+        return Pair(info.cleanUrl, info.drmConfig)
     }
 
     /**
@@ -275,11 +346,26 @@ object DrmHelper {
         return try {
             if (config.localKeyBytes != null) {
                 // ClearKey local key callback with JWK response
-                val callback = LocalMediaDrmCallback(config.localKeyBytes)
+                val callback = object : androidx.media3.exoplayer.drm.MediaDrmCallback {
+                    override fun executeProvisionRequest(
+                        uuid: UUID,
+                        request: androidx.media3.exoplayer.drm.ExoMediaDrm.ProvisionRequest
+                    ): ByteArray {
+                        return ByteArray(0)
+                    }
+
+                    override fun executeKeyRequest(
+                        uuid: UUID,
+                        request: androidx.media3.exoplayer.drm.ExoMediaDrm.KeyRequest
+                    ): ByteArray {
+                        return config.localKeyBytes
+                    }
+                }
                 DefaultDrmSessionManager.Builder()
                     .setUuidAndExoMediaDrmProvider(config.schemeUuid, FrameworkMediaDrm.DEFAULT_PROVIDER)
                     .setMultiSession(true)
                     .setPlayClearSamplesWithoutKeys(true)
+                    .setUseDrmSessionsForClearContent(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO)
                     .build(callback)
             } else if (!config.licenseUrl.isNullOrBlank()) {
                 // HTTP License callback for online DRM servers
@@ -291,6 +377,7 @@ object DrmHelper {
                     .setUuidAndExoMediaDrmProvider(config.schemeUuid, FrameworkMediaDrm.DEFAULT_PROVIDER)
                     .setMultiSession(true)
                     .setPlayClearSamplesWithoutKeys(true)
+                    .setUseDrmSessionsForClearContent(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO)
                     .build(callback)
             } else {
                 null

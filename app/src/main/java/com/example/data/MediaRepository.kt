@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -1128,31 +1129,39 @@ class MediaRepository(private val context: Context) {
                 }
             } else if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
                 var streamUrl = trimmed
-                if (streamUrl.contains("|")) {
-                    val pipeParts = streamUrl.split("|", limit = 2)
-                    streamUrl = pipeParts[0].trim()
-                    val queryHeaders = pipeParts[1].split("&")
-                    for (qh in queryHeaders) {
-                        val kv = qh.split("=", limit = 2)
-                        if (kv.size == 2) {
-                            val k = kv[0].trim()
-                            val rawV = kv[1].trim()
-                            val v = try {
-                                java.net.URLDecoder.decode(rawV, "UTF-8")
-                            } catch (_: Exception) {
-                                rawV
-                            }
-                            when {
-                                k.equals("User-Agent", ignoreCase = true) || k.equals("http-user-agent", ignoreCase = true) -> currentUserAgent = v
-                                k.equals("Referer", ignoreCase = true) || k.equals("Referrer", ignoreCase = true) || k.equals("http-referer", ignoreCase = true) -> currentReferrer = v
-                                k.equals("Origin", ignoreCase = true) || k.equals("http-origin", ignoreCase = true) -> currentOrigin = v
-                                k.equals("Cookie", ignoreCase = true) || k.equals("http-cookie", ignoreCase = true) -> currentCookie = v
-                                k.equals("license_type", ignoreCase = true) || k.equals("drm_type", ignoreCase = true) -> currentDrmScheme = v
-                                k.equals("license_key", ignoreCase = true) || k.equals("drm_key", ignoreCase = true) || k.equals("clearkey", ignoreCase = true) -> currentDrmKey = v
-                                k.equals("manifest_type", ignoreCase = true) -> currentManifestType = v
-                                else -> currentCustomHeaders[k] = v
-                            }
+                val streamInfo = com.example.util.DrmHelper.extractStreamInfo(
+                    rawUrl = streamUrl,
+                    itemScheme = currentDrmScheme,
+                    itemLicenseUrl = currentDrmLicenseUrl,
+                    itemLicenseKey = currentDrmKey,
+                    itemManifestType = currentManifestType
+                )
+                streamUrl = streamInfo.cleanUrl
+                if (streamInfo.drmConfig != null) {
+                    if (currentDrmScheme.isNullOrBlank()) {
+                        currentDrmScheme = when (streamInfo.drmConfig.schemeUuid) {
+                            androidx.media3.common.C.WIDEVINE_UUID -> "widevine"
+                            androidx.media3.common.C.PLAYREADY_UUID -> "playready"
+                            else -> "clearkey"
                         }
+                    }
+                    if (currentDrmLicenseUrl.isNullOrBlank() && !streamInfo.drmConfig.licenseUrl.isNullOrBlank()) {
+                        currentDrmLicenseUrl = streamInfo.drmConfig.licenseUrl
+                    }
+                    if (currentDrmKey.isNullOrBlank() && !streamInfo.drmConfig.rawKeyString.isNullOrBlank()) {
+                        currentDrmKey = streamInfo.drmConfig.rawKeyString
+                    }
+                    if (currentManifestType.isNullOrBlank() && !streamInfo.drmConfig.manifestType.isNullOrBlank()) {
+                        currentManifestType = streamInfo.drmConfig.manifestType
+                    }
+                }
+                streamInfo.headers.forEach { (k, v) ->
+                    when {
+                        k.equals("User-Agent", ignoreCase = true) || k.equals("http-user-agent", ignoreCase = true) -> currentUserAgent = v
+                        k.equals("Referer", ignoreCase = true) || k.equals("Referrer", ignoreCase = true) || k.equals("http-referer", ignoreCase = true) || k.equals("http-referrer", ignoreCase = true) -> currentReferrer = v
+                        k.equals("Origin", ignoreCase = true) || k.equals("http-origin", ignoreCase = true) -> currentOrigin = v
+                        k.equals("Cookie", ignoreCase = true) || k.equals("http-cookie", ignoreCase = true) -> currentCookie = v
+                        else -> currentCustomHeaders[k] = v
                     }
                 }
 
@@ -1285,40 +1294,48 @@ class MediaRepository(private val context: Context) {
 
     private suspend fun fetchFromFirestore(): List<MediaItem> = withContext(Dispatchers.IO) {
         val deleted = getDeletedIds()
-        val items = mutableListOf<MediaItem>()
         val collections = listOf("sports", "events", "matches", "channels", "movies")
         val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
 
-        for (dbId in databases) {
-            for (col in collections) {
-                try {
-                    val firestoreUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col?key=$FIREBASE_API_KEY"
-                    val req = Request.Builder().url(firestoreUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                    val resp = client.newCall(req).execute()
-                    if (!resp.isSuccessful) continue
-                    val body = resp.body?.string() ?: continue
-                    if (body.isBlank() || !body.startsWith("{")) continue
+        coroutineScope {
+            val jobs = databases.flatMap { dbId ->
+                collections.map { col ->
+                    async {
+                        val colItems = mutableListOf<MediaItem>()
+                        try {
+                            val firestoreUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col?key=$FIREBASE_API_KEY"
+                            val req = Request.Builder().url(firestoreUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                            val resp = client.newCall(req).execute()
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string() ?: ""
+                                if (body.isNotBlank() && body.startsWith("{")) {
+                                    val json = JSONObject(body)
+                                    val docs = json.optJSONArray("documents")
+                                    if (docs != null) {
+                                        for (i in 0 until docs.length()) {
+                                            val doc = docs.optJSONObject(i) ?: continue
+                                            val name = doc.optString("name", "")
+                                            val docId = name.substringAfterLast("/")
+                                            if (docId.isBlank() || deleted.contains(docId)) continue
 
-                    val json = JSONObject(body)
-                    val docs = json.optJSONArray("documents") ?: continue
-                    for (i in 0 until docs.length()) {
-                        val doc = docs.optJSONObject(i) ?: continue
-                        val name = doc.optString("name", "")
-                        val docId = name.substringAfterLast("/")
-                        if (docId.isBlank() || deleted.contains(docId)) continue
-
-                        val fields = doc.optJSONObject("fields") ?: continue
-                        val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
-                        if (!deleted.contains(mediaItem.id)) {
-                            items.add(mediaItem)
+                                            val fields = doc.optJSONObject("fields") ?: continue
+                                            val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
+                                            if (!deleted.contains(mediaItem.id)) {
+                                                colItems.add(mediaItem)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
                         }
+                        colItems
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
             }
+            jobs.awaitAll().flatten()
         }
-        items
     }
 
     private fun parseMediaFromFirestoreFields(docId: String, col: String, fields: JSONObject): MediaItem {
@@ -2475,102 +2492,116 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchPlaylistsFromFirebase(url: String = getSavedFirebaseUrl()): List<PlaylistInfo> = withContext(Dispatchers.IO) {
         val deleted = getDeletedIds()
-        val list = mutableListOf<PlaylistInfo>()
+        coroutineScope {
+            // 1. Fetch from Firestore (parallel per database)
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            val fsJobs = databases.map { dbId ->
+                async {
+                    val dbList = mutableListOf<PlaylistInfo>()
+                    try {
+                        val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/playlists?key=$FIREBASE_API_KEY"
+                        val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                        val resp = client.newCall(req).execute()
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string() ?: ""
+                            if (body.isNotBlank() && body.startsWith("{")) {
+                                val json = JSONObject(body)
+                                val docs = json.optJSONArray("documents")
+                                if (docs != null) {
+                                    for (i in 0 until docs.length()) {
+                                        val doc = docs.optJSONObject(i) ?: continue
+                                        val name = doc.optString("name", "")
+                                        val docId = name.substringAfterLast("/")
+                                        if (docId.isBlank() || deleted.contains(docId)) continue
 
-        // 1. Fetch from Firestore
-        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
-        for (dbId in databases) {
-            try {
-                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/playlists?key=$FIREBASE_API_KEY"
-                val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                val resp = client.newCall(req).execute()
-                if (!resp.isSuccessful) continue
-                val body = resp.body?.string() ?: continue
-                if (body.isBlank() || !body.startsWith("{")) continue
+                                        val fields = doc.optJSONObject("fields") ?: continue
+                                        fun s(k: String): String = fields.optJSONObject(k)?.optString("stringValue", "") ?: ""
+                                        fun count(k: String): Int = fields.optJSONObject(k)?.optInt("integerValue", 0) ?: 0
 
-                val json = JSONObject(body)
-                val docs = json.optJSONArray("documents") ?: continue
-                for (i in 0 until docs.length()) {
-                    val doc = docs.optJSONObject(i) ?: continue
-                    val name = doc.optString("name", "")
-                    val docId = name.substringAfterLast("/")
-                    if (docId.isBlank() || deleted.contains(docId)) continue
-
-                    val fields = doc.optJSONObject("fields") ?: continue
-                    fun s(k: String): String = fields.optJSONObject(k)?.optString("stringValue", "") ?: ""
-                    fun count(k: String): Int = fields.optJSONObject(k)?.optInt("integerValue", 0) ?: 0
-
-                    val pId = s("id").ifBlank { docId }
-                    if (!deleted.contains(pId)) {
-                        list.add(
-                            PlaylistInfo(
-                                id = pId,
-                                title = s("title").ifBlank { s("name").ifBlank { "Playlist" } },
-                                url = s("url"),
-                                logoUrl = s("logoUrl").ifBlank { s("logo") }.takeIf { it.isNotBlank() },
-                                description = s("description").takeIf { it.isNotBlank() },
-                                channelCount = count("channelCount"),
-                                serverUrl = s("serverUrl").takeIf { it.isNotBlank() },
-                                username = s("username").takeIf { it.isNotBlank() },
-                                password = s("password").takeIf { it.isNotBlank() },
-                                type = s("type").ifBlank { if (s("serverUrl").isNotBlank() || s("username").isNotBlank()) "XTREAM" else "M3U" },
-                                isAdmin = true,
-                                isReadOnly = true
-                            )
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // 2. Fetch from RTDB
-        if (url.isNotBlank()) {
-            try {
-                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val targetUrl = "$cleanUrl/playlists.json"
-                val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                val resp = client.newCall(req).execute()
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    if (body.isNotEmpty() && body != "null" && body.startsWith("{")) {
-                        val jsonObject = JSONObject(body)
-                        val keys = jsonObject.keys()
-                        while (keys.hasNext()) {
-                            val k = keys.next()
-                            if (!deleted.contains(k)) {
-                                val obj = jsonObject.optJSONObject(k)
-                                if (obj != null) {
-                                    val id = obj.optString("id", k)
-                                    if (!deleted.contains(id)) {
-                                        list.add(
-                                            PlaylistInfo(
-                                                id = id,
-                                                title = obj.optString("title", obj.optString("name", "Playlist")),
-                                                url = obj.optString("url", ""),
-                                                logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
-                                                description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
-                                                channelCount = obj.optInt("channelCount", 0),
-                                                serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
-                                                username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
-                                                password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
-                                                type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
-                                                isAdmin = true,
-                                                isReadOnly = true
+                                        val pId = s("id").ifBlank { docId }
+                                        if (!deleted.contains(pId)) {
+                                            dbList.add(
+                                                PlaylistInfo(
+                                                    id = pId,
+                                                    title = s("title").ifBlank { s("name").ifBlank { "Playlist" } },
+                                                    url = s("url"),
+                                                    logoUrl = s("logoUrl").ifBlank { s("logo") }.takeIf { it.isNotBlank() },
+                                                    description = s("description").takeIf { it.isNotBlank() },
+                                                    channelCount = count("channelCount"),
+                                                    serverUrl = s("serverUrl").takeIf { it.isNotBlank() },
+                                                    username = s("username").takeIf { it.isNotBlank() },
+                                                    password = s("password").takeIf { it.isNotBlank() },
+                                                    type = s("type").ifBlank { if (s("serverUrl").isNotBlank() || s("username").isNotBlank()) "XTREAM" else "M3U" },
+                                                    isAdmin = true,
+                                                    isReadOnly = true
+                                                )
                                             )
-                                        )
+                                        }
                                     }
                                 }
                             }
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    dbList
+                }
+            }
+
+            // 2. Fetch from RTDB
+            val rtdbJob = async {
+                val rtdbList = mutableListOf<PlaylistInfo>()
+                if (url.isNotBlank()) {
+                    try {
+                        val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                        val targetUrl = "$cleanUrl/playlists.json"
+                        val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                        val resp = client.newCall(req).execute()
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string() ?: ""
+                            if (body.isNotEmpty() && body != "null" && body.startsWith("{")) {
+                                val jsonObject = JSONObject(body)
+                                val keys = jsonObject.keys()
+                                while (keys.hasNext()) {
+                                    val k = keys.next()
+                                    if (!deleted.contains(k)) {
+                                        val obj = jsonObject.optJSONObject(k)
+                                        if (obj != null) {
+                                            val id = obj.optString("id", k)
+                                            if (!deleted.contains(id)) {
+                                                rtdbList.add(
+                                                    PlaylistInfo(
+                                                        id = id,
+                                                        title = obj.optString("title", obj.optString("name", "Playlist")),
+                                                        url = obj.optString("url", ""),
+                                                        logoUrl = obj.optString("logoUrl", obj.optString("logo", null)).takeIf { it?.isNotBlank() == true },
+                                                        description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                                                        channelCount = obj.optInt("channelCount", 0),
+                                                        serverUrl = obj.optString("serverUrl", null).takeIf { it?.isNotBlank() == true },
+                                                        username = obj.optString("username", null).takeIf { it?.isNotBlank() == true },
+                                                        password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
+                                                        type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
+                                                        isAdmin = true,
+                                                        isReadOnly = true
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                rtdbList
             }
+
+            val allFs = fsJobs.awaitAll().flatten()
+            val allRtdb = rtdbJob.await()
+            (allFs + allRtdb).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
         }
-        list.distinctBy { it.id }.filterNot { deleted.contains(it.id) }
     }
 
     fun saveFirebaseUrl(url: String) {
@@ -2631,34 +2662,45 @@ class MediaRepository(private val context: Context) {
     ): List<MediaItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<MediaItem>()
         try {
-            // 1. Fetch tapmad_bd.m3u to get stream channels
-            val m3uChannels = if (m3uUrl.isNotBlank()) {
-                try {
-                    val m3uReq = Request.Builder()
-                        .url(m3uUrl.trim())
-                        .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
-                        .build()
-                    val m3uResp = client.newCall(m3uReq).execute()
-                    if (m3uResp.isSuccessful) {
-                        val body = m3uResp.body?.string() ?: ""
-                        parseM3uLines(body.lines())
-                    } else emptyList()
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            } else emptyList()
-
-            // 2. Fetch tapmad_bd.json
-            val jsonReq = Request.Builder()
-                .url(jsonUrl.trim())
-                .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
-                .build()
-            val jsonResp = client.newCall(jsonReq).execute()
-            if (!jsonResp.isSuccessful) {
-                return@withContext m3uChannels.map { it.copy(type = MediaType.LIVE_EVENT) }
+            // 1. Fetch tapmad_bd.m3u and tapmad_bd.json concurrently
+            val m3uDeferred = async {
+                if (m3uUrl.isNotBlank()) {
+                    try {
+                        val m3uReq = Request.Builder()
+                            .url(m3uUrl.trim())
+                            .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
+                            .build()
+                        val m3uResp = client.newCall(m3uReq).execute()
+                        if (m3uResp.isSuccessful) {
+                            val body = m3uResp.body?.string() ?: ""
+                            parseM3uLines(body.lines())
+                        } else emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                } else emptyList()
             }
 
-            val jsonContent = jsonResp.body?.string()?.trim() ?: return@withContext emptyList()
+            val jsonDeferred = async {
+                try {
+                    val jsonReq = Request.Builder()
+                        .url(jsonUrl.trim())
+                        .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
+                        .build()
+                    val jsonResp = client.newCall(jsonReq).execute()
+                    if (jsonResp.isSuccessful) {
+                        jsonResp.body?.string()?.trim()
+                    } else null
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            val m3uChannels = m3uDeferred.await()
+            val jsonContent = jsonDeferred.await()
+            if (jsonContent.isNullOrBlank()) {
+                return@withContext m3uChannels.map { it.copy(type = MediaType.LIVE_EVENT) }
+            }
             val rootObj = JSONObject(jsonContent)
             val matchesArr = rootObj.optJSONArray("Matches") ?: JSONArray()
 
@@ -2874,49 +2916,75 @@ class MediaRepository(private val context: Context) {
         var remoteSports: String? = null
         var remoteMovies: String? = null
 
-        // 1. Fetch from Firestore
-        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
-        for (dbId in databases) {
-            try {
-                val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/app_config?key=$FIREBASE_API_KEY"
-                val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                val resp = client.newCall(req).execute()
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    if (body.isNotBlank() && body.startsWith("{")) {
-                        val json = JSONObject(body)
-                        val fields = json.optJSONObject("fields")
-                        if (fields != null) {
-                            remoteLiveTv = fields.optJSONObject("liveTvM3uUrl")?.optString("stringValue")
-                            remoteSports = fields.optJSONObject("sportsM3uUrl")?.optString("stringValue")
-                            remoteMovies = fields.optJSONObject("moviesM3uUrl")?.optString("stringValue")
+        coroutineScope {
+            // 1. Fetch from Firestore
+            val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+            val fsJobs = databases.map { dbId ->
+                async {
+                    var fsLiveTv: String? = null
+                    var fsSports: String? = null
+                    var fsMovies: String? = null
+                    try {
+                        val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/app_config?key=$FIREBASE_API_KEY"
+                        val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                        val resp = client.newCall(req).execute()
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string() ?: ""
+                            if (body.isNotBlank() && body.startsWith("{")) {
+                                val json = JSONObject(body)
+                                val fields = json.optJSONObject("fields")
+                                if (fields != null) {
+                                    fsLiveTv = fields.optJSONObject("liveTvM3uUrl")?.optString("stringValue")
+                                    fsSports = fields.optJSONObject("sportsM3uUrl")?.optString("stringValue")
+                                    fsMovies = fields.optJSONObject("moviesM3uUrl")?.optString("stringValue")
+                                }
+                            }
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
+                    Triple(fsLiveTv, fsSports, fsMovies)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
-        }
 
-        // 2. Fetch from RTDB (takes priority if present)
-        if (url.isNotBlank()) {
-            try {
-                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val targetUrl = appendRtdbAuth("$cleanUrl/app_config.json")
-                val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
-                val resp = client.newCall(req).execute()
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    if (body.isNotBlank() && body != "null" && body.startsWith("{")) {
-                        val obj = JSONObject(body)
-                        if (obj.has("liveTvM3uUrl")) remoteLiveTv = obj.optString("liveTvM3uUrl")
-                        if (obj.has("sportsM3uUrl")) remoteSports = obj.optString("sportsM3uUrl")
-                        if (obj.has("moviesM3uUrl")) remoteMovies = obj.optString("moviesM3uUrl")
+            // 2. Fetch from RTDB
+            val rtdbJob = async {
+                var rtdbLiveTv: String? = null
+                var rtdbSports: String? = null
+                var rtdbMovies: String? = null
+                if (url.isNotBlank()) {
+                    try {
+                        val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                        val targetUrl = appendRtdbAuth("$cleanUrl/app_config.json")
+                        val req = Request.Builder().url(targetUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
+                        val resp = client.newCall(req).execute()
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string() ?: ""
+                            if (body.isNotBlank() && body != "null" && body.startsWith("{")) {
+                                val obj = JSONObject(body)
+                                if (obj.has("liveTvM3uUrl")) rtdbLiveTv = obj.optString("liveTvM3uUrl")
+                                if (obj.has("sportsM3uUrl")) rtdbSports = obj.optString("sportsM3uUrl")
+                                if (obj.has("moviesM3uUrl")) rtdbMovies = obj.optString("moviesM3uUrl")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                Triple(rtdbLiveTv, rtdbSports, rtdbMovies)
             }
+
+            val fsResults = fsJobs.awaitAll()
+            val rtdbResult = rtdbJob.await()
+
+            for (res in fsResults) {
+                if (!res.first.isNullOrBlank()) remoteLiveTv = res.first
+                if (!res.second.isNullOrBlank()) remoteSports = res.second
+                if (!res.third.isNullOrBlank()) remoteMovies = res.third
+            }
+            if (!rtdbResult.first.isNullOrBlank()) remoteLiveTv = rtdbResult.first
+            if (!rtdbResult.second.isNullOrBlank()) remoteSports = rtdbResult.second
+            if (!rtdbResult.third.isNullOrBlank()) remoteMovies = rtdbResult.third
         }
 
         if (remoteLiveTv != null || remoteSports != null || remoteMovies != null) {
