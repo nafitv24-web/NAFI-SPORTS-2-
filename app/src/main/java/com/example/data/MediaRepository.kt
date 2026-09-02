@@ -340,7 +340,7 @@ class MediaRepository(private val context: Context) {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val id = obj.optString("id", "item_$i")
-                    if (!deleted.contains(id)) {
+                    if (!deleted.contains(id) && !id.startsWith("sport_default_")) {
                         list.add(parseMediaFromJsonObj(id, obj))
                     }
                 }
@@ -352,7 +352,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getCachedSportsMatches(): List<MediaItem> {
-        return loadListFromFileCache("cache_sports_v2.json")
+        return loadListFromFileCache("cache_sports_v2.json").filterNot { it.id.startsWith("sport_default_") }
     }
 
     fun getCachedLiveTvChannels(): List<MediaItem> {
@@ -364,7 +364,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
-        saveListToFileCache("cache_sports_v2.json", list)
+        saveListToFileCache("cache_sports_v2.json", list.filterNot { it.id.startsWith("sport_default_") })
     }
 
     fun saveCachedLiveTvChannels(list: List<MediaItem>) {
@@ -377,97 +377,7 @@ class MediaRepository(private val context: Context) {
 
     // Built-in starter items for instant presentation on first launch
     fun getDefaultBuiltinSports(): List<MediaItem> {
-        val now = System.currentTimeMillis()
-        return listOf(
-            MediaItem(
-                id = "sport_default_1",
-                title = "Bangladesh vs Sri Lanka | T20 International Series",
-                category = "Cricket",
-                type = MediaType.LIVE_EVENT,
-                streamUrl = "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (T Sports HD)", "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8"),
-                    StreamServer("সার্ভার ২ (GTV Live)", "https://live-gtv.akamaized.net/live/live-gtv/playlist.m3u8"),
-                    StreamServer("সার্ভার ৩ (Star Sports 1)", "https://stream.crichd.vip/live/starsports1.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=500&fit=crop",
-                isLive = true,
-                status = "LIVE NOW",
-                tournament = "BAN vs SL T20 Series",
-                team1 = "Bangladesh",
-                team2 = "Sri Lanka",
-                team1Logo = "https://flagcdn.com/w160/bd.png",
-                team2Logo = "https://flagcdn.com/w160/lk.png",
-                matchTimeFormatted = "Live Now",
-                score1 = "BAN: 168/4 (18.2)",
-                score2 = "SL: 165/8 (20.0)",
-                quality = "HD 1080p"
-            ),
-            MediaItem(
-                id = "sport_default_2",
-                title = "India vs Australia | World Test Championship / ODI",
-                category = "Cricket",
-                type = MediaType.LIVE_EVENT,
-                streamUrl = "https://stream.crichd.vip/live/starsports1.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Star Sports)", "https://stream.crichd.vip/live/starsports1.m3u8"),
-                    StreamServer("সার্ভার ২ (Willow HD)", "https://stream.crichd.vip/live/willowcricket.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=500&fit=crop",
-                isLive = false,
-                status = "UPCOMING",
-                tournament = "Bilateral Series 2026",
-                team1 = "India",
-                team2 = "Australia",
-                team1Logo = "https://flagcdn.com/w160/in.png",
-                team2Logo = "https://flagcdn.com/w160/au.png",
-                matchTimeFormatted = "07:30 PM, Today",
-                countdownTargetSeconds = now + (3 * 3600 * 1000L),
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "sport_default_3",
-                title = "Real Madrid vs Barcelona | El Clasico LaLiga",
-                category = "Football",
-                type = MediaType.LIVE_EVENT,
-                streamUrl = "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (T Sports Live)", "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8"),
-                    StreamServer("সার্ভার ২ (Sony Ten 2)", "https://stream.crichd.vip/live/sonyten2.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=500&fit=crop",
-                isLive = false,
-                status = "TODAY",
-                tournament = "LaLiga Santander",
-                team1 = "Real Madrid",
-                team2 = "Barcelona",
-                team1Logo = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=160",
-                team2Logo = "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=160",
-                matchTimeFormatted = "09:00 PM, Today",
-                countdownTargetSeconds = now + (4 * 3600 * 1000L),
-                quality = "HD 1080p"
-            ),
-            MediaItem(
-                id = "sport_default_4",
-                title = "Arsenal vs Manchester City | Premier League Super Match",
-                category = "Football",
-                type = MediaType.LIVE_EVENT,
-                streamUrl = "https://stream.crichd.vip/live/starsportsselect1.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Star Sports Select 1)", "https://stream.crichd.vip/live/starsportsselect1.m3u8"),
-                    StreamServer("সার্ভার ২ (Eurosport HD)", "https://stream.crichd.vip/live/eurosport.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=500&fit=crop",
-                isLive = false,
-                status = "UPCOMING",
-                tournament = "Premier League 2026",
-                team1 = "Arsenal",
-                team2 = "Manchester City",
-                matchTimeFormatted = "11:30 PM, Tonight",
-                countdownTargetSeconds = now + (6 * 3600 * 1000L),
-                quality = "HD"
-            )
-        )
+        return emptyList()
     }
 
     fun getDefaultBuiltinLiveTv(): List<MediaItem> {

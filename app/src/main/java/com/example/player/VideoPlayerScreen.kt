@@ -710,17 +710,20 @@ fun VideoPlayerScreen(
             )
         }
 
-        // Anti-Buffering LoadControl: Deep buffer cushion ensures continuous seamless streaming without stuttering
+        val isLiveStream = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
+
+        // Memory-safe, high-speed LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, androidx.media3.common.C.DEFAULT_BUFFER_SEGMENT_SIZE))
             .setBufferDurationsMs(
-                /* minBufferMs = */ 35000,                  // 35s min buffer keeps sufficient chunks preloaded
-                /* maxBufferMs = */ 120000,                 // 120s max buffer allows deep preloading
-                /* bufferForPlaybackMs = */ 800,             // 800ms fast startup on channel switch
-                /* bufferForPlaybackAfterRebufferMs = */ 2500 // 2500ms ensures smooth playback without repeated stalls
+                /* minBufferMs = */ if (isLiveStream) 8000 else 15000,
+                /* maxBufferMs = */ if (isLiveStream) 25000 else 45000,
+                /* bufferForPlaybackMs = */ if (isLiveStream) 500 else 800,
+                /* bufferForPlaybackAfterRebufferMs = */ if (isLiveStream) 1200 else 2000
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(30000, true)
-            .setTargetBufferBytes(androidx.media3.common.C.LENGTH_UNSET)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .setBackBuffer(if (isLiveStream) 0 else 10000, false)
+            .setTargetBufferBytes(if (isLiveStream) 15 * 1024 * 1024 else 30 * 1024 * 1024)
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
@@ -749,15 +752,14 @@ fun VideoPlayerScreen(
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(finalMediaUri)
 
-                val isLiveStream = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
                 if (isLiveStream) {
                     mediaItemBuilder.setLiveConfiguration(
                         androidx.media3.common.MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(20000L) // 20s safe distance from live broadcast edge prevents running out of chunks
-                            .setMinOffsetMs(8000L)
-                            .setMaxOffsetMs(60000L)
-                            .setMinPlaybackSpeed(1.0f) // Keep standard 1.0x playback speed (prevents speeding up and stalling)
-                            .setMaxPlaybackSpeed(1.0f)
+                            .setTargetOffsetMs(5000L) // 5s low latency start
+                            .setMinOffsetMs(2000L)
+                            .setMaxOffsetMs(30000L)
+                            .setMinPlaybackSpeed(0.97f)
+                            .setMaxPlaybackSpeed(1.03f)
                             .build()
                     )
                 }
@@ -963,18 +965,21 @@ fun VideoPlayerScreen(
             }
     }
 
-    // Periodic time progress tracker
-    LaunchedEffect(exoPlayer) {
-        while (true) {
-            val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
-            val dur = exoPlayer.duration
-            if (dur > 0 && dur != C.TIME_UNSET) {
-                durationMs = dur
+    // Periodic time progress tracker - only runs when controls are visible or for non-live VOD items
+    val isCurrentItemLive = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
+    LaunchedEffect(exoPlayer, isCurrentItemLive, showControls) {
+        if (!isCurrentItemLive || showControls) {
+            while (true) {
+                val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val dur = exoPlayer.duration
+                if (dur > 0 && dur != C.TIME_UNSET) {
+                    durationMs = dur
+                }
+                if (!isDraggingSlider) {
+                    currentPositionMs = cur
+                }
+                delay(500)
             }
-            if (!isDraggingSlider) {
-                currentPositionMs = cur
-            }
-            delay(250)
         }
     }
 
