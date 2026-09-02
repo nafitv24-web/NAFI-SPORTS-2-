@@ -229,21 +229,15 @@ fun NafiTvMainApp(
         MovieDownloadManager.init(context)
     }
 
-    // State lists - initialize with saved custom streams (no hardcoded channels)
+    // State lists - Instant 0-second startup initialization from persistent cache / built-in defaults + custom streams
     var sportsList by remember {
-        val deleted = repository.getDeletedIds()
-        val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }
-        mutableStateOf(customSports)
+        mutableStateOf(repository.getInitialSports())
     }
     var liveTvList by remember {
-        val deleted = repository.getDeletedIds()
-        val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
-        mutableStateOf(customTv)
+        mutableStateOf(repository.getInitialLiveTv())
     }
     var moviesList by remember {
-        val deleted = repository.getDeletedIds()
-        val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-        mutableStateOf(customMov)
+        mutableStateOf(repository.getInitialMoviesSeries())
     }
     var playlistsList by remember { mutableStateOf(repository.getInitialPlaylists() + repository.getCustomPlaylists()) }
     var adminPlaylistsList by remember { mutableStateOf(repository.getInitialPlaylists() + repository.getAdminPlaylists()) }
@@ -251,7 +245,7 @@ fun NafiTvMainApp(
     var m3uList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var favoriteIds by remember { mutableStateOf(repository.getFavoriteIds()) }
     var breakingNewsText by remember { mutableStateOf(repository.getMarqueeTickerText()) }
-    var isRefreshing by remember { mutableStateOf(sportsList.isEmpty() && liveTvList.isEmpty() && moviesList.isEmpty()) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     fun checkForUpdates(isManualCheck: Boolean = false) {
         coroutineScope.launch {
@@ -377,26 +371,36 @@ fun NafiTvMainApp(
                 val playlistIds = allPlaylists.map { it.id }.toSet()
 
                 // 3. Set distinct channel, sports & movie lists from Custom Additions + Tapmad Events + Firebase Cloud + M3U (Excluding Playlists)
-                sportsList = (customSports + fbSports + tapmadSports + parsedSportsM3u)
+                val updatedSports = (customSports + fbSports + tapmadSports + parsedSportsM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
+                if (updatedSports.isNotEmpty()) {
+                    sportsList = updatedSports
+                    repository.saveCachedSportsMatches(sportsList)
+                }
 
-                liveTvList = (customTv + fbTv + parsedTvM3u)
+                val updatedTv = (customTv + fbTv + parsedTvM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
+                if (updatedTv.isNotEmpty()) {
+                    liveTvList = updatedTv
+                    repository.saveCachedLiveTvChannels(liveTvList)
+                }
 
-                moviesList = (customMov + fbMov + parsedMoviesM3u)
+                val updatedMov = (customMov + fbMov + parsedMoviesM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
+                if (updatedMov.isNotEmpty()) {
+                    moviesList = updatedMov
+                    repository.saveCachedMoviesList(moviesList)
+                }
 
-                // Save updated fetched items to persistent cache for instant loading next time
-                repository.saveCachedSportsMatches(sportsList)
-                repository.saveCachedLiveTvChannels(liveTvList)
-                repository.saveCachedMoviesList(moviesList)
-
-                m3uList = (parsedSportsM3u + parsedTvM3u + parsedMoviesM3u)
+                val updatedM3u = (parsedSportsM3u + parsedTvM3u + parsedMoviesM3u)
                     .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                     .distinctBy { it.id }
+                if (updatedM3u.isNotEmpty()) {
+                    m3uList = updatedM3u
+                }
 
                 // 4. Custom streams & favorites
                 customList = customStreams

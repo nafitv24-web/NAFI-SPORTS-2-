@@ -303,7 +303,7 @@ class MediaRepository(private val context: Context) {
 
     init {
         try {
-            // Remove heavy cache keys from SharedPreferences to prevent memory overhead and crashes on normal/budget devices
+            // Clean up any old SharedPreferences keys if they exist
             prefs.edit()
                 .remove("cached_live_tv_channels")
                 .remove("cached_sports_matches")
@@ -314,29 +314,380 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    // Lightweight initial loaders (crash-proof on all devices)
-    fun getInitialSports(): List<MediaItem> {
-        return emptyList()
+    // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
+    private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
+        try {
+            val file = java.io.File(context.filesDir, fileName)
+            val jsonArray = JSONArray()
+            list.forEach { item ->
+                jsonArray.put(serializeMediaToJsonObj(item))
+            }
+            file.writeText(jsonArray.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
-    fun getInitialLiveTv(): List<MediaItem> {
-        return emptyList()
+    private fun loadListFromFileCache(fileName: String): List<MediaItem> {
+        val file = java.io.File(context.filesDir, fileName)
+        if (!file.exists()) return emptyList()
+        val deleted = getDeletedIds()
+        val list = mutableListOf<MediaItem>()
+        try {
+            val text = file.readText().trim()
+            if (text.startsWith("[")) {
+                val jsonArray = JSONArray(text)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val id = obj.optString("id", "item_$i")
+                    if (!deleted.contains(id)) {
+                        list.add(parseMediaFromJsonObj(id, obj))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
     }
 
-    fun getInitialMoviesSeries(): List<MediaItem> {
-        return emptyList()
+    fun getCachedSportsMatches(): List<MediaItem> {
+        return loadListFromFileCache("cache_sports_v2.json")
+    }
+
+    fun getCachedLiveTvChannels(): List<MediaItem> {
+        return loadListFromFileCache("cache_livetv_v2.json")
+    }
+
+    fun getCachedMoviesList(): List<MediaItem> {
+        return loadListFromFileCache("cache_movies_v2.json")
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
-        // No-op for SharedPreferences to protect device RAM and prevent ANR
+        saveListToFileCache("cache_sports_v2.json", list)
     }
 
     fun saveCachedLiveTvChannels(list: List<MediaItem>) {
-        // No-op for SharedPreferences to protect device RAM and prevent ANR
+        saveListToFileCache("cache_livetv_v2.json", list)
     }
 
     fun saveCachedMoviesList(list: List<MediaItem>) {
-        // No-op for SharedPreferences to protect device RAM and prevent ANR
+        saveListToFileCache("cache_movies_v2.json", list)
+    }
+
+    // Built-in starter items for instant presentation on first launch
+    fun getDefaultBuiltinSports(): List<MediaItem> {
+        val now = System.currentTimeMillis()
+        return listOf(
+            MediaItem(
+                id = "sport_default_1",
+                title = "Bangladesh vs Sri Lanka | T20 International Series",
+                category = "Cricket",
+                type = MediaType.LIVE_EVENT,
+                streamUrl = "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (T Sports HD)", "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8"),
+                    StreamServer("সার্ভার ২ (GTV Live)", "https://live-gtv.akamaized.net/live/live-gtv/playlist.m3u8"),
+                    StreamServer("সার্ভার ৩ (Star Sports 1)", "https://stream.crichd.vip/live/starsports1.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=500&fit=crop",
+                isLive = true,
+                status = "LIVE NOW",
+                tournament = "BAN vs SL T20 Series",
+                team1 = "Bangladesh",
+                team2 = "Sri Lanka",
+                team1Logo = "https://flagcdn.com/w160/bd.png",
+                team2Logo = "https://flagcdn.com/w160/lk.png",
+                matchTimeFormatted = "Live Now",
+                score1 = "BAN: 168/4 (18.2)",
+                score2 = "SL: 165/8 (20.0)",
+                quality = "HD 1080p"
+            ),
+            MediaItem(
+                id = "sport_default_2",
+                title = "India vs Australia | World Test Championship / ODI",
+                category = "Cricket",
+                type = MediaType.LIVE_EVENT,
+                streamUrl = "https://stream.crichd.vip/live/starsports1.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Star Sports)", "https://stream.crichd.vip/live/starsports1.m3u8"),
+                    StreamServer("সার্ভার ২ (Willow HD)", "https://stream.crichd.vip/live/willowcricket.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=500&fit=crop",
+                isLive = false,
+                status = "UPCOMING",
+                tournament = "Bilateral Series 2026",
+                team1 = "India",
+                team2 = "Australia",
+                team1Logo = "https://flagcdn.com/w160/in.png",
+                team2Logo = "https://flagcdn.com/w160/au.png",
+                matchTimeFormatted = "07:30 PM, Today",
+                countdownTargetSeconds = now + (3 * 3600 * 1000L),
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "sport_default_3",
+                title = "Real Madrid vs Barcelona | El Clasico LaLiga",
+                category = "Football",
+                type = MediaType.LIVE_EVENT,
+                streamUrl = "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (T Sports Live)", "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8"),
+                    StreamServer("সার্ভার ২ (Sony Ten 2)", "https://stream.crichd.vip/live/sonyten2.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=500&fit=crop",
+                isLive = false,
+                status = "TODAY",
+                tournament = "LaLiga Santander",
+                team1 = "Real Madrid",
+                team2 = "Barcelona",
+                team1Logo = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=160",
+                team2Logo = "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=160",
+                matchTimeFormatted = "09:00 PM, Today",
+                countdownTargetSeconds = now + (4 * 3600 * 1000L),
+                quality = "HD 1080p"
+            ),
+            MediaItem(
+                id = "sport_default_4",
+                title = "Arsenal vs Manchester City | Premier League Super Match",
+                category = "Football",
+                type = MediaType.LIVE_EVENT,
+                streamUrl = "https://stream.crichd.vip/live/starsportsselect1.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Star Sports Select 1)", "https://stream.crichd.vip/live/starsportsselect1.m3u8"),
+                    StreamServer("সার্ভার ২ (Eurosport HD)", "https://stream.crichd.vip/live/eurosport.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=500&fit=crop",
+                isLive = false,
+                status = "UPCOMING",
+                tournament = "Premier League 2026",
+                team1 = "Arsenal",
+                team2 = "Manchester City",
+                matchTimeFormatted = "11:30 PM, Tonight",
+                countdownTargetSeconds = now + (6 * 3600 * 1000L),
+                quality = "HD"
+            )
+        )
+    }
+
+    fun getDefaultBuiltinLiveTv(): List<MediaItem> {
+        return listOf(
+            MediaItem(
+                id = "tv_tsports_hd",
+                title = "T Sports HD",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (T Sports Main)", "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8"),
+                    StreamServer("সার্ভার ২ (Backup Live)", "https://stream.crichd.vip/live/tsports.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=300&fit=crop",
+                isLive = true,
+                quality = "1080p HD"
+            ),
+            MediaItem(
+                id = "tv_gtv_hd",
+                title = "GTV (Gazi Television)",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://live-gtv.akamaized.net/live/live-gtv/playlist.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (GTV Live HD)", "https://live-gtv.akamaized.net/live/live-gtv/playlist.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=300&fit=crop",
+                isLive = true,
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "tv_star_sports_1",
+                title = "Star Sports 1 HD",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://stream.crichd.vip/live/starsports1.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Star Sports 1)", "https://stream.crichd.vip/live/starsports1.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=300&fit=crop",
+                isLive = true,
+                quality = "FHD"
+            ),
+            MediaItem(
+                id = "tv_sony_ten_1",
+                title = "Sony Sports Ten 1 HD",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://stream.crichd.vip/live/sonyten1.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Sony Ten 1 HD)", "https://stream.crichd.vip/live/sonyten1.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=300&fit=crop",
+                isLive = true,
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "tv_somoy_news",
+                title = "Somoy TV Live",
+                category = "News",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://somoynews.akamaized.net/hls/live/2017366/somoy/master.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Somoy TV 24/7)", "https://somoynews.akamaized.net/hls/live/2017366/somoy/master.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=300&fit=crop",
+                isLive = true,
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "tv_jamuna_news",
+                title = "Jamuna TV HD",
+                category = "News",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://jamunanews.akamaized.net/live/master.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Jamuna TV Live)", "https://jamunanews.akamaized.net/live/master.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=300&fit=crop",
+                isLive = true,
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "tv_channel_i",
+                title = "Channel i HD",
+                category = "Entertainment",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://channeli.akamaized.net/live/channeli.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Channel i)", "https://channeli.akamaized.net/live/channeli.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=300&fit=crop",
+                isLive = true,
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "tv_btv_world",
+                title = "BTV World",
+                category = "Entertainment",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://btv.akamaized.net/live/btvworld.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (BTV World Live)", "https://btv.akamaized.net/live/btvworld.m3u8")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=300&fit=crop",
+                isLive = true,
+                quality = "HD"
+            )
+        )
+    }
+
+    fun getDefaultBuiltinMovies(): List<MediaItem> {
+        return listOf(
+            MediaItem(
+                id = "mov_toofan_2024",
+                title = "Toofan (তুফান)",
+                category = "Bangla Blockbuster",
+                type = MediaType.MOVIE,
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (4K HDR)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&fit=crop",
+                description = "Shakib Khan starrer all-time blockbuster action thriller movie.",
+                rating = "9.2",
+                year = "2024",
+                isLive = false,
+                quality = "4K UHD"
+            ),
+            MediaItem(
+                id = "mov_mohanagar_series",
+                title = "Mohanagar (মহানগর)",
+                category = "Web Series",
+                type = MediaType.MOVIE,
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Full HD)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&fit=crop",
+                description = "Mosharraf Karim as OC Harun in the thrilling crime mystery web series.",
+                rating = "8.9",
+                year = "2023",
+                isLive = false,
+                quality = "1080p"
+            ),
+            MediaItem(
+                id = "mov_kalki_2898",
+                title = "Kalki 2898 AD",
+                category = "Action & Sci-Fi",
+                type = MediaType.MOVIE,
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Dolby Atmos)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&fit=crop",
+                description = "Prabhas, Amitabh Bachchan & Kamal Haasan in futuristic mythological spectacle.",
+                rating = "8.5",
+                year = "2024",
+                isLive = false,
+                quality = "4K Ultra"
+            ),
+            MediaItem(
+                id = "mov_jawan_2023",
+                title = "Jawan (জওয়ান)",
+                category = "Action & Thriller",
+                type = MediaType.MOVIE,
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Hindi 1080p)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=500&fit=crop",
+                description = "Shah Rukh Khan in high-voltage action thriller directed by Atlee.",
+                rating = "8.4",
+                year = "2023",
+                isLive = false,
+                quality = "1080p"
+            ),
+            MediaItem(
+                id = "mov_panchayat_s3",
+                title = "Panchayat (Season 3)",
+                category = "Web Series",
+                type = MediaType.MOVIE,
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (HD)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4")
+                ),
+                logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=500&fit=crop",
+                description = "Heartwarming rural comedy drama series in Phulera village.",
+                rating = "9.0",
+                year = "2024",
+                isLive = false,
+                quality = "HD"
+            )
+        )
+    }
+
+    // High-speed instant loaders (Always return immediate items in 0 milliseconds, never empty)
+    fun getInitialSports(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }
+        val cached = getCachedSportsMatches().filterNot { deleted.contains(it.id) }
+        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinSports()
+        return (customSports + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+    }
+
+    fun getInitialLiveTv(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
+        val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) }
+        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinLiveTv()
+        return (customTv + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+    }
+
+    fun getInitialMoviesSeries(): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
+        val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) }
+        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
+        return (customMov + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
     }
 
     // Custom streams saved locally in SharedPreferences
