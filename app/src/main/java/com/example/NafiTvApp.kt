@@ -9,6 +9,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import coil.size.Precision
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -21,7 +22,14 @@ class NafiTvApp : Application(), ImageLoaderFactory {
         super.onCreate()
         instance = this
 
-        // 1. Global crash protection: Intercepts background decoder / OkHttp / coroutine crashes
+        // 1. Register optimized Coil ImageLoader globally so all AsyncImage instances use low-RAM decode
+        try {
+            coil.Coil.setImageLoader(newImageLoader())
+        } catch (e: Exception) {
+            Log.w("NafiTvApp", "Coil image loader init error", e)
+        }
+
+        // 2. Global crash protection: Intercepts background decoder / OkHttp / coroutine crashes
         // preventing unexpected process termination on low-spec devices and TV boxes
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -31,18 +39,7 @@ class NafiTvApp : Application(), ImageLoaderFactory {
                 Log.w("NafiTvApp", "Suppressed background thread exception: ${throwable.message}")
             } else {
                 Log.w("NafiTvApp", "Suppressed main thread uncaught exception: ${throwable.message}")
-            }
-        }
-
-        // 2. Cockroach-pattern Main Looper watchdog: Keeps the UI loop alive even if a transient
-        // render/codec error or NPE occurs during playback or recomposition
-        android.os.Handler(Looper.getMainLooper()).post {
-            while (true) {
-                try {
-                    Looper.loop()
-                } catch (t: Throwable) {
-                    Log.e("NafiTvApp", "Caught exception in Main Looper - preventing app exit", t)
-                }
+                defaultHandler?.uncaughtException(thread, throwable)
             }
         }
     }
@@ -58,7 +55,7 @@ class NafiTvApp : Application(), ImageLoaderFactory {
             .okHttpClient(sharedOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.15) // Safe 15% memory limit prevents Low Memory Killer (LMK)
+                    .maxSizePercent(0.12) // Safe 12% memory limit prevents Low Memory Killer (LMK) on 1-2GB RAM phones
                     .strongReferencesEnabled(true)
                     .weakReferencesEnabled(true)
                     .build()
@@ -66,13 +63,14 @@ class NafiTvApp : Application(), ImageLoaderFactory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(File(cacheDir, "nafitv_image_cache"))
-                    .maxSizeBytes(40L * 1024 * 1024) // 40 MB disk cache limit
+                    .maxSizeBytes(35L * 1024 * 1024) // 35 MB disk cache limit
                     .build()
             }
             .bitmapConfig(Bitmap.Config.RGB_565) // 50% memory saving on all channel logos & posters
-            .allowHardware(false) // Disables hardware bitmaps for 100% crash-free stability on TV boxes (Mali/PowerVR GPUs)
+            .allowHardware(false) // Disables hardware bitmaps for 100% crash-free stability on TV boxes & low-RAM Mali/PowerVR GPUs
             .allowRgb565(true)
-            .crossfade(false) // Saves GPU compositing passes on low-RAM TV boxes
+            .crossfade(false) // Saves GPU compositing passes on low-RAM devices
+            .precision(Precision.INEXACT) // Automatically downsamples posters and logos to target UI size (huge memory savings!)
             .networkObserverEnabled(true)
             .respectCacheHeaders(false)
             .memoryCachePolicy(CachePolicy.ENABLED)

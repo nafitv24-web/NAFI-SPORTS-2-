@@ -322,9 +322,11 @@ class MediaRepository(private val context: Context) {
     // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
     private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
         try {
+            // Keep initial offline cache compact (up to 300 items) to prevent huge memory spikes and disk lag on low-RAM devices
+            val itemsToSave = if (list.size > 300) list.take(300) else list
             val file = java.io.File(context.filesDir, fileName)
             val jsonArray = JSONArray()
-            list.forEach { item ->
+            itemsToSave.forEach { item ->
                 jsonArray.put(serializeMediaToJsonObj(item))
             }
             file.writeText(jsonArray.toString())

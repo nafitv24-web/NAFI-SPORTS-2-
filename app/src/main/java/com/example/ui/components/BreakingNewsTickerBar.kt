@@ -62,18 +62,6 @@ fun BreakingNewsTickerBar(
     val clipboardManager = LocalClipboardManager.current
     var showDetailDialog by remember { mutableStateOf(false) }
 
-    // Pulsing animation for the live red dot
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val dotAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dotAlpha"
-    )
-
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -98,7 +86,7 @@ fun BreakingNewsTickerBar(
                 .padding(horizontal = 8.dp, vertical = if (isTvMode) 6.dp else 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Live Red Badge
+            // Live Red Badge (Clean, battery-friendly static indicator)
             Surface(
                 shape = RoundedCornerShape(6.dp),
                 color = Color(0xFFDC2626),
@@ -113,7 +101,7 @@ fun BreakingNewsTickerBar(
                         modifier = Modifier
                             .size(7.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = dotAlpha))
+                            .background(Color.White)
                     )
                     Text(
                         text = customTitle,

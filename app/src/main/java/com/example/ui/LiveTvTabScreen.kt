@@ -76,7 +76,7 @@ fun LiveTvTabScreen(
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
             matchesSearch && matchesCategory
-        }
+        }.distinctBy { it.id }
     }
 
     Column(
@@ -185,19 +185,28 @@ fun LiveTvTabScreen(
                     val isFav = favoriteIds.contains(channel.id)
                     var isFocused by remember { mutableStateOf(false) }
 
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isFocused) Color(0xFF00E5FF) else Color(0xFF334155)
-                        ),
-                        modifier = Modifier
+                    val cardModifier = if (isTvMode) {
+                        Modifier
                             .fillMaxWidth()
                             .height(140.dp)
                             .onFocusChanged { isFocused = it.isFocused }
                             .focusable()
                             .clickable { onSelectMedia(channel, filteredChannels) }
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clickable { onSelectMedia(channel, filteredChannels) }
+                    }
+
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isTvMode && isFocused) Color(0xFF00E5FF) else Color(0xFF334155)
+                        ),
+                        modifier = cardModifier
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             Column(

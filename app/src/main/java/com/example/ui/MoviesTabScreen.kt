@@ -1,9 +1,11 @@
 package com.example.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -100,13 +102,13 @@ fun MoviesTabScreen(
         if (withLogos.isNotEmpty()) withLogos.take(10) else movies.take(8)
     }
 
-    // Group movies by category for the categorized carousels view
+    // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
     val categorizedMovies = remember(movies) {
         val uniqueCats = movies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
         uniqueCats.map { cat ->
-            cat to movies.filter { it.category.trim().equals(cat, ignoreCase = true) }
+            cat to movies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
         }
     }
 
@@ -127,7 +129,7 @@ fun MoviesTabScreen(
                     else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
                 matchesSearch && matchesCategory
-            }
+            }.distinctBy { it.id }
         }
     }
 
@@ -323,13 +325,15 @@ fun MoviesTabScreen(
                     item {
                         val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
 
-                        // Auto-sliding loop smoothly scrolling to the next movie banner every 4 seconds
+                        // Auto-sliding loop smoothly scrolling to the next movie banner every 6 seconds (pauses during user interaction)
                         LaunchedEffect(pagerState.pageCount) {
                             if (pagerState.pageCount > 1) {
                                 while (true) {
-                                    kotlinx.coroutines.delay(4000L)
-                                    val nextPage = (pagerState.currentPage + 1) % pagerState.pageCount
-                                    pagerState.animateScrollToPage(nextPage)
+                                    kotlinx.coroutines.delay(6000L)
+                                    if (!pagerState.isScrollInProgress) {
+                                        val nextPage = (pagerState.currentPage + 1) % pagerState.pageCount
+                                        pagerState.animateScrollToPage(nextPage)
+                                    }
                                 }
                             }
                         }
@@ -348,26 +352,34 @@ fun MoviesTabScreen(
                             ) { page ->
                                 val currentMovie = featuredMovies[page]
                                 var isBannerFocused by remember { mutableStateOf(false) }
-                                val bannerScale by animateFloatAsState(
-                                    targetValue = if (isBannerFocused) 1.02f else 1.0f,
-                                    animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                                    label = "bannerScale_$page"
-                                )
+
+                                val bannerModifier = if (isTvMode) {
+                                    val bannerScale by animateFloatAsState(
+                                        targetValue = if (isBannerFocused) 1.02f else 1.0f,
+                                        animationSpec = tween(150, easing = FastOutSlowInEasing),
+                                        label = "bannerScale_$page"
+                                    )
+                                    Modifier
+                                        .scale(bannerScale)
+                                        .fillMaxSize()
+                                        .onFocusChanged { isBannerFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable { onSelectMedia(currentMovie) }
+                                } else {
+                                    Modifier
+                                        .fillMaxSize()
+                                        .clickable { onSelectMedia(currentMovie) }
+                                }
 
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
                                     color = Color(0xFF0F172A),
                                     border = BorderStroke(
                                         1.dp,
-                                        if (isBannerFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
+                                        if (isTvMode && isBannerFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
                                     ),
-                                    shadowElevation = 8.dp,
-                                    modifier = Modifier
-                                        .scale(bannerScale)
-                                        .fillMaxSize()
-                                        .onFocusChanged { isBannerFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable { onSelectMedia(currentMovie) }
+                                    shadowElevation = if (isTvMode && isBannerFocused) 6.dp else 2.dp,
+                                    modifier = bannerModifier
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         // Background Banner Image
@@ -645,34 +657,42 @@ fun MoviePosterCard(
     onToggleFav: () -> Unit
 ) {
     var isCardFocused by remember { mutableStateOf(false) }
-    val cardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) (if (isTvMode) 1.08f else 1.04f) else 1.0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-        label = "movieCardScale"
-    )
 
     val langBadge = remember(movie.id, movie.title, movie.category, movie.description) {
         getMovieLanguageBadge(movie)
     }
 
-    Column(
-        modifier = Modifier
+    val cardModifier = if (isTvMode) {
+        val cardScale by animateFloatAsState(
+            targetValue = if (isCardFocused) 1.06f else 1.0f,
+            animationSpec = tween(150, easing = FastOutSlowInEasing),
+            label = "movieCardScale"
+        )
+        Modifier
             .scale(cardScale)
-            .width(if (isTvMode) 140.dp else 115.dp)
+            .width(140.dp)
             .onFocusChanged { isCardFocused = it.isFocused }
             .focusable()
             .clickable { onSelect() }
+    } else {
+        Modifier
+            .width(115.dp)
+            .clickable { onSelect() }
+    }
+
+    Column(
+        modifier = cardModifier
     ) {
         // Poster Box (Full poster display with badge & favorite button)
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
+            color = if (isTvMode && isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
             border = when {
-                isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
+                isTvMode && isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
                 isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
                 else -> BorderStroke(1.dp, Color(0xFF1E293B))
             },
-            shadowElevation = if (isCardFocused) 10.dp else 3.dp,
+            shadowElevation = if (isTvMode && isCardFocused) 6.dp else 1.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (isTvMode) 195.dp else 160.dp)

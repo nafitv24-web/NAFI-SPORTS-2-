@@ -2773,7 +2773,7 @@ fun EventsScreen(
                 else -> true
             }
             catMatches && statusMatches
-        }
+        }.distinctBy { it.id }
     }
 
     Column(
@@ -2982,25 +2982,32 @@ fun LiveEventMatchCard(
         }
     }
 
-    val cardScale by animateFloatAsState(
-        targetValue = if (isCardFocused) 1.025f else 1.0f,
-        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-        label = "eventCardScale"
-    )
+    val cardModifier = if (isTvMode) {
+        val cardScale by animateFloatAsState(
+            targetValue = if (isCardFocused) 1.025f else 1.0f,
+            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+            label = "eventCardScale"
+        )
+        Modifier
+            .fillMaxWidth()
+            .scale(cardScale)
+            .onFocusChanged { isCardFocused = it.isFocused }
+            .focusable()
+            .clickable { handlePlayClick(null) }
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .clickable { handlePlayClick(null) }
+    }
 
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isCardFocused) Color(0xFF38BDF8) else Color(0xFF1E293B)
+            if (isTvMode && isCardFocused) Color(0xFF38BDF8) else Color(0xFF1E293B)
         ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(cardScale)
-            .onFocusChanged { isCardFocused = it.isFocused }
-            .focusable()
-            .clickable { handlePlayClick(null) }
+        modifier = cardModifier
     ) {
         Row(
             modifier = Modifier

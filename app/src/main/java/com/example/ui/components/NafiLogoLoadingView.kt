@@ -33,38 +33,6 @@ fun NafiLogoLoadingView(
     subtitle: String = "অনুগ্রহ করে অপেক্ষা করুন, ডাটা প্রস্তুত হচ্ছে...",
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "nafiLoading")
-
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "logoPulse"
-    )
-
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(850, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowPulse"
-    )
-
-    val shimmerOffset by infiniteTransition.animateFloat(
-        initialValue = -1f,
-        targetValue = 2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerProgress"
-    )
-
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -72,63 +40,47 @@ fun NafiLogoLoadingView(
         contentAlignment = Alignment.Center
     ) {
         Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B132B).copy(alpha = 0.94f)),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B132B).copy(alpha = 0.95f)),
             border = androidx.compose.foundation.BorderStroke(
-                width = 1.5.dp,
-                brush = Brush.linearGradient(
-                    listOf(
-                        Color(0xFF00E5FF).copy(alpha = glowAlpha),
-                        Color(0xFF38BDF8).copy(alpha = glowAlpha * 0.8f),
-                        Color(0xFFA855F7).copy(alpha = glowAlpha * 0.6f)
-                    )
-                )
+                width = 1.dp,
+                color = Color(0xFF00E5FF).copy(alpha = 0.5f)
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Column(
                 modifier = Modifier
                     .padding(horizontal = 28.dp, vertical = 24.dp)
                     .widthIn(max = 340.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Branded Pulsing Logo with Glowing Aura (100% Crash-Proof Native Compose)
+                // Branded Logo Badge with clean progress indicator
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(76.dp)
+                    modifier = Modifier.size(72.dp)
                 ) {
-                    // Soft Aura Halo
-                    Box(
-                        modifier = Modifier
-                            .size(76.dp)
-                            .scale(pulseScale * 1.15f)
-                            .alpha(glowAlpha * 0.45f)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.radialGradient(
-                                    listOf(Color(0xFF00E5FF), Color(0xFF2563EB), Color.Transparent)
-                                )
-                            )
+                    CircularProgressIndicator(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color(0xFF00E5FF),
+                        trackColor = Color(0xFF1E293B),
+                        strokeWidth = 3.dp
                     )
 
-                    // Sharp Branded Badge
+                    // Sharp Branded Center Badge
                     Box(
                         modifier = Modifier
-                            .size(62.dp)
-                            .scale(pulseScale)
-                            .clip(RoundedCornerShape(16.dp))
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(14.dp))
                             .background(
                                 Brush.linearGradient(
                                     listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF020617))
                                 )
                             )
                             .border(
-                                1.5.dp,
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF00E5FF), Color(0xFF818CF8), Color(0xFFEC4899))
-                                ),
-                                RoundedCornerShape(16.dp)
+                                1.dp,
+                                Color(0xFF00E5FF).copy(alpha = 0.6f),
+                                RoundedCornerShape(14.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -138,11 +90,11 @@ fun NafiLogoLoadingView(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(26.dp)
+                                    .size(22.dp)
                                     .clip(CircleShape)
                                     .background(
                                         Brush.linearGradient(
-                                            listOf(Color(0xFF00E5FF), Color(0xFF3B82F6), Color(0xFF8B5CF6))
+                                            listOf(Color(0xFF00E5FF), Color(0xFF3B82F6))
                                         )
                                     ),
                                 contentAlignment = Alignment.Center
@@ -151,14 +103,14 @@ fun NafiLogoLoadingView(
                                     imageVector = androidx.compose.material.icons.Icons.Rounded.PlayArrow,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "NAFI TV",
                                 color = Color(0xFF00E5FF),
-                                fontSize = 8.sp,
+                                fontSize = 7.5.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.5.sp
                             )
@@ -174,7 +126,7 @@ fun NafiLogoLoadingView(
                     Text(
                         text = title,
                         color = Color.White,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
                     )
@@ -186,39 +138,6 @@ fun NafiLogoLoadingView(
                         fontWeight = FontWeight.Normal,
                         textAlign = TextAlign.Center,
                         lineHeight = 16.sp
-                    )
-                }
-
-                // Animated Gradient Progress Bar
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Color(0xFF1E293B))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.65f)
-                            .align(
-                                when {
-                                    shimmerOffset < 0f -> Alignment.CenterStart
-                                    shimmerOffset > 1f -> Alignment.CenterEnd
-                                    else -> Alignment.Center
-                                }
-                            )
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color(0xFF00E5FF),
-                                        Color(0xFF38BDF8),
-                                        Color(0xFF818CF8),
-                                        Color(0xFF00E5FF)
-                                    )
-                                )
-                            )
                     )
                 }
             }
