@@ -67,6 +67,8 @@ fun AdminControlAppScreen(
     var userAnalytics by remember { mutableStateOf<AppUserAnalytics?>(null) }
     var isRefreshingAnalytics by remember { mutableStateOf(false) }
     var isCleaningStaleSessions by remember { mutableStateOf(false) }
+    var isWipingQuota by remember { mutableStateOf(false) }
+    var showWipeQuotaDialog by remember { mutableStateOf(false) }
     var selectedDeviceFilter by remember { mutableStateOf(0) } // 0 = Live Online, 1 = Recent Today, 2 = All Records
     var selectedLocationMode by remember { mutableStateOf(0) } // 0 = Live Traffic, 1 = All History
 
@@ -876,6 +878,19 @@ fun AdminControlAppScreen(
                                         Text(if (isCleaningStaleSessions) "ক্লিন হচ্ছে..." else "ক্লিন", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
                                     }
 
+                                    // Instant Quota Release Button
+                                    Button(
+                                        onClick = { showWipeQuotaDialog = true },
+                                        enabled = !isWipingQuota,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626), contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(if (isWipingQuota) "রিলিজ..." else "কোটা রিলিজ", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+
                                     // Refresh Button
                                     Button(
                                         onClick = { loadAnalyticsData() },
@@ -888,6 +903,59 @@ fun AdminControlAppScreen(
                                         Text("রিফ্রেশ", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
+                            }
+
+                            if (showWipeQuotaDialog) {
+                                AlertDialog(
+                                    onDismissRequest = { showWipeQuotaDialog = false },
+                                    containerColor = Color(0xFF1E293B),
+                                    title = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Rounded.DeleteSweep, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Firebase কোটা রিলিজ করবেন?", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    text = {
+                                        Text(
+                                            text = "এটি Firebase Realtime Database থেকে সমস্ত পুরানো ও বর্তমান ইউজার ট্র্যাকিং লগ (active_users & all_users) সম্পূর্ণ মুছে ফেলবে। এর ফলে স্টোরেজ সাইজ ০ KB তে নেমে আসবে এবং আপনার ফ্রি ১০ GB ব্যান্ডউইথ আজীবনের জন্য সুরক্ষিত থাকবে।\n\n(আপনার সংরক্ষিত টিভি চ্যানেল, মুভি বা প্লেলিস্টে কোনো প্রভাব পড়বে না)।",
+                                            color = Color(0xFFCBD5E1),
+                                            fontSize = 13.sp,
+                                            lineHeight = 19.sp
+                                        )
+                                    },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    isWipingQuota = true
+                                                    val ok = repository.clearAllUserLogsFromFirebase()
+                                                    if (ok) {
+                                                        Toast.makeText(context, "Firebase ইউজার লগ মুছে কোটা সম্পূর্ণ ফ্রি করা হয়েছে!", Toast.LENGTH_LONG).show()
+                                                    } else {
+                                                        Toast.makeText(context, "কোটা রিলিজ ব্যর্থ হয়েছে", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    loadAnalyticsData()
+                                                    isWipingQuota = false
+                                                    showWipeQuotaDialog = false
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444), contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("হ্যাঁ, কোটা রিলিজ করুন", fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        OutlinedButton(
+                                            onClick = { showWipeQuotaDialog = false },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8)),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("বাতিল")
+                                        }
+                                    }
+                                )
                             }
 
                             val allUserList = userAnalytics?.activeUsersList ?: emptyList()

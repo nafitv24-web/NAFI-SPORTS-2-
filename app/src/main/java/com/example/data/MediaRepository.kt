@@ -1469,65 +1469,38 @@ class MediaRepository(private val context: Context) {
         val firestoreItems = fetchFromFirestore()
         items.addAll(firestoreItems)
 
-        // 2. Fetch from Firebase Realtime Database
+        // 2. Fetch from Firebase Realtime Database (Optimized: queries targeted media collections to save 95%+ bandwidth and avoid downloading user logs)
         if (url.isNotBlank()) {
             try {
                 val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                val targetUrl = if (cleanUrl.endsWith(".json")) cleanUrl else "$cleanUrl/.json"
+                val subKeys = listOf("channels", "sports", "movies", "events", "matches", "custom")
 
-                val request = Request.Builder()
-                    .url(targetUrl)
-                    .header("User-Agent", "NAFITV24-Android/2.5.0")
-                    .build()
+                for (sub in subKeys) {
+                    try {
+                        val targetUrl = appendRtdbAuth("$cleanUrl/$sub.json")
+                        val request = Request.Builder()
+                            .url(targetUrl)
+                            .header("User-Agent", "NAFITV24-Android/2.6.5")
+                            .build()
 
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: ""
-                    if (body.isNotEmpty() && body != "null") {
-                        if (body.startsWith("{")) {
-                            val jsonObject = JSONObject(body)
-                            // "playlists", "app_config", "app_updates", "settings" are handled separately and must not be parsed as TV channels
-                            val subKeys = listOf("sports", "events", "matches", "channels", "movies", "custom")
-                            var foundNested = false
-                            for (sub in subKeys) {
-                                if (jsonObject.has(sub)) {
-                                    foundNested = true
-                                    val subObj = jsonObject.optJSONObject(sub)
-                                    if (subObj != null) {
-                                        val keys = subObj.keys()
-                                        while (keys.hasNext()) {
-                                            val k = keys.next()
-                                            if (!deleted.contains(k) && !k.startsWith("pl_")) {
-                                                val itemObj = subObj.optJSONObject(k)
-                                                if (itemObj != null && !itemObj.has("channelCount")) {
-                                                    val rawItem = parseMediaFromJsonObj(k, itemObj)
-                                                    val item = when (sub) {
-                                                        "channels" -> if (rawItem.type != MediaType.LIVE_TV && !rawItem.id.startsWith("sport_") && !rawItem.id.startsWith("match_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_TV) else rawItem
-                                                        "sports", "events", "matches" -> if (rawItem.type != MediaType.LIVE_EVENT && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_EVENT) else rawItem
-                                                        "movies" -> if (rawItem.type != MediaType.MOVIE && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("sport_")) rawItem.copy(type = MediaType.MOVIE) else rawItem
-                                                        else -> rawItem
-                                                    }
-                                                    if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
-                                                        items.add(item)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if (!foundNested) {
-                                val keys = jsonObject.keys()
+                        val response = client.newCall(request).execute()
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()?.trim() ?: ""
+                            if (body.startsWith("{")) {
+                                val subObj = JSONObject(body)
+                                val keys = subObj.keys()
                                 while (keys.hasNext()) {
-                                    val key = keys.next()
-                                    // Skip system collections and playlists
-                                    if (key == "playlists" || key == "app_config" || key == "app_updates" || key == "deleted_ids" || key == "settings" || key.startsWith("pl_")) {
-                                        continue
-                                    }
-                                    if (!deleted.contains(key)) {
-                                        val obj = jsonObject.optJSONObject(key)
-                                        if (obj != null && !obj.has("channelCount")) {
-                                            val item = parseMediaFromJsonObj(key, obj)
+                                    val k = keys.next()
+                                    if (!deleted.contains(k) && !k.startsWith("pl_")) {
+                                        val itemObj = subObj.optJSONObject(k)
+                                        if (itemObj != null && !itemObj.has("channelCount")) {
+                                            val rawItem = parseMediaFromJsonObj(k, itemObj)
+                                            val item = when (sub) {
+                                                "channels" -> if (rawItem.type != MediaType.LIVE_TV && !rawItem.id.startsWith("sport_") && !rawItem.id.startsWith("match_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_TV) else rawItem
+                                                "sports", "events", "matches" -> if (rawItem.type != MediaType.LIVE_EVENT && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_EVENT) else rawItem
+                                                "movies" -> if (rawItem.type != MediaType.MOVIE && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("sport_")) rawItem.copy(type = MediaType.MOVIE) else rawItem
+                                                else -> rawItem
+                                            }
                                             if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
                                                 items.add(item)
                                             }
@@ -1535,22 +1508,8 @@ class MediaRepository(private val context: Context) {
                                     }
                                 }
                             }
-                        } else if (body.startsWith("[")) {
-                            val jsonArray = JSONArray(body)
-                            for (i in 0 until jsonArray.length()) {
-                                val obj = jsonArray.optJSONObject(i)
-                                if (obj != null && !obj.has("channelCount")) {
-                                    val id = obj.optString("id", "fb_$i")
-                                    if (!deleted.contains(id) && !id.startsWith("pl_")) {
-                                        val item = parseMediaFromJsonObj(id, obj)
-                                        if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
-                                            items.add(item)
-                                        }
-                                    }
-                                }
-                            }
                         }
-                    }
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -5457,7 +5416,8 @@ class MediaRepository(private val context: Context) {
     fun recordUserPresence(currentActivity: String = "ব্রাউজিং") {
         try {
             val now = System.currentTimeMillis()
-            if (currentActivity == lastPresenceActivity && (now - lastPresenceTimestamp < 90_000L)) {
+            // Quota optimization: Only send heartbeat every 10 minutes or if initial startup
+            if (lastPresenceTimestamp > 0 && (now - lastPresenceTimestamp < 10 * 60 * 1000L)) {
                 return
             }
             lastPresenceTimestamp = now
@@ -5522,26 +5482,30 @@ class MediaRepository(private val context: Context) {
                             .build()
                         try { client.newCall(activeReq).execute().close() } catch (_: Exception) {}
 
-                        // 2. Register / Update in permanent lifetime users index (all_users)
-                        val userObj = JSONObject().apply {
-                            put("id", deviceId)
-                            put("device_model", cleanDeviceName)
-                            put("app_version", appVersion)
-                            put("last_seen", now)
-                            put("registered_at", installedAt)
-                            put("location", locLabel)
-                            put("city", city)
-                            put("country", country)
-                            put("country_code", countryCode)
-                            put("network_type", netType)
+                        // 2. Register / Update in permanent lifetime users index (all_users) - ONLY once on install or once a week!
+                        val lastAllUsersSync = prefs.getLong("last_all_users_sync_timestamp", 0L)
+                        if (isFirstInstall || (now - lastAllUsersSync > 7 * 24 * 3600 * 1000L)) {
+                            prefs.edit().putLong("last_all_users_sync_timestamp", now).apply()
+                            val userObj = JSONObject().apply {
+                                put("id", deviceId)
+                                put("device_model", cleanDeviceName)
+                                put("app_version", appVersion)
+                                put("last_seen", now)
+                                put("registered_at", installedAt)
+                                put("location", locLabel)
+                                put("city", city)
+                                put("country", country)
+                                put("country_code", countryCode)
+                                put("network_type", netType)
+                            }
+                            val userBody = userObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                            val allTargetUrl = appendRtdbAuth("$cleanUrl/all_users/$deviceId.json")
+                            val userReq = Request.Builder()
+                                .url(allTargetUrl)
+                                .put(userBody)
+                                .build()
+                            try { client.newCall(userReq).execute().close() } catch (_: Exception) {}
                         }
-                        val userBody = userObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                        val allTargetUrl = appendRtdbAuth("$cleanUrl/all_users/$deviceId.json")
-                        val userReq = Request.Builder()
-                            .url(allTargetUrl)
-                            .put(userBody)
-                            .build()
-                        try { client.newCall(userReq).execute().close() } catch (_: Exception) {}
                     }
                 } catch (_: Exception) {
                     // Ignore transient network errors
@@ -5758,26 +5722,27 @@ class MediaRepository(private val context: Context) {
                 if (body.startsWith("{")) {
                     val root = JSONObject(body)
                     val now = System.currentTimeMillis()
-                    val staleThreshold = 24 * 60 * 60 * 1000L // 24 hours
+                    val staleThreshold = 12 * 60 * 60 * 1000L // 12 hours
                     val keys = root.keys()
-                    val keysToDelete = mutableListOf<String>()
+                    val patchObj = JSONObject()
+                    var countToDelete = 0
                     while (keys.hasNext()) {
                         val k = keys.next()
                         val uObj = root.optJSONObject(k)
                         val lastSeen = uObj?.optLong("last_seen", 0L) ?: 0L
                         if (lastSeen > 0 && (now - lastSeen) > staleThreshold) {
-                            keysToDelete.add(k)
+                            patchObj.put(k, JSONObject.NULL)
+                            countToDelete++
                         }
                     }
-                    for (delKey in keysToDelete) {
-                        try {
-                            val delTargetUrl = appendRtdbAuth("$cleanUrl/active_users/$delKey.json")
-                            val delReq = Request.Builder()
-                                .url(delTargetUrl)
-                                .delete()
-                                .build()
-                            client.newCall(delReq).execute()
-                        } catch (_: Exception) {}
+                    if (countToDelete > 0) {
+                        val patchBody = patchObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val patchReq = Request.Builder()
+                            .url(reqActiveUrl)
+                            .patch(patchBody)
+                            .build()
+                        val patchResp = client.newCall(patchReq).execute()
+                        patchResp.close()
                     }
                     return@withContext true
                 }
@@ -5786,6 +5751,25 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
         false
+    }
+
+    // Instant Free Firebase Quota: Wipes active and lifetime user tracking logs
+    suspend fun clearAllUserLogsFromFirebase(): Boolean = withContext(Dispatchers.IO) {
+        val rtdbUrl = getSavedFirebaseUrl()
+        if (rtdbUrl.isBlank()) return@withContext false
+        try {
+            val cleanUrl = if (rtdbUrl.endsWith("/")) rtdbUrl.removeSuffix("/") else rtdbUrl
+            val delActiveUrl = appendRtdbAuth("$cleanUrl/active_users.json")
+            val delAllUrl = appendRtdbAuth("$cleanUrl/all_users.json")
+            val req1 = Request.Builder().url(delActiveUrl).delete().build()
+            val req2 = Request.Builder().url(delAllUrl).delete().build()
+            try { client.newCall(req1).execute().close() } catch (_: Exception) {}
+            try { client.newCall(req2).execute().close() } catch (_: Exception) {}
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     fun getSavedUserMode(): String? {

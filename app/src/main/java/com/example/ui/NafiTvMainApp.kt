@@ -456,7 +456,7 @@ fun NafiTvMainApp(
         }
     }
 
-    // Periodic user presence heartbeat
+    // Periodic user presence heartbeat (Quota optimized: 15-minute pulse)
     LaunchedEffect(currentTab, selectedMediaItem) {
         val activity = when {
             selectedMediaItem != null -> "দেখছেন: ${selectedMediaItem?.title?.take(25)}"
@@ -471,7 +471,7 @@ fun NafiTvMainApp(
             try {
                 repository.recordUserPresence(activity)
             } catch (_: Exception) {}
-            delay(120_000L) // Pulse presence every 2 minutes
+            delay(900_000L) // Pulse presence every 15 minutes (quota-safe)
         }
     }
 
