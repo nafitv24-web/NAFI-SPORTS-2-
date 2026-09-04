@@ -23,8 +23,10 @@ object ChannelStatusManager {
     private const val PREFS_NAME = "nafitv_channel_status"
     private const val KEY_FAILED_CHANNELS = "failed_channel_ids"
     private const val KEY_VERIFIED_ACTIVE = "verified_channel_ids"
+    private const val KEY_FAILED_SERVERS = "failed_server_urls"
 
     private val workingStatusMap = ConcurrentHashMap<String, Boolean>()
+    private val failedServerUrls = ConcurrentHashMap.newKeySet<String>()
     private val _statusUpdateTick = MutableStateFlow(0L)
     val statusUpdateTick: StateFlow<Long> = _statusUpdateTick.asStateFlow()
 
@@ -51,12 +53,67 @@ object ChannelStatusManager {
         val p = prefs ?: return
         val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet()) ?: emptySet()
         val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
+        val failedServers = p.getStringSet(KEY_FAILED_SERVERS, emptySet()) ?: emptySet()
 
         for (id in failedSet) {
             workingStatusMap[id] = false
         }
         for (id in verifiedSet) {
             workingStatusMap[id] = true
+        }
+        for (url in failedServers) {
+            failedServerUrls.add(url)
+        }
+    }
+
+    /**
+     * Checks whether a specific server URL is active and not marked broken.
+     */
+    fun isServerActive(serverUrl: String): Boolean {
+        val trimmed = serverUrl.trim()
+        if (trimmed.isBlank()) return false
+        if (failedServerUrls.contains(trimmed)) return false
+        return isValidStreamFormat(trimmed)
+    }
+
+    /**
+     * Mark a specific server URL as failed/inactive.
+     */
+    fun markServerFailed(serverUrl: String) {
+        val trimmed = serverUrl.trim()
+        if (trimmed.isBlank()) return
+        failedServerUrls.add(trimmed)
+        _statusUpdateTick.value = System.currentTimeMillis()
+        saveFailedServerToPrefs(trimmed)
+    }
+
+    /**
+     * Mark a specific server URL as active/working (re-enable).
+     */
+    fun markServerSuccess(serverUrl: String) {
+        val trimmed = serverUrl.trim()
+        if (trimmed.isBlank()) return
+        if (failedServerUrls.remove(trimmed)) {
+            _statusUpdateTick.value = System.currentTimeMillis()
+            removeFailedServerFromPrefs(trimmed)
+        }
+    }
+
+    /**
+     * Returns the active servers for a media item, filtering out inactive/broken servers
+     * unless all servers would be filtered out (in which case it keeps valid format ones as fallback).
+     */
+    fun getActiveServers(mediaItem: MediaItem): List<com.example.model.StreamServer> {
+        val allServers = mediaItem.getAllServers()
+        if (allServers.isEmpty()) return emptyList()
+
+        // Filter servers: Must have valid format and not marked as broken
+        val active = allServers.filter { isServerActive(it.url) }
+        return if (active.isNotEmpty()) {
+            active
+        } else {
+            // If all were marked broken, return servers with valid URL format so user can at least try
+            allServers.filter { isValidStreamFormat(it.url) }.ifEmpty { allServers }
         }
     }
 
@@ -153,6 +210,29 @@ object ChannelStatusManager {
         workingStatusMap.clear()
         _statusUpdateTick.value = System.currentTimeMillis()
         prefs?.edit()?.clear()?.apply()
+    }
+
+    private fun saveFailedServerToPrefs(serverUrl: String) {
+        val p = prefs ?: return
+        try {
+            val curSet = p.getStringSet(KEY_FAILED_SERVERS, emptySet())?.toMutableSet() ?: mutableSetOf()
+            curSet.add(serverUrl)
+            p.edit().putStringSet(KEY_FAILED_SERVERS, curSet).apply()
+        } catch (e: Exception) {
+            Log.w("ChannelStatusManager", "Failed to save failed server status", e)
+        }
+    }
+
+    private fun removeFailedServerFromPrefs(serverUrl: String) {
+        val p = prefs ?: return
+        try {
+            val curSet = p.getStringSet(KEY_FAILED_SERVERS, emptySet())?.toMutableSet() ?: mutableSetOf()
+            if (curSet.remove(serverUrl)) {
+                p.edit().putStringSet(KEY_FAILED_SERVERS, curSet).apply()
+            }
+        } catch (e: Exception) {
+            Log.w("ChannelStatusManager", "Failed to remove failed server status", e)
+        }
     }
 
     private fun saveStatusToPrefs(channelId: String, isSuccess: Boolean) {

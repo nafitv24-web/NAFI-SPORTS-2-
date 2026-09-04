@@ -136,9 +136,10 @@ fun VideoPlayerScreen(
     }
 
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
-    val servers = remember(currentMedia) { currentMedia.getAllServers() }
+    val statusTick by com.example.util.ChannelStatusManager.statusUpdateTick.collectAsState()
+    val servers = remember(currentMedia, statusTick) { com.example.util.ChannelStatusManager.getActiveServers(currentMedia) }
     var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(0) }
-    var currentUrl by remember(currentMedia, selectedServerIndex) {
+    var currentUrl by remember(currentMedia, selectedServerIndex, servers) {
         mutableStateOf(servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl)
     }
 
@@ -839,9 +840,8 @@ fun VideoPlayerScreen(
                         isBuffering = false
                         isActuallyBuffering = false
                         hasStartedPlaying = true
-                        if (currentMedia.type == MediaType.LIVE_TV) {
-                            com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
-                        }
+                        com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                        com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                     }
 
                     override fun onTracksChanged(tracks: Tracks) {
@@ -943,6 +943,10 @@ fun VideoPlayerScreen(
 
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
+                        // Mark current failed server
+                        if (currentUrl.isNotBlank()) {
+                            com.example.util.ChannelStatusManager.markServerFailed(currentUrl)
+                        }
                         if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
                             selectedServerIndex++
                             currentUrl = servers[selectedServerIndex].url
@@ -951,9 +955,7 @@ fun VideoPlayerScreen(
                             forceWebEngine = true
                             errorMessage = null
                         } else {
-                            if (currentMedia.type == MediaType.LIVE_TV) {
-                                com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
-                            }
+                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
                             errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }

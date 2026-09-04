@@ -50,12 +50,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +91,8 @@ fun MoviesTabScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    var showOnlyActive by rememberSaveable { mutableStateOf(false) }
+    val statusTick by com.example.util.ChannelStatusManager.statusUpdateTick.collectAsState()
 
     val categories = remember(movies) {
         val unique = movies.map { it.category.trim() }
@@ -97,23 +103,33 @@ fun MoviesTabScreen(
     }
 
     // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)
-    val featuredMovies = remember(movies) {
-        val withLogos = movies.filter { !it.logoUrl.isNullOrBlank() }
-        if (withLogos.isNotEmpty()) withLogos.take(10) else movies.take(8)
+    val featuredMovies = remember(movies, showOnlyActive, statusTick) {
+        val baseMovies = if (showOnlyActive) {
+            movies.filter { com.example.util.ChannelStatusManager.isChannelActive(it) }
+        } else {
+            movies
+        }
+        val withLogos = baseMovies.filter { !it.logoUrl.isNullOrBlank() }
+        if (withLogos.isNotEmpty()) withLogos.take(10) else baseMovies.take(8)
     }
 
     // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
-    val categorizedMovies = remember(movies) {
-        val uniqueCats = movies.map { it.category.trim() }
+    val categorizedMovies = remember(movies, showOnlyActive, statusTick) {
+        val baseMovies = if (showOnlyActive) {
+            movies.filter { com.example.util.ChannelStatusManager.isChannelActive(it) }
+        } else {
+            movies
+        }
+        val uniqueCats = baseMovies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
         uniqueCats.map { cat ->
-            cat to movies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
+            cat to baseMovies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
         }
     }
 
     // Filtered movies when search query is active or a single category is selected
-    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
+    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds, showOnlyActive, statusTick) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
         } else {
@@ -128,7 +144,8 @@ fun MoviesTabScreen(
                     "❤️ Favorites" -> favoriteIds.contains(movie.id)
                     else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
-                matchesSearch && matchesCategory
+                val matchesActive = !showOnlyActive || com.example.util.ChannelStatusManager.isChannelActive(movie)
+                matchesSearch && matchesCategory && matchesActive
             }.distinctBy { it.id }
         }
     }
@@ -188,6 +205,49 @@ fun MoviesTabScreen(
                 ),
                 singleLine = true
             )
+
+            // 'Only Active Channel' Toggle Switch (Matches Live TV)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (showOnlyActive) Color(0xFF065F46).copy(alpha = 0.4f) else Color(0xFF1E293B),
+                border = BorderStroke(
+                    1.dp,
+                    if (showOnlyActive) Color(0xFF10B981) else Color(0xFF334155)
+                ),
+                modifier = Modifier
+                    .clickable { showOnlyActive = !showOnlyActive }
+                    .padding(vertical = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(if (showOnlyActive) Color(0xFF10B981) else Color(0xFF64748B))
+                    )
+                    Text(
+                        text = "Only Active",
+                        color = if (showOnlyActive) Color(0xFF34D399) else Color(0xFFCBD5E1),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Switch(
+                        checked = showOnlyActive,
+                        onCheckedChange = { showOnlyActive = it },
+                        modifier = Modifier.scale(0.7f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF10B981),
+                            uncheckedThumbColor = Color(0xFF94A3B8),
+                            uncheckedTrackColor = Color(0xFF334155)
+                        )
+                    )
+                }
+            }
 
             // Right Download Square Button
             Surface(
