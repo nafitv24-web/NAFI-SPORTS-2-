@@ -59,10 +59,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
@@ -93,6 +95,13 @@ fun MoviesTabScreen(
     var selectedCategory by remember { mutableStateOf("All") }
     var showOnlyActive by rememberSaveable { mutableStateOf(false) }
     val statusTick by com.example.util.ChannelStatusManager.statusUpdateTick.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(showOnlyActive, movies) {
+        if (showOnlyActive && movies.isNotEmpty()) {
+            com.example.util.ChannelStatusManager.probeChannelsAsync(coroutineScope, movies)
+        }
+    }
 
     val categories = remember(movies) {
         val unique = movies.map { it.category.trim() }
@@ -104,36 +113,37 @@ fun MoviesTabScreen(
 
     // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)
     val featuredMovies = remember(movies, showOnlyActive, statusTick) {
-        val baseMovies = if (showOnlyActive) {
-            movies.filter { com.example.util.ChannelStatusManager.isChannelActive(it) }
+        val withLogos = movies.filter { !it.logoUrl.isNullOrBlank() }
+        val baseList = if (withLogos.isNotEmpty()) withLogos.take(10) else movies.take(8)
+        if (showOnlyActive) {
+            baseList.sortedByDescending { com.example.util.ChannelStatusManager.isChannelActive(it) }
         } else {
-            movies
+            baseList
         }
-        val withLogos = baseMovies.filter { !it.logoUrl.isNullOrBlank() }
-        if (withLogos.isNotEmpty()) withLogos.take(10) else baseMovies.take(8)
     }
 
     // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
     val categorizedMovies = remember(movies, showOnlyActive, statusTick) {
-        val baseMovies = if (showOnlyActive) {
-            movies.filter { com.example.util.ChannelStatusManager.isChannelActive(it) }
-        } else {
-            movies
-        }
-        val uniqueCats = baseMovies.map { it.category.trim() }
+        val uniqueCats = movies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
         uniqueCats.map { cat ->
-            cat to baseMovies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
+            val catMovies = movies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
+            val sortedList = if (showOnlyActive) {
+                catMovies.sortedByDescending { com.example.util.ChannelStatusManager.isChannelActive(it) }
+            } else {
+                catMovies
+            }
+            cat to sortedList
         }
     }
 
-    // Filtered movies when search query is active or a single category is selected
+    // Filtered movies when search query is active or a single category is selected or Only Active is toggled
     val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds, showOnlyActive, statusTick) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
         } else {
-            movies.filter { movie ->
+            val list = movies.filter { movie ->
                 val matchesSearch = if (searchQuery.isBlank()) true else {
                     movie.title.contains(searchQuery, ignoreCase = true) ||
                             movie.category.contains(searchQuery, ignoreCase = true) ||
@@ -144,9 +154,15 @@ fun MoviesTabScreen(
                     "❤️ Favorites" -> favoriteIds.contains(movie.id)
                     else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
-                val matchesActive = !showOnlyActive || com.example.util.ChannelStatusManager.isChannelActive(movie)
-                matchesSearch && matchesCategory && matchesActive
+                matchesSearch && matchesCategory
             }.distinctBy { it.id }
+
+            if (showOnlyActive) {
+                // Active movies on TOP, offline movies at the BOTTOM
+                list.sortedByDescending { com.example.util.ChannelStatusManager.isChannelActive(it) }
+            } else {
+                list
+            }
         }
     }
 
@@ -373,7 +389,7 @@ fun MoviesTabScreen(
                     )
                 }
             }
-        } else if (searchQuery.isBlank() && selectedCategory == "All") {
+        } else if (searchQuery.isBlank() && selectedCategory == "All" && !showOnlyActive) {
             // HOME / ALL VIEW: FEATURED BANNER + CATEGORY CAROUSELS (Matching Screenshot 1)
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -477,6 +493,36 @@ fun MoviesTabScreen(
                                                 )
                                         )
 
+                                        // Top-Start Corner Active Badge on Banner
+                                        val isBannerActive = com.example.util.ChannelStatusManager.isChannelActive(currentMovie)
+                                        if (isBannerActive) {
+                                            Surface(
+                                                shape = RoundedCornerShape(topStart = 16.dp, bottomEnd = 8.dp),
+                                                color = Color(0xFF064E3B).copy(alpha = 0.95f),
+                                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f)),
+                                                modifier = Modifier.align(Alignment.TopStart)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(6.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFF10B981))
+                                                    )
+                                                    Text(
+                                                        text = "সচল",
+                                                        color = Color(0xFF6EE7B7),
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+
                                         // Banner Content
                                         Column(
                                             modifier = Modifier
@@ -577,6 +623,7 @@ fun MoviesTabScreen(
                                 MoviePosterCard(
                                     movie = movie,
                                     isFav = favoriteIds.contains(movie.id),
+                                    showOnlyActive = showOnlyActive,
                                     isTvMode = isTvMode,
                                     onSelect = { onSelectMedia(movie) },
                                     onToggleFav = { onToggleFavorite(movie.id) }
@@ -631,6 +678,7 @@ fun MoviesTabScreen(
                         MoviePosterCard(
                             movie = movie,
                             isFav = favoriteIds.contains(movie.id),
+                            showOnlyActive = showOnlyActive,
                             isTvMode = isTvMode,
                             onSelect = { onSelectMedia(movie) },
                             onToggleFav = { onToggleFavorite(movie.id) }
@@ -712,17 +760,19 @@ fun getMovieLanguageBadge(movie: MediaItem): String {
 fun MoviePosterCard(
     movie: MediaItem,
     isFav: Boolean,
+    showOnlyActive: Boolean = false,
     isTvMode: Boolean,
     onSelect: () -> Unit,
     onToggleFav: () -> Unit
 ) {
     var isCardFocused by remember { mutableStateOf(false) }
+    val isActive = com.example.util.ChannelStatusManager.isChannelActive(movie)
 
     val langBadge = remember(movie.id, movie.title, movie.category, movie.description) {
         getMovieLanguageBadge(movie)
     }
 
-    val cardModifier = if (isTvMode) {
+    val baseModifier = if (isTvMode) {
         val cardScale by animateFloatAsState(
             targetValue = if (isCardFocused) 1.06f else 1.0f,
             animationSpec = tween(150, easing = FastOutSlowInEasing),
@@ -739,6 +789,11 @@ fun MoviePosterCard(
             .width(115.dp)
             .clickable { onSelect() }
     }
+    val cardModifier = if (!isActive && showOnlyActive) {
+        baseModifier.alpha(0.62f)
+    } else {
+        baseModifier
+    }
 
     Column(
         modifier = cardModifier
@@ -750,6 +805,7 @@ fun MoviePosterCard(
             border = when {
                 isTvMode && isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
                 isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
+                showOnlyActive && isActive -> BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
                 else -> BorderStroke(1.dp, Color(0xFF1E293B))
             },
             shadowElevation = if (isTvMode && isCardFocused) 6.dp else 1.dp,
@@ -784,28 +840,91 @@ fun MoviePosterCard(
                     }
                 }
 
-                // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc.)
-                Surface(
-                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
-                    color = when (langBadge) {
-                        "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
-                        "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
-                        "ইংরেজি" -> Color(0xFF2563EB)
-                        "তামিল", "তেলেগু", "মালায়ালাম", "সাউথ" -> Color(0xFFEA580C)
-                        "কোরিয়ান" -> Color(0xFF7C3AED)
-                        "অ্যানিমে" -> Color(0xFFDB2777)
-                        "তুর্কি" -> Color(0xFF0D9488)
-                        else -> Color(0xFF6366F1)
-                    },
-                    modifier = Modifier.align(Alignment.TopStart)
+                // Top Left: Status Badge (Green Active / Red Offline) & Language Badge
+                Row(
+                    modifier = Modifier.align(Alignment.TopStart),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Text(
-                        text = langBadge,
-                        color = Color.White,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    if (isActive) {
+                        Surface(
+                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp, topEnd = 4.dp, bottomStart = 4.dp),
+                            color = Color(0xFF064E3B).copy(alpha = 0.95f),
+                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981))
+                                )
+                                Text(
+                                    text = "সচল",
+                                    color = Color(0xFF6EE7B7),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    } else if (showOnlyActive) {
+                        Surface(
+                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp, topEnd = 4.dp, bottomStart = 4.dp),
+                            color = Color(0xFF450A0A).copy(alpha = 0.95f),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFEF4444))
+                                )
+                                Text(
+                                    text = "অফলাইন",
+                                    color = Color(0xFFFCA5A5),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc.)
+                    Surface(
+                        shape = RoundedCornerShape(
+                            topStart = if (!isActive && !showOnlyActive) 12.dp else 4.dp,
+                            bottomEnd = 8.dp,
+                            topEnd = 4.dp,
+                            bottomStart = 4.dp
+                        ),
+                        color = when (langBadge) {
+                            "বাংলা", "বাংলা ডাবড" -> Color(0xFF059669)
+                            "হিন্দি", "হিন্দি ডাবড" -> Color(0xFFD97706)
+                            "ইংরেজি" -> Color(0xFF2563EB)
+                            "তামিল", "তেলেগু", "মালায়ালাম", "সাউথ" -> Color(0xFFEA580C)
+                            "কোরিয়ান" -> Color(0xFF7C3AED)
+                            "অ্যানিমে" -> Color(0xFFDB2777)
+                            "তুর্কি" -> Color(0xFF0D9488)
+                            else -> Color(0xFF6366F1)
+                        }
+                    ) {
+                        Text(
+                            text = langBadge,
+                            color = Color.White,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
 
                 // Top Right Favorite Button

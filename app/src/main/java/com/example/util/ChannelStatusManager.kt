@@ -5,9 +5,14 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.example.model.MediaItem
 import com.example.model.StreamServer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
@@ -27,16 +32,17 @@ object ChannelStatusManager {
 
     private val workingStatusMap = ConcurrentHashMap<String, Boolean>()
     private val failedServerUrls = ConcurrentHashMap.newKeySet<String>()
+    private val probingIds = ConcurrentHashMap.newKeySet<String>()
     private val _statusUpdateTick = MutableStateFlow(0L)
     val statusUpdateTick: StateFlow<Long> = _statusUpdateTick.asStateFlow()
 
     private var prefs: SharedPreferences? = null
 
-    // Dedicated fast client for quick HEAD / range requests (5s timeout)
+    // Dedicated fast client for quick HEAD / range requests (4s timeout)
     private val checkClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
@@ -125,13 +131,13 @@ object ChannelStatusManager {
      *    - true -> Active
      * 2. If no check yet:
      *    - Check URL validity (not blank, valid http/https scheme, has working extension or stream server)
-     *    - Filter out dummy or placeholder links like empty, '#' or non-resolvable dummy formats
+     *    - Check if all servers are already marked as failed
      */
     fun isChannelActive(channel: MediaItem): Boolean {
-        // If explicitly recorded as failed
+        // If explicitly recorded in workingStatusMap
         val recordedStatus = workingStatusMap[channel.id]
-        if (recordedStatus == false) {
-            return false
+        if (recordedStatus != null) {
+            return recordedStatus
         }
 
         // Check if stream URL is present and not a dummy
@@ -147,13 +153,119 @@ object ChannelStatusManager {
             return false
         }
 
-        // Check if any server in the channel is valid
+        // Check if any server in the channel is valid and not marked broken
         if (allServers.isNotEmpty()) {
-            val hasValidServer = allServers.any { isValidStreamFormat(it.url) }
+            val hasValidServer = allServers.any { isValidStreamFormat(it.url) && !failedServerUrls.contains(it.url.trim()) }
             if (!hasValidServer) return false
         }
 
         return true
+    }
+
+    /**
+     * Quickly probes a list of channels or movies in the background to verify whether
+     * their stream URLs are active or offline. Runs concurrently on Dispatchers.IO.
+     */
+    fun probeChannelsAsync(scope: CoroutineScope, items: List<MediaItem>) {
+        if (items.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            val toCheck = items.filter { item ->
+                item.id.isNotBlank() && !probingIds.contains(item.id)
+            }
+            if (toCheck.isEmpty()) return@launch
+
+            toCheck.forEach { probingIds.add(it.id) }
+            val semaphore = Semaphore(12)
+
+            toCheck.forEach { item ->
+                launch(Dispatchers.IO) {
+                    try {
+                        semaphore.withPermit {
+                            val isWorking = checkChannelReachability(item)
+                            workingStatusMap[item.id] = isWorking
+                            saveStatusToPrefs(item.id, isWorking)
+                            _statusUpdateTick.value = System.currentTimeMillis()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("ChannelStatusManager", "Probe error for ${item.title}", e)
+                    } finally {
+                        probingIds.remove(item.id)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkChannelReachability(item: MediaItem): Boolean {
+        val mainUrl = item.streamUrl.trim()
+        val allServers = item.getAllServers()
+
+        if (mainUrl.isBlank() && allServers.isEmpty()) {
+            return false
+        }
+
+        val urlsToTest = mutableListOf<String>()
+        if (mainUrl.isNotBlank() && isValidStreamFormat(mainUrl)) {
+            urlsToTest.add(mainUrl)
+        }
+        for (server in allServers) {
+            val sUrl = server.url.trim()
+            if (sUrl.isNotBlank() && isValidStreamFormat(sUrl) && !urlsToTest.contains(sUrl)) {
+                urlsToTest.add(sUrl)
+            }
+        }
+
+        if (urlsToTest.isEmpty()) {
+            return false
+        }
+
+        var anyServerWorking = false
+        for (url in urlsToTest) {
+            val ok = testSingleStreamUrl(url)
+            if (ok) {
+                anyServerWorking = true
+                markServerSuccess(url)
+            } else {
+                markServerFailed(url)
+            }
+        }
+
+        return anyServerWorking
+    }
+
+    private fun testSingleStreamUrl(url: String): Boolean {
+        if (!isValidStreamFormat(url)) return false
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .head()
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                .header("Accept", "*/*")
+                .build()
+
+            val resp = checkClient.newCall(req).execute()
+            val code = resp.code
+            resp.close()
+
+            when (code) {
+                in 200..399 -> true
+                405, 400, 403 -> {
+                    // Try fast GET range
+                    val getReq = Request.Builder()
+                        .url(url)
+                        .header("Range", "bytes=0-1024")
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                        .build()
+                    val getResp = checkClient.newCall(getReq).execute()
+                    val getCode = getResp.code
+                    getResp.close()
+                    getCode in 200..399 || getCode == 403
+                }
+                else -> false
+            }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun isValidStreamFormat(url: String): Boolean {

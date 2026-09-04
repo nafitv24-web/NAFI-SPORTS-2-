@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
@@ -68,22 +69,35 @@ fun LiveTvTabScreen(
     var showOnlyActive by rememberSaveable { mutableStateOf(false) }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(showOnlyActive, channels) {
+        if (showOnlyActive && channels.isNotEmpty()) {
+            ChannelStatusManager.probeChannelsAsync(coroutineScope, channels)
+        }
+    }
 
     val categories = remember(channels) {
         listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
     }
 
     val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, statusTick) {
-        channels.filter { channel ->
+        val list = channels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true
                 "FAVORITE" -> favoriteIds.contains(channel.id)
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
-            val matchesActive = !showOnlyActive || ChannelStatusManager.isChannelActive(channel)
-            matchesSearch && matchesCategory && matchesActive
+            matchesSearch && matchesCategory
         }.distinctBy { it.id }
+
+        if (showOnlyActive) {
+            // Active channels on TOP, offline channels at the BOTTOM
+            list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
+        } else {
+            list
+        }
     }
 
     Column(
@@ -234,8 +248,9 @@ fun LiveTvTabScreen(
                 items(filteredChannels, key = { it.id }) { channel ->
                     val isFav = favoriteIds.contains(channel.id)
                     var isFocused by remember { mutableStateOf(false) }
+                    val isActive = ChannelStatusManager.isChannelActive(channel)
 
-                    val cardModifier = if (isTvMode) {
+                    val baseModifier = if (isTvMode) {
                         Modifier
                             .fillMaxWidth()
                             .height(140.dp)
@@ -248,13 +263,22 @@ fun LiveTvTabScreen(
                             .height(140.dp)
                             .clickable { onSelectMedia(channel, filteredChannels) }
                     }
+                    val cardModifier = if (!isActive && showOnlyActive) {
+                        baseModifier.alpha(0.62f)
+                    } else {
+                        baseModifier
+                    }
 
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                         border = BorderStroke(
                             1.dp,
-                            if (isTvMode && isFocused) Color(0xFF00E5FF) else Color(0xFF334155)
+                            when {
+                                isTvMode && isFocused -> Color(0xFF00E5FF)
+                                showOnlyActive && isActive -> Color(0xFF10B981).copy(alpha = 0.5f)
+                                else -> Color(0xFF334155)
+                            }
                         ),
                         modifier = cardModifier
                     ) {
@@ -306,6 +330,61 @@ fun LiveTvTabScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                }
+                            }
+
+                            // Top-Start Corner: Active green indicator / Offline red indicator
+                            if (isActive) {
+                                Surface(
+                                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                                    color = Color(0xFF064E3B).copy(alpha = 0.95f),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f)),
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981))
+                                        )
+                                        Text(
+                                            text = "সচল",
+                                            color = Color(0xFF6EE7B7),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            } else if (showOnlyActive) {
+                                Surface(
+                                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                                    color = Color(0xFF450A0A).copy(alpha = 0.95f),
+                                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFEF4444))
+                                        )
+                                        Text(
+                                            text = "অফলাইন",
+                                            color = Color(0xFFFCA5A5),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
 
