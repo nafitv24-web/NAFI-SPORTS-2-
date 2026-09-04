@@ -219,6 +219,7 @@ fun NafiTvMainApp(
         }
         NotificationHelper.initNotificationChannel(context)
         MovieDownloadManager.init(context)
+        com.example.util.ChannelStatusManager.init(context)
     }
 
     // State lists - Instant 0-second startup initialization from persistent cache / built-in defaults + custom streams

@@ -839,6 +839,9 @@ fun VideoPlayerScreen(
                         isBuffering = false
                         isActuallyBuffering = false
                         hasStartedPlaying = true
+                        if (currentMedia.type == MediaType.LIVE_TV) {
+                            com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                        }
                     }
 
                     override fun onTracksChanged(tracks: Tracks) {
@@ -948,6 +951,9 @@ fun VideoPlayerScreen(
                             forceWebEngine = true
                             errorMessage = null
                         } else {
+                            if (currentMedia.type == MediaType.LIVE_TV) {
+                                com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
+                            }
                             errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }
@@ -2601,6 +2607,8 @@ fun VideoPlayerScreen(
                         (currentMedia.category ?: "").contains("Drama", ignoreCase = true) ||
                         (currentMedia.category ?: "").contains("প্লেলিস্ট", ignoreCase = true)
 
+                var isMovieSimplifiedView by rememberSaveable { mutableStateOf(false) }
+
                 // Title & Details Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2670,31 +2678,60 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    // Fullscreen Button Shortcut
-                    Button(
-                        onClick = { toggleFullscreen() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Rounded.Fullscreen, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("ফুল স্ক্রিন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isMovieOrSeries) {
+                            Button(
+                                onClick = { isMovieSimplifiedView = !isMovieSimplifiedView },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isMovieSimplifiedView) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                    contentColor = if (isMovieSimplifiedView) Color.Black else Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                border = if (isMovieSimplifiedView) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                modifier = Modifier.padding(end = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isMovieSimplifiedView) Icons.Rounded.ViewStream else Icons.Rounded.VisibilityOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isMovieSimplifiedView) "স্বাভাবিক ভিউ" else "মুভি লিস্ট ভিউ",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Fullscreen Button Shortcut
+                        Button(
+                            onClick = { toggleFullscreen() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Rounded.Fullscreen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ফুল স্ক্রিন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
                 // =========================================================================
                 // PROMINENT DOWNLOAD OPTION BELOW PLAYER (Strictly for Movie Option)
                 // =========================================================================
-                if (isMovieOrSeries) {
-                    val downloadCtx = LocalContext.current
-                    val activeDlMap by MovieDownloadManager.downloadsState.collectAsState()
-                    val curDlProg = activeDlMap[currentMedia.id]
-                    val isCurDownloading = curDlProg?.state == DownloadState.DOWNLOADING || curDlProg?.state == DownloadState.PENDING
-                    val isCurDownloaded = MovieDownloadManager.isMovieDownloaded(downloadCtx, currentMedia.id)
-                    val downloadedMovieInfo = remember(isCurDownloaded, currentMedia.id) {
-                        if (isCurDownloaded) MovieDownloadManager.getDownloadedMovie(downloadCtx, currentMedia.id) else null
-                    }
+                AnimatedVisibility(visible = !isMovieSimplifiedView) {
+                    if (isMovieOrSeries) {
+                        val downloadCtx = LocalContext.current
+                        val activeDlMap by MovieDownloadManager.downloadsState.collectAsState()
+                        val curDlProg = activeDlMap[currentMedia.id]
+                        val isCurDownloading = curDlProg?.state == DownloadState.DOWNLOADING || curDlProg?.state == DownloadState.PENDING
+                        val isCurDownloaded = MovieDownloadManager.isMovieDownloaded(downloadCtx, currentMedia.id)
+                        val downloadedMovieInfo = remember(isCurDownloaded, currentMedia.id) {
+                            if (isCurDownloaded) MovieDownloadManager.getDownloadedMovie(downloadCtx, currentMedia.id) else null
+                        }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -2889,55 +2926,60 @@ fun VideoPlayerScreen(
                             }
                         }
                     }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Multi-Server Chips (Only display when more than 1 server available)
-                if (servers.size > 1) {
-                    Text(
-                        text = "সার্ভার নির্বাচন (${servers.size} টি সার্ভার উপলব্ধ):",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        itemsIndexed(servers) { index, server ->
-                            val isSelected = selectedServerIndex == index
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
-                                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                                modifier = Modifier.clickable {
-                                    switchServer(index)
-                                }
+                AnimatedVisibility(visible = !isMovieSimplifiedView) {
+                    if (servers.size > 1) {
+                        Column {
+                            Text(
+                                text = "সার্ভার নির্বাচন (${servers.size} টি সার্ভার উপলব্ধ):",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Rounded.CheckCircle else if (isMovieOrSeries) Icons.Rounded.Movie else Icons.Rounded.Dns,
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.Black else Color(0xFF00E5FF),
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = server.name,
-                                        color = if (isSelected) Color.Black else Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
+                                itemsIndexed(servers) { index, server ->
+                                    val isSelected = selectedServerIndex == index
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.clickable {
+                                            switchServer(index)
+                                        }
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isSelected) Icons.Rounded.CheckCircle else if (isMovieOrSeries) Icons.Rounded.Movie else Icons.Rounded.Dns,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color.Black else Color(0xFF00E5FF),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = server.name,
+                                                color = if (isSelected) Color.Black else Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        }
+                                    }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(14.dp))
                         }
                     }
-                    Spacer(modifier = Modifier.height(14.dp))
                 }
 
                 // Related / Other Items in Portrait Mode
@@ -3229,7 +3271,7 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    // Breaking News Bar situated right above the in-player movie search bar
+                    // Breaking News Bar situated right above the in-player movie search bar (Always visible as requested)
                     BreakingNewsTickerBar(
                         tickerText = activeTickerText,
                         isTvMode = isTvMode,
@@ -3237,56 +3279,58 @@ fun VideoPlayerScreen(
                     )
 
                     // In-Player Movie Search Bar
-                    OutlinedTextField(
-                        value = moviePlayerSearchQuery,
-                        onValueChange = { moviePlayerSearchQuery = it },
-                        placeholder = {
-                            Text(
-                                text = "মুভি বা সিরিজ খুঁজুন...",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 12.sp
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.Search,
-                                contentDescription = "Search Movies",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        trailingIcon = {
-                            if (moviePlayerSearchQuery.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { moviePlayerSearchQuery = "" },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = "Clear",
-                                        tint = Color(0xFF94A3B8),
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                    AnimatedVisibility(visible = !isMovieSimplifiedView) {
+                        OutlinedTextField(
+                            value = moviePlayerSearchQuery,
+                            onValueChange = { moviePlayerSearchQuery = it },
+                            placeholder = {
+                                Text(
+                                    text = "মুভি বা সিরিজ খুঁজুন...",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = "Search Movies",
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            trailingIcon = {
+                                if (moviePlayerSearchQuery.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { moviePlayerSearchQuery = "" },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "Clear",
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF00E5FF),
-                            unfocusedBorderColor = Color(0xFF334155),
-                            focusedContainerColor = Color(0xFF0F172A),
-                            unfocusedContainerColor = Color(0xFF0F172A),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 10.dp)
-                    )
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF00E5FF),
+                                unfocusedBorderColor = Color(0xFF334155),
+                                focusedContainerColor = Color(0xFF0F172A),
+                                unfocusedContainerColor = Color(0xFF0F172A),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                        )
+                    }
 
                     // Synopsis / Storyline
-                    if (!currentMedia.description.isNullOrBlank()) {
+                    AnimatedVisibility(visible = !isMovieSimplifiedView && !currentMedia.description.isNullOrBlank()) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color(0xFF1E293B).copy(alpha = 0.7f),

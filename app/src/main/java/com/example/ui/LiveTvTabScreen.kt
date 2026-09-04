@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,7 +30,9 @@ import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MediaServer
 
+import androidx.compose.ui.platform.LocalContext
 import com.example.ui.components.NafiLogoLoadingView
+import com.example.util.ChannelStatusManager
 
 fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     val grouped = linkedMapOf<String, MutableList<MediaItem>>()
@@ -62,12 +65,15 @@ fun LiveTvTabScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("ALL") }
+    var showOnlyActive by rememberSaveable { mutableStateOf(false) }
+
+    val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
 
     val categories = remember(channels) {
         listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds) {
+    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, statusTick) {
         channels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
@@ -75,7 +81,8 @@ fun LiveTvTabScreen(
                 "FAVORITE" -> favoriteIds.contains(channel.id)
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
-            matchesSearch && matchesCategory
+            val matchesActive = !showOnlyActive || ChannelStatusManager.isChannelActive(channel)
+            matchesSearch && matchesCategory && matchesActive
         }.distinctBy { it.id }
     }
 
@@ -114,6 +121,49 @@ fun LiveTvTabScreen(
                 ),
                 modifier = Modifier.weight(1f)
             )
+
+            // 'Only Active Channel' Toggle Switch
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (showOnlyActive) Color(0xFF065F46).copy(alpha = 0.4f) else Color(0xFF1E293B),
+                border = BorderStroke(
+                    1.dp,
+                    if (showOnlyActive) Color(0xFF10B981) else Color(0xFF334155)
+                ),
+                modifier = Modifier
+                    .clickable { showOnlyActive = !showOnlyActive }
+                    .padding(vertical = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (showOnlyActive) Color(0xFF10B981) else Color(0xFF64748B))
+                    )
+                    Text(
+                        text = "Only Active Channel",
+                        color = if (showOnlyActive) Color(0xFF34D399) else Color(0xFFCBD5E1),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Switch(
+                        checked = showOnlyActive,
+                        onCheckedChange = { showOnlyActive = it },
+                        modifier = Modifier.scale(0.75f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF10B981),
+                            uncheckedThumbColor = Color(0xFF94A3B8),
+                            uncheckedTrackColor = Color(0xFF334155)
+                        )
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
