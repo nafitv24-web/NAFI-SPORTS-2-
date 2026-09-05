@@ -813,7 +813,7 @@ fun VideoPlayerScreen(
                                 hasStartedPlaying = true
                                 errorMessage = null
                                 isPlaying = playWhenReady
-                                com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                                com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id, currentMedia.title, currentUrl)
                                 com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                                 val dur = duration
                                 if (dur > 0 && dur != C.TIME_UNSET) {
@@ -841,7 +841,7 @@ fun VideoPlayerScreen(
                         isBuffering = false
                         isActuallyBuffering = false
                         hasStartedPlaying = true
-                        com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                        com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id, currentMedia.title, currentUrl)
                         com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                     }
 
@@ -928,7 +928,7 @@ fun VideoPlayerScreen(
                     override fun onIsPlayingChanged(playing: Boolean) {
                         isPlaying = playing
                         if (playing) {
-                            com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                            com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id, currentMedia.title, currentUrl)
                             com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                         }
                     }
@@ -960,7 +960,7 @@ fun VideoPlayerScreen(
                             forceWebEngine = true
                             errorMessage = null
                         } else {
-                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
+                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id, currentMedia.title, currentUrl)
                             errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }

@@ -34,6 +34,8 @@ object ChannelStatusManager {
 
     private val workingStatusMap = ConcurrentHashMap<String, Boolean>()
     private val failedServerUrls = ConcurrentHashMap.newKeySet<String>()
+    private val verifiedTitles = ConcurrentHashMap.newKeySet<String>()
+    private val failedTitles = ConcurrentHashMap.newKeySet<String>()
     private val probingIds = ConcurrentHashMap.newKeySet<String>()
     private val probedIds = ConcurrentHashMap.newKeySet<String>()
     private val probeQueue = ConcurrentLinkedQueue<MediaItem>()
@@ -98,18 +100,19 @@ object ChannelStatusManager {
 
     private fun loadPersistedStatuses() {
         val p = prefs ?: return
-        val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet()) ?: emptySet()
-        val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
-        val failedServers = p.getStringSet(KEY_FAILED_SERVERS, emptySet()) ?: emptySet()
+        // Reset old speculative failed caches completely so no playable channel is falsely marked offline
+        p.edit()
+            .remove(KEY_FAILED_CHANNELS)
+            .remove(KEY_FAILED_SERVERS)
+            .apply()
 
-        for (id in failedSet) {
-            workingStatusMap[id] = false
-        }
+        workingStatusMap.clear()
+        failedServerUrls.clear()
+        failedTitles.clear()
+
+        val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
         for (id in verifiedSet) {
             workingStatusMap[id] = true
-        }
-        for (url in failedServers) {
-            failedServerUrls.add(url)
         }
     }
 
@@ -119,8 +122,9 @@ object ChannelStatusManager {
     fun isServerActive(serverUrl: String): Boolean {
         val trimmed = serverUrl.trim()
         if (trimmed.isBlank()) return false
-        if (failedServerUrls.contains(trimmed)) return false
-        return isValidStreamFormat(trimmed)
+        val clean = try { DrmHelper.extractStreamInfo(trimmed).cleanUrl } catch (_: Exception) { trimmed }
+        if (failedServerUrls.contains(clean)) return false
+        return isValidStreamFormat(clean)
     }
 
     /**
@@ -129,8 +133,9 @@ object ChannelStatusManager {
     fun markServerFailed(serverUrl: String) {
         val trimmed = serverUrl.trim()
         if (trimmed.isBlank()) return
-        failedServerUrls.add(trimmed)
-        saveFailedServerToPrefs(trimmed)
+        val clean = try { DrmHelper.extractStreamInfo(trimmed).cleanUrl } catch (_: Exception) { trimmed }
+        failedServerUrls.add(clean)
+        saveFailedServerToPrefs(clean)
     }
 
     /**
@@ -139,8 +144,9 @@ object ChannelStatusManager {
     fun markServerSuccess(serverUrl: String) {
         val trimmed = serverUrl.trim()
         if (trimmed.isBlank()) return
-        if (failedServerUrls.remove(trimmed)) {
-            removeFailedServerFromPrefs(trimmed)
+        val clean = try { DrmHelper.extractStreamInfo(trimmed).cleanUrl } catch (_: Exception) { trimmed }
+        if (failedServerUrls.remove(clean)) {
+            removeFailedServerFromPrefs(clean)
         }
     }
 
@@ -161,16 +167,36 @@ object ChannelStatusManager {
     }
 
     /**
+     * Normalize channel title for matching across different sources (e.g. "[BD] Somoy TV" vs "Somoy TV Live")
+     */
+    fun normalizeTitle(title: String): String {
+        return title.lowercase()
+            .replace(Regex("""\[.*?\]"""), "") // Remove [BD], [HD], etc.
+            .replace(Regex("""\b(live|tv|news|hd|sd|bd)\b""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""[^a-z0-9\u0980-\u09FF]"""), "") // keep alphanumeric and Bengali
+            .trim()
+    }
+
+    /**
      * Checks whether a channel is considered currently active and working.
+     * Only channels that explicitly fail during actual playback or have invalid URLs are offline.
+     * Playable channels are NEVER shown offline.
      */
     fun isChannelActive(channel: MediaItem): Boolean {
-        // If explicitly recorded status (either from background probe or player)
+        // 1. Explicitly recorded status (true = active, false = failed in player)
         val recordedStatus = workingStatusMap[channel.id]
-        if (recordedStatus != null) {
-            return recordedStatus
+        if (recordedStatus == false) {
+            return false
+        }
+        val normTitle = normalizeTitle(channel.title)
+        if (normTitle.isNotBlank() && failedTitles.contains(normTitle)) {
+            return false
+        }
+        if (recordedStatus == true || (normTitle.isNotBlank() && verifiedTitles.contains(normTitle))) {
+            return true
         }
 
-        // Check if stream URL is present and not a dummy/invalid format
+        // 2. Validate stream URL format
         val mainUrl = channel.streamUrl.trim()
         val allServers = channel.getAllServers()
 
@@ -184,7 +210,7 @@ object ChannelStatusManager {
             return false
         }
 
-        // Check if all servers in the channel are already marked broken by actual playback failure
+        // 3. If all servers in the channel have failed during playback
         if (allServers.isNotEmpty()) {
             val hasValidServer = allServers.any {
                 val clean = try { DrmHelper.extractStreamInfo(it.url).cleanUrl } catch (_: Exception) { it.url.trim() }
@@ -195,14 +221,14 @@ object ChannelStatusManager {
             return false
         }
 
-        // Channels pending probe are assumed active initially so they are not prematurely flashed offline
+        // By default, every valid channel is considered ACTIVE so it is NEVER falsely shown as offline
         return true
     }
 
     /**
      * Enqueues channels for lightweight, non-blocking background health check.
-     * Uses a single throttled worker coroutine on Dispatchers.IO with batched UI ticks.
-     * Guaranteed zero UI thread blocking, zero thread explosion, zero memory leaks.
+     * Opportunistically discovers verified working channels.
+     * CRITICAL: Never marks channels offline from background probe failure!
      */
     fun enqueueChannelsForProbing(items: List<MediaItem>) {
         if (items.isEmpty()) return
@@ -224,15 +250,25 @@ object ChannelStatusManager {
                         probingIds.add(nextItem.id)
                         try {
                             val isWorking = checkChannelReachability(nextItem)
-                            workingStatusMap[nextItem.id] = isWorking
-                            batchResults[nextItem.id] = isWorking
-                            processedInBatch++
+                            if (isWorking) {
+                                workingStatusMap[nextItem.id] = true
+                                val norm = normalizeTitle(nextItem.title)
+                                if (norm.isNotBlank()) {
+                                    verifiedTitles.add(norm)
+                                    failedTitles.remove(norm)
+                                }
+                                batchResults[nextItem.id] = true
+                                processedInBatch++
+                            }
+                            // NOTE: If isWorking == false, we DO NOT mark it failed!
+                            // Speculative background probes often fail on protected/Akamai/tokenized streams
+                            // that ExoPlayer plays with ease. Only actual playback failure marks channels offline.
 
                             val now = System.currentTimeMillis()
                             // Debounce UI update tick to at least 1.5 seconds to prevent recomposition stutter
                             if (processedInBatch >= 6 || (now - lastTickTime) >= 1500L) {
                                 if (batchResults.isNotEmpty()) {
-                                    batchSaveStatusToPrefs(batchResults)
+                                    batchSaveVerifiedToPrefs(batchResults.keys)
                                     batchResults.clear()
                                 }
                                 processedInBatch = 0
@@ -241,9 +277,6 @@ object ChannelStatusManager {
                             }
                         } catch (e: Exception) {
                             Log.w("ChannelStatusManager", "Probe error for ${nextItem.title}", e)
-                            workingStatusMap[nextItem.id] = false
-                            batchResults[nextItem.id] = false
-                            processedInBatch++
                         } finally {
                             probingIds.remove(nextItem.id)
                         }
@@ -251,7 +284,7 @@ object ChannelStatusManager {
                     }
 
                     if (batchResults.isNotEmpty()) {
-                        batchSaveStatusToPrefs(batchResults)
+                        batchSaveVerifiedToPrefs(batchResults.keys)
                         lastTickTime = System.currentTimeMillis()
                         _statusUpdateTick.value = lastTickTime
                     }
@@ -314,9 +347,9 @@ object ChannelStatusManager {
                 anyServerWorking = true
                 markServerSuccess(url)
                 break // If any server works, channel is active
-            } else {
-                markServerFailed(url)
             }
+            // CRITICAL: NEVER markServerFailed here! Background probes can fail on CDNs
+            // that ExoPlayer plays without issue. Only player playback failure marks servers failed.
         }
 
         return anyServerWorking
@@ -360,7 +393,6 @@ object ChannelStatusManager {
         return try {
             val getBuilder = Request.Builder()
                 .url(cleanUrl)
-                .header("Range", "bytes=0-2048")
                 .header("User-Agent", effectiveUa)
                 .header("Accept", "*/*")
                 .header("Connection", "close")
@@ -371,6 +403,7 @@ object ChannelStatusManager {
                 if (!k.equals("User-Agent", ignoreCase = true) &&
                     !k.equals("Referer", ignoreCase = true) &&
                     !k.equals("Origin", ignoreCase = true) &&
+                    !k.equals("Connection", ignoreCase = true) &&
                     !k.equals("Range", ignoreCase = true)
                 ) {
                     getBuilder.header(k, v)
@@ -403,30 +436,9 @@ object ChannelStatusManager {
                     }
                 }
 
-                // If Range was rejected with 400 Bad Request, 405 Method Not Allowed or 501, try simple HEAD
-                if (getCode in listOf(400, 405, 501)) {
-                    val headBuilder = Request.Builder()
-                        .url(cleanUrl)
-                        .head()
-                        .header("User-Agent", effectiveUa)
-                        .header("Accept", "*/*")
-                    if (effectiveReferer != null) headBuilder.header("Referer", effectiveReferer)
-                    if (effectiveOrigin != null) headBuilder.header("Origin", effectiveOrigin)
-
-                    try {
-                        checkClient.newCall(headBuilder.build()).execute().use { headResp ->
-                            if (headResp.code in 200..399 || headResp.code == 416) {
-                                return true
-                            }
-                        }
-                    } catch (_: Exception) {}
-                }
-
-                // 404 Not Found, 410 Gone, 502/503/504 -> conclusively offline
-                return false
+                false
             }
         } catch (e: Exception) {
-            // DNS resolution failure, connection timeout, connection refused -> offline
             false
         }
     }
@@ -446,21 +458,43 @@ object ChannelStatusManager {
     /**
      * Mark a channel as working successfully (called when playback starts or frames render)
      */
-    fun markChannelSuccess(channelId: String) {
-        if (channelId.isBlank()) return
-        workingStatusMap[channelId] = true
+    fun markChannelSuccess(channelId: String, channelTitle: String? = null, streamUrl: String? = null) {
+        if (channelId.isNotBlank()) {
+            workingStatusMap[channelId] = true
+            saveStatusToPrefs(channelId, true)
+        }
+        if (!channelTitle.isNullOrBlank()) {
+            val norm = normalizeTitle(channelTitle)
+            if (norm.isNotBlank()) {
+                verifiedTitles.add(norm)
+                failedTitles.remove(norm)
+            }
+        }
+        if (!streamUrl.isNullOrBlank()) {
+            markServerSuccess(streamUrl)
+        }
         _statusUpdateTick.value = System.currentTimeMillis()
-        saveStatusToPrefs(channelId, true)
     }
 
     /**
      * Mark a channel as failed/broken (called when playback fails and all servers fail)
      */
-    fun markChannelFailed(channelId: String) {
-        if (channelId.isBlank()) return
-        workingStatusMap[channelId] = false
+    fun markChannelFailed(channelId: String, channelTitle: String? = null, streamUrl: String? = null) {
+        if (channelId.isNotBlank()) {
+            workingStatusMap[channelId] = false
+            saveStatusToPrefs(channelId, false)
+        }
+        if (!channelTitle.isNullOrBlank()) {
+            val norm = normalizeTitle(channelTitle)
+            if (norm.isNotBlank()) {
+                failedTitles.add(norm)
+                verifiedTitles.remove(norm)
+            }
+        }
+        if (!streamUrl.isNullOrBlank()) {
+            markServerFailed(streamUrl)
+        }
         _statusUpdateTick.value = System.currentTimeMillis()
-        saveStatusToPrefs(channelId, false)
     }
 
     /**
@@ -482,6 +516,8 @@ object ChannelStatusManager {
      */
     fun resetAllStatuses() {
         workingStatusMap.clear()
+        verifiedTitles.clear()
+        failedTitles.clear()
         probedIds.clear()
         probeQueue.clear()
         _statusUpdateTick.value = System.currentTimeMillis()
@@ -531,21 +567,16 @@ object ChannelStatusManager {
         }
     }
 
-    private fun batchSaveStatusToPrefs(batchResults: Map<String, Boolean>) {
-        if (batchResults.isEmpty()) return
+    private fun batchSaveVerifiedToPrefs(verifiedIds: Collection<String>) {
+        if (verifiedIds.isEmpty()) return
         val p = prefs ?: return
         try {
             val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet())?.toMutableSet() ?: mutableSetOf()
             val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet())?.toMutableSet() ?: mutableSetOf()
 
-            batchResults.forEach { (id, isSuccess) ->
-                if (isSuccess) {
-                    failedSet.remove(id)
-                    verifiedSet.add(id)
-                } else {
-                    verifiedSet.remove(id)
-                    failedSet.add(id)
-                }
+            verifiedIds.forEach { id ->
+                failedSet.remove(id)
+                verifiedSet.add(id)
             }
 
             p.edit()
@@ -553,7 +584,7 @@ object ChannelStatusManager {
                 .putStringSet(KEY_FAILED_CHANNELS, failedSet)
                 .apply()
         } catch (e: Exception) {
-            Log.w("ChannelStatusManager", "Failed to batch save channel statuses", e)
+            Log.w("ChannelStatusManager", "Failed to batch save verified statuses", e)
         }
     }
 }
