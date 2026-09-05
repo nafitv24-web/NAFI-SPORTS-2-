@@ -61,6 +61,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
@@ -468,6 +469,13 @@ fun PlaylistTabScreen(
                 }
             }
 
+            // Enqueue unverified playlist channels for safe background probing
+            LaunchedEffect(playlistChannels) {
+                if (playlistChannels.isNotEmpty()) {
+                    ChannelStatusManager.enqueueChannelsForProbing(playlistChannels)
+                }
+            }
+
             val filteredChannels = remember(playlistChannels, channelSearchQuery, showOnlyActive, statusTick) {
                 val list = if (channelSearchQuery.isBlank()) playlistChannels else {
                     playlistChannels.filter {
@@ -476,8 +484,7 @@ fun PlaylistTabScreen(
                     }
                 }
                 if (showOnlyActive) {
-                    // Active channels on TOP, offline channels at the BOTTOM
-                    list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
+                    list.filter { ChannelStatusManager.isChannelActive(it) }
                 } else {
                     list
                 }
@@ -532,14 +539,14 @@ fun PlaylistTabScreen(
                                 1.dp,
                                 when {
                                     isCardFocused -> Color(0xFFFFD600)
-                                    showOnlyActive && isActive -> Color(0xFF10B981).copy(alpha = 0.5f)
-                                    showOnlyActive && !isActive -> Color(0xFFEF4444).copy(alpha = 0.3f)
-                                    else -> Color(0xFF1E293B)
+                                    isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
+                                    else -> Color(0xFFEF4444).copy(alpha = 0.45f)
                                 }
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(if (isTvMode) 130.dp else 115.dp)
+                                .alpha(if (!isActive) 0.72f else 1.0f)
                                 .onFocusChanged { isCardFocused = it.isFocused }
                                 .focusable()
                                 .clickable { onSelectMedia(item, playlistChannels) }
@@ -608,7 +615,7 @@ fun PlaylistTabScreen(
                                             )
                                         }
                                     }
-                                } else if (showOnlyActive) {
+                                } else {
                                     Surface(
                                         shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
                                         color = Color(0xFF450A0A).copy(alpha = 0.95f),

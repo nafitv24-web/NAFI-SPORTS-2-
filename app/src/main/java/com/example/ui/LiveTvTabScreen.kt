@@ -71,6 +71,13 @@ fun LiveTvTabScreen(
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
+    // Trigger non-blocking background health check on unverified channels safely
+    LaunchedEffect(channels) {
+        if (channels.isNotEmpty()) {
+            ChannelStatusManager.enqueueChannelsForProbing(channels)
+        }
+    }
+
     LaunchedEffect(showOnlyActive) {
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
@@ -87,15 +94,11 @@ fun LiveTvTabScreen(
                 "FAVORITE" -> favoriteIds.contains(channel.id)
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
-            matchesSearch && matchesCategory
+            val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
+            matchesSearch && matchesCategory && matchesActive
         }.distinctBy { it.id }
 
-        if (showOnlyActive) {
-            // Active channels on TOP, offline channels at the BOTTOM
-            list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
-        } else {
-            list
-        }
+        list
     }
 
     Column(
@@ -261,8 +264,8 @@ fun LiveTvTabScreen(
                             .height(140.dp)
                             .clickable { onSelectMedia(channel, filteredChannels) }
                     }
-                    val cardModifier = if (!isActive && showOnlyActive) {
-                        baseModifier.alpha(0.62f)
+                    val cardModifier = if (!isActive) {
+                        baseModifier.alpha(0.72f)
                     } else {
                         baseModifier
                     }
@@ -274,8 +277,8 @@ fun LiveTvTabScreen(
                             1.dp,
                             when {
                                 isTvMode && isFocused -> Color(0xFF00E5FF)
-                                showOnlyActive && isActive -> Color(0xFF10B981).copy(alpha = 0.5f)
-                                else -> Color(0xFF334155)
+                                isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
+                                else -> Color(0xFFEF4444).copy(alpha = 0.45f)
                             }
                         ),
                         modifier = cardModifier
@@ -358,7 +361,7 @@ fun LiveTvTabScreen(
                                         )
                                     }
                                 }
-                            } else if (showOnlyActive) {
+                            } else {
                                 Surface(
                                     shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
                                     color = Color(0xFF450A0A).copy(alpha = 0.95f),
