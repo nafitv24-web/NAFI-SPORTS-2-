@@ -94,11 +94,15 @@ fun LiveTvTabScreen(
                 "FAVORITE" -> favoriteIds.contains(channel.id)
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
-            val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
-            matchesSearch && matchesCategory && matchesActive
+            matchesSearch && matchesCategory
         }.distinctBy { it.id }
 
-        list
+        if (showOnlyActive) {
+            // Active channels on TOP, offline channels at the BOTTOM
+            list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
+        } else {
+            list
+        }
     }
 
     Column(

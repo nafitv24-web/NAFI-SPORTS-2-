@@ -85,18 +85,15 @@ object ChannelStatusManager {
 
     private fun loadPersistedStatuses() {
         val p = prefs ?: return
-        val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet()) ?: emptySet()
-        val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
-        val failedServers = p.getStringSet(KEY_FAILED_SERVERS, emptySet()) ?: emptySet()
+        // Reset old speculative failed caches so no playable stream is falsely marked offline
+        p.edit()
+            .remove(KEY_FAILED_CHANNELS)
+            .remove(KEY_FAILED_SERVERS)
+            .apply()
 
-        for (id in failedSet) {
-            workingStatusMap[id] = false
-        }
+        val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
         for (id in verifiedSet) {
             workingStatusMap[id] = true
-        }
-        for (url in failedServers) {
-            failedServerUrls.add(url)
         }
     }
 
@@ -151,10 +148,13 @@ object ChannelStatusManager {
      * Checks whether a channel is considered currently active and working.
      */
     fun isChannelActive(channel: MediaItem): Boolean {
-        // If explicitly recorded in workingStatusMap
+        // If explicitly recorded as failed (from actual player playback failure)
         val recordedStatus = workingStatusMap[channel.id]
-        if (recordedStatus != null) {
-            return recordedStatus
+        if (recordedStatus == false) {
+            return false
+        }
+        if (recordedStatus == true) {
+            return true
         }
 
         // Check if stream URL is present and not a dummy
@@ -170,12 +170,15 @@ object ChannelStatusManager {
             return false
         }
 
-        // Check if all servers in the channel are already marked broken
+        // Check if all servers in the channel are already marked broken by actual playback failure
         if (allServers.isNotEmpty()) {
             val hasValidServer = allServers.any { isValidStreamFormat(it.url) && !failedServerUrls.contains(it.url.trim()) }
             if (!hasValidServer) return false
+        } else if (failedServerUrls.contains(primaryUrl)) {
+            return false
         }
 
+        // Valid channels are active by default so playable streams are never falsely marked offline
         return true
     }
 
@@ -204,15 +207,19 @@ object ChannelStatusManager {
                         probingIds.add(nextItem.id)
                         try {
                             val isWorking = checkChannelReachability(nextItem)
-                            workingStatusMap[nextItem.id] = isWorking
-                            batchResults[nextItem.id] = isWorking
-                            processedInBatch++
+                            if (isWorking) {
+                                workingStatusMap[nextItem.id] = true
+                                batchResults[nextItem.id] = true
+                                processedInBatch++
+                            }
 
                             val now = System.currentTimeMillis()
                             // Debounce UI update tick to at least 1.5 seconds to prevent recomposition stutter
                             if (processedInBatch >= 6 || (now - lastTickTime) >= 1500L) {
-                                batchSaveStatusToPrefs(batchResults)
-                                batchResults.clear()
+                                if (batchResults.isNotEmpty()) {
+                                    batchSaveStatusToPrefs(batchResults)
+                                    batchResults.clear()
+                                }
                                 processedInBatch = 0
                                 lastTickTime = now
                                 _statusUpdateTick.value = now
@@ -282,8 +289,6 @@ object ChannelStatusManager {
             if (ok) {
                 anyServerWorking = true
                 markServerSuccess(url)
-            } else {
-                markServerFailed(url)
             }
         }
 

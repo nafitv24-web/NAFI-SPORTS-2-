@@ -813,6 +813,8 @@ fun VideoPlayerScreen(
                                 hasStartedPlaying = true
                                 errorMessage = null
                                 isPlaying = playWhenReady
+                                com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                                com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                                 val dur = duration
                                 if (dur > 0 && dur != C.TIME_UNSET) {
                                     durationMs = dur
@@ -925,6 +927,10 @@ fun VideoPlayerScreen(
 
                     override fun onIsPlayingChanged(playing: Boolean) {
                         isPlaying = playing
+                        if (playing) {
+                            com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
+                            com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
+                        }
                     }
 
                     override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {

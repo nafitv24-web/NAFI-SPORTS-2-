@@ -484,7 +484,7 @@ fun PlaylistTabScreen(
                     }
                 }
                 if (showOnlyActive) {
-                    list.filter { ChannelStatusManager.isChannelActive(it) }
+                    list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
                 } else {
                     list
                 }
