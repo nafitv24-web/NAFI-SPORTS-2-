@@ -66,10 +66,14 @@ fun LiveTvTabScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("ALL") }
-    var showOnlyActive by rememberSaveable { mutableStateOf(false) }
+    var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(showOnlyActive) {
+        ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
+    }
 
     LaunchedEffect(showOnlyActive, channels) {
         if (showOnlyActive && channels.isNotEmpty()) {

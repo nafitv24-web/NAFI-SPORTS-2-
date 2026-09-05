@@ -29,6 +29,7 @@ object ChannelStatusManager {
     private const val KEY_FAILED_CHANNELS = "failed_channel_ids"
     private const val KEY_VERIFIED_ACTIVE = "verified_channel_ids"
     private const val KEY_FAILED_SERVERS = "failed_server_urls"
+    private const val KEY_ONLY_ACTIVE_ENABLED = "only_active_enabled"
 
     private val workingStatusMap = ConcurrentHashMap<String, Boolean>()
     private val failedServerUrls = ConcurrentHashMap.newKeySet<String>()
@@ -38,11 +39,11 @@ object ChannelStatusManager {
 
     private var prefs: SharedPreferences? = null
 
-    // Dedicated fast client for quick HEAD / range requests (4s timeout)
+    // Dedicated fast client for stream reachability checks (6s timeout)
     private val checkClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(4, TimeUnit.SECONDS)
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
@@ -53,6 +54,22 @@ object ChannelStatusManager {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             loadPersistedStatuses()
         }
+    }
+
+    /**
+     * Get persisted "Only Active" toggle state.
+     * Persists across navigation, video playback, and app restarts until user toggles off.
+     */
+    fun isOnlyActiveEnabled(): Boolean {
+        return prefs?.getBoolean(KEY_ONLY_ACTIVE_ENABLED, false) ?: false
+    }
+
+    /**
+     * Persist user's choice for "Only Active" toggle.
+     */
+    fun setOnlyActiveEnabled(enabled: Boolean) {
+        prefs?.edit()?.putBoolean(KEY_ONLY_ACTIVE_ENABLED, enabled)?.apply()
+        _statusUpdateTick.value = System.currentTimeMillis()
     }
 
     private fun loadPersistedStatuses() {
@@ -197,13 +214,14 @@ object ChannelStatusManager {
     }
 
     private fun checkChannelReachability(item: MediaItem): Boolean {
-        val mainUrl = item.streamUrl.trim()
         val allServers = item.getAllServers()
+        val mainUrl = item.streamUrl.trim()
 
         if (mainUrl.isBlank() && allServers.isEmpty()) {
             return false
         }
 
+        // Collect all distinct stream URLs
         val urlsToTest = mutableListOf<String>()
         if (mainUrl.isNotBlank() && isValidStreamFormat(mainUrl)) {
             urlsToTest.add(mainUrl)
@@ -219,9 +237,17 @@ object ChannelStatusManager {
             return false
         }
 
+        // Extract channel-specific headers to avoid false 403 Forbidden on token/referer-protected channels
+        val channelHeaders = mutableMapOf<String, String>()
+        item.userAgent?.takeIf { it.isNotBlank() }?.let { channelHeaders["User-Agent"] = it }
+        item.referrer?.takeIf { it.isNotBlank() }?.let { channelHeaders["Referer"] = it }
+        item.origin?.takeIf { it.isNotBlank() }?.let { channelHeaders["Origin"] = it }
+        item.cookie?.takeIf { it.isNotBlank() }?.let { channelHeaders["Cookie"] = it }
+        item.customHeaders?.let { channelHeaders.putAll(it) }
+
         var anyServerWorking = false
         for (url in urlsToTest) {
-            val ok = testSingleStreamUrl(url)
+            val ok = testSingleStreamUrl(url, channelHeaders)
             if (ok) {
                 anyServerWorking = true
                 markServerSuccess(url)
@@ -233,33 +259,99 @@ object ChannelStatusManager {
         return anyServerWorking
     }
 
-    private fun testSingleStreamUrl(url: String): Boolean {
+    private fun testSingleStreamUrl(url: String, extraHeaders: Map<String, String> = emptyMap()): Boolean {
         if (!isValidStreamFormat(url)) return false
+
+        val lowerUrl = url.lowercase()
+        // Determine appropriate User-Agent & Referer for known streaming networks
+        val effectiveUa = extraHeaders["User-Agent"]
+            ?: when {
+                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "Toffee (Linux;Android 14)"
+                else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
+        val effectiveReferer = extraHeaders["Referer"]
+            ?: when {
+                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com/"
+                lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com/"
+                else -> null
+            }
+        val effectiveOrigin = extraHeaders["Origin"]
+            ?: when {
+                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com"
+                lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com"
+                else -> null
+            }
+
         return try {
-            val req = Request.Builder()
+            // First attempt: HEAD request (Fastest)
+            val headBuilder = Request.Builder()
                 .url(url)
                 .head()
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                .header("User-Agent", effectiveUa)
                 .header("Accept", "*/*")
-                .build()
 
-            val resp = checkClient.newCall(req).execute()
+            if (effectiveReferer != null) headBuilder.header("Referer", effectiveReferer)
+            if (effectiveOrigin != null) headBuilder.header("Origin", effectiveOrigin)
+            extraHeaders.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) &&
+                    !k.equals("Referer", ignoreCase = true) &&
+                    !k.equals("Origin", ignoreCase = true)
+                ) {
+                    headBuilder.header(k, v)
+                }
+            }
+
+            val resp = checkClient.newCall(headBuilder.build()).execute()
             val code = resp.code
+            val contentType = resp.header("Content-Type")?.lowercase() ?: ""
             resp.close()
 
-            when (code) {
-                in 200..399 -> true
-                405, 400, 403 -> {
-                    // Try fast GET range
-                    val getReq = Request.Builder()
+            when {
+                // Standard success (200 OK, 206 Partial Content, 302/307 Redirects)
+                code in 200..399 -> true
+
+                // Some streaming servers reject HEAD with 400/403/404/405/406/416/500/501/503.
+                // Fallback to GET with Range (0-4096 bytes)
+                code in listOf(400, 401, 403, 404, 405, 406, 416, 500, 501, 503) -> {
+                    val getBuilder = Request.Builder()
                         .url(url)
-                        .header("Range", "bytes=0-1024")
-                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
-                        .build()
-                    val getResp = checkClient.newCall(getReq).execute()
+                        .header("Range", "bytes=0-4096")
+                        .header("User-Agent", effectiveUa)
+                        .header("Accept", "*/*")
+
+                    if (effectiveReferer != null) getBuilder.header("Referer", effectiveReferer)
+                    if (effectiveOrigin != null) getBuilder.header("Origin", effectiveOrigin)
+                    extraHeaders.forEach { (k, v) ->
+                        if (!k.equals("User-Agent", ignoreCase = true) &&
+                            !k.equals("Referer", ignoreCase = true) &&
+                            !k.equals("Origin", ignoreCase = true)
+                        ) {
+                            getBuilder.header(k, v)
+                        }
+                    }
+
+                    val getResp = checkClient.newCall(getBuilder.build()).execute()
                     val getCode = getResp.code
+                    val getContentType = getResp.header("Content-Type")?.lowercase() ?: ""
+                    val body = getResp.body
+                    val bodyLength = body?.contentLength() ?: 0L
+                    val bodyBytes = try { body?.source()?.peek()?.readByteArray(512) ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
                     getResp.close()
-                    getCode in 200..399 || getCode == 403
+
+                    val isMediaContent = getContentType.contains("mpegurl") ||
+                            getContentType.contains("video") ||
+                            getContentType.contains("audio") ||
+                            getContentType.contains("octet-stream") ||
+                            getContentType.contains("vnd.apple") ||
+                            String(bodyBytes).contains("#EXTM3U", ignoreCase = true)
+
+                    when {
+                        getCode in 200..399 -> true
+                        // If token authentication returned 401/403, but server is actively responsive
+                        // and returns media headers/content, ExoPlayer or dynamic token handles it
+                        (getCode == 401 || getCode == 403) && (isMediaContent || bodyLength > 0 || bodyBytes.isNotEmpty()) -> true
+                        else -> false
+                    }
                 }
                 else -> false
             }

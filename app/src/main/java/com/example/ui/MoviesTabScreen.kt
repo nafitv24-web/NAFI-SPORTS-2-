@@ -93,15 +93,6 @@ fun MoviesTabScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
-    var showOnlyActive by rememberSaveable { mutableStateOf(false) }
-    val statusTick by com.example.util.ChannelStatusManager.statusUpdateTick.collectAsState()
-    val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(showOnlyActive, movies) {
-        if (showOnlyActive && movies.isNotEmpty()) {
-            com.example.util.ChannelStatusManager.probeChannelsAsync(coroutineScope, movies)
-        }
-    }
 
     val categories = remember(movies) {
         val unique = movies.map { it.category.trim() }
@@ -112,38 +103,28 @@ fun MoviesTabScreen(
     }
 
     // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)
-    val featuredMovies = remember(movies, showOnlyActive, statusTick) {
+    val featuredMovies = remember(movies) {
         val withLogos = movies.filter { !it.logoUrl.isNullOrBlank() }
-        val baseList = if (withLogos.isNotEmpty()) withLogos.take(10) else movies.take(8)
-        if (showOnlyActive) {
-            baseList.sortedByDescending { com.example.util.ChannelStatusManager.isChannelActive(it) }
-        } else {
-            baseList
-        }
+        if (withLogos.isNotEmpty()) withLogos.take(10) else movies.take(8)
     }
 
     // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
-    val categorizedMovies = remember(movies, showOnlyActive, statusTick) {
+    val categorizedMovies = remember(movies) {
         val uniqueCats = movies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
         uniqueCats.map { cat ->
             val catMovies = movies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
-            val sortedList = if (showOnlyActive) {
-                catMovies.sortedByDescending { com.example.util.ChannelStatusManager.isChannelActive(it) }
-            } else {
-                catMovies
-            }
-            cat to sortedList
+            cat to catMovies
         }
     }
 
-    // Filtered movies when search query is active or a single category is selected or Only Active is toggled
-    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds, showOnlyActive, statusTick) {
+    // Filtered movies when search query is active or a single category is selected
+    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
         } else {
-            val list = movies.filter { movie ->
+            movies.filter { movie ->
                 val matchesSearch = if (searchQuery.isBlank()) true else {
                     movie.title.contains(searchQuery, ignoreCase = true) ||
                             movie.category.contains(searchQuery, ignoreCase = true) ||
@@ -156,13 +137,6 @@ fun MoviesTabScreen(
                 }
                 matchesSearch && matchesCategory
             }.distinctBy { it.id }
-
-            if (showOnlyActive) {
-                // Active movies on TOP, offline movies at the BOTTOM
-                list.sortedByDescending { com.example.util.ChannelStatusManager.isChannelActive(it) }
-            } else {
-                list
-            }
         }
     }
 
@@ -221,49 +195,6 @@ fun MoviesTabScreen(
                 ),
                 singleLine = true
             )
-
-            // 'Only Active Channel' Toggle Switch (Matches Live TV)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (showOnlyActive) Color(0xFF065F46).copy(alpha = 0.4f) else Color(0xFF1E293B),
-                border = BorderStroke(
-                    1.dp,
-                    if (showOnlyActive) Color(0xFF10B981) else Color(0xFF334155)
-                ),
-                modifier = Modifier
-                    .clickable { showOnlyActive = !showOnlyActive }
-                    .padding(vertical = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(if (showOnlyActive) Color(0xFF10B981) else Color(0xFF64748B))
-                    )
-                    Text(
-                        text = "Only Active",
-                        color = if (showOnlyActive) Color(0xFF34D399) else Color(0xFFCBD5E1),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Switch(
-                        checked = showOnlyActive,
-                        onCheckedChange = { showOnlyActive = it },
-                        modifier = Modifier.scale(0.7f),
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF10B981),
-                            uncheckedThumbColor = Color(0xFF94A3B8),
-                            uncheckedTrackColor = Color(0xFF334155)
-                        )
-                    )
-                }
-            }
 
             // Right Download Square Button
             Surface(
@@ -389,7 +320,7 @@ fun MoviesTabScreen(
                     )
                 }
             }
-        } else if (searchQuery.isBlank() && selectedCategory == "All" && !showOnlyActive) {
+        } else if (searchQuery.isBlank() && selectedCategory == "All") {
             // HOME / ALL VIEW: FEATURED BANNER + CATEGORY CAROUSELS (Matching Screenshot 1)
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -623,7 +554,6 @@ fun MoviesTabScreen(
                                 MoviePosterCard(
                                     movie = movie,
                                     isFav = favoriteIds.contains(movie.id),
-                                    showOnlyActive = showOnlyActive,
                                     isTvMode = isTvMode,
                                     onSelect = { onSelectMedia(movie) },
                                     onToggleFav = { onToggleFavorite(movie.id) }
@@ -678,7 +608,6 @@ fun MoviesTabScreen(
                         MoviePosterCard(
                             movie = movie,
                             isFav = favoriteIds.contains(movie.id),
-                            showOnlyActive = showOnlyActive,
                             isTvMode = isTvMode,
                             onSelect = { onSelectMedia(movie) },
                             onToggleFav = { onToggleFavorite(movie.id) }
@@ -760,19 +689,17 @@ fun getMovieLanguageBadge(movie: MediaItem): String {
 fun MoviePosterCard(
     movie: MediaItem,
     isFav: Boolean,
-    showOnlyActive: Boolean = false,
     isTvMode: Boolean,
     onSelect: () -> Unit,
     onToggleFav: () -> Unit
 ) {
     var isCardFocused by remember { mutableStateOf(false) }
-    val isActive = com.example.util.ChannelStatusManager.isChannelActive(movie)
 
     val langBadge = remember(movie.id, movie.title, movie.category, movie.description) {
         getMovieLanguageBadge(movie)
     }
 
-    val baseModifier = if (isTvMode) {
+    val cardModifier = if (isTvMode) {
         val cardScale by animateFloatAsState(
             targetValue = if (isCardFocused) 1.06f else 1.0f,
             animationSpec = tween(150, easing = FastOutSlowInEasing),
@@ -789,11 +716,6 @@ fun MoviePosterCard(
             .width(115.dp)
             .clickable { onSelect() }
     }
-    val cardModifier = if (!isActive && showOnlyActive) {
-        baseModifier.alpha(0.62f)
-    } else {
-        baseModifier
-    }
 
     Column(
         modifier = cardModifier
@@ -805,7 +727,6 @@ fun MoviePosterCard(
             border = when {
                 isTvMode && isCardFocused -> BorderStroke(2.5.dp, Color(0xFFFFD600))
                 isFav -> BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.7f))
-                showOnlyActive && isActive -> BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
                 else -> BorderStroke(1.dp, Color(0xFF1E293B))
             },
             shadowElevation = if (isTvMode && isCardFocused) 6.dp else 1.dp,
@@ -840,68 +761,16 @@ fun MoviePosterCard(
                     }
                 }
 
-                // Top Left: Status Badge (Green Active / Red Offline) & Language Badge
+                // Top Left: Language Badge
                 Row(
                     modifier = Modifier.align(Alignment.TopStart),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    if (isActive) {
-                        Surface(
-                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp, topEnd = 4.dp, bottomStart = 4.dp),
-                            color = Color(0xFF064E3B).copy(alpha = 0.95f),
-                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                                Text(
-                                    text = "সচল",
-                                    color = Color(0xFF6EE7B7),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    } else if (showOnlyActive) {
-                        Surface(
-                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp, topEnd = 4.dp, bottomStart = 4.dp),
-                            color = Color(0xFF450A0A).copy(alpha = 0.95f),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFEF4444))
-                                )
-                                Text(
-                                    text = "অফলাইন",
-                                    color = Color(0xFFFCA5A5),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
                     // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc.)
                     Surface(
                         shape = RoundedCornerShape(
-                            topStart = if (!isActive && !showOnlyActive) 12.dp else 4.dp,
+                            topStart = 12.dp,
                             bottomEnd = 8.dp,
                             topEnd = 4.dp,
                             bottomStart = 4.dp
