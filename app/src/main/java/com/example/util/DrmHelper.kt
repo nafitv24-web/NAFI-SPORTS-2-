@@ -120,15 +120,11 @@ object DrmHelper {
             }
         }
 
-        cleanUrl = UrlSanitizer.sanitizeStreamUrl(cleanUrl)
-
         // Auto-detect manifest type if not set
         if (manifestType.isNullOrBlank()) {
-            val path = cleanUrl.substringBefore("?").lowercase()
             manifestType = when {
-                path.endsWith(".mpd") || path.contains(".mpd") || cleanUrl.contains("dash", ignoreCase = true) -> "mpd"
-                path.endsWith(".m3u8") || path.contains(".m3u8") || cleanUrl.contains("hls", ignoreCase = true) -> "hls"
-                path.endsWith(".mp4") -> "mp4"
+                cleanUrl.contains(".mpd", ignoreCase = true) || cleanUrl.contains("dash", ignoreCase = true) -> "mpd"
+                cleanUrl.contains(".m3u8", ignoreCase = true) || cleanUrl.contains("hls", ignoreCase = true) -> "hls"
                 else -> null
             }
         }

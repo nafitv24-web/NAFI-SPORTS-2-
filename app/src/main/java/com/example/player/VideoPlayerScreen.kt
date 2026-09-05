@@ -536,7 +536,7 @@ fun VideoPlayerScreen(
         // Apply custom headers from MediaItem
         currentMedia.customHeaders?.let { dynamicHeaders.putAll(it) }
 
-        // Domain-specific smart headers (Toffee, Bioscope, TSports, Cineplex, etc.)
+        // Domain-specific smart headers (Toffee, Bioscope, TSports, etc.)
         val isToffee = finalCleanUrl.contains("toffeelive.com", ignoreCase = true) ||
                 finalCleanUrl.contains("toffee", ignoreCase = true) ||
                 finalCleanUrl.contains("bldcmprod-cdn", ignoreCase = true) ||
@@ -556,15 +556,7 @@ fun VideoPlayerScreen(
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://hakunaymatata.com"
         }
 
-        val isCineplex = finalCleanUrl.contains("cineplexbd", ignoreCase = true) ||
-                finalCleanUrl.contains("cineplex", ignoreCase = true)
-
-        if (isCineplex) {
-            if (extractedReferer.isNullOrBlank()) extractedReferer = "http://cineplexbd.net/"
-            if (extractedOrigin.isNullOrBlank()) extractedOrigin = "http://cineplexbd.net"
-        }
-
-        val finalUserAgent = extractedUa ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+        val finalUserAgent = extractedUa ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
@@ -579,44 +571,22 @@ fun VideoPlayerScreen(
         }
         requestHeaders["Accept"] = "*/*"
         requestHeaders["Connection"] = "keep-alive"
-        // Note: Do NOT set "Accept-Encoding" manually here so OkHttp / HttpURLConnection can handle gzip automatically without breaking HLS parsers
+        requestHeaders["Accept-Encoding"] = "gzip, deflate"
         requestHeaders["Cache-Control"] = "no-cache"
         requestHeaders.putAll(dynamicHeaders)
 
-        // Robust OkHttpClient with connection pooling, automatic redirect follow, and 30s timeouts
-        val sharedOkHttpClient = okhttp3.OkHttpClient.Builder()
-            .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(35, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .retryOnConnectionFailure(true)
-            .connectionPool(okhttp3.ConnectionPool(10, 5, java.util.concurrent.TimeUnit.MINUTES))
-            .build()
-
-        val okHttpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharedOkHttpClient)
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(20000)
+            .setReadTimeoutMs(30000)
             .setUserAgent(finalUserAgent)
-            .setDefaultRequestProperties(requestHeaders)
             .setTransferListener(bandwidthMeter)
+            .setDefaultRequestProperties(requestHeaders)
 
-        // ResolvingDataSource intercepts every request (master playlist, child playlist, and every .ts segment)
-        // and safely encodes raw spaces and brackets, preventing java.lang.IllegalArgumentException
-        val resolvingDataSourceFactory = androidx.media3.datasource.ResolvingDataSource.Factory(
-            okHttpDataSourceFactory
-        ) { dataSpec ->
-            val uriStr = dataSpec.uri.toString()
-            val sanitized = com.example.util.UrlSanitizer.sanitizeStreamUrl(uriStr)
-            if (sanitized != uriStr) {
-                dataSpec.buildUpon().setUri(android.net.Uri.parse(sanitized)).build()
-            } else {
-                dataSpec
-            }
-        }
-
-        // DefaultDataSource delegates http/https to resolvingDataSourceFactory, and local file:// / content:// / assets to FileDataSource
+        // DefaultDataSource delegates http/https to httpDataSourceFactory, and local file:// / content:// / assets to FileDataSource
         val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
             context,
-            resolvingDataSourceFactory
+            httpDataSourceFactory
         )
 
         // Load error handling policy with 5 automatic retries for transient stream packet drops
@@ -636,7 +606,7 @@ fun VideoPlayerScreen(
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
 
         if (drmConfig != null) {
-            val drmSessionManager = com.example.util.DrmHelper.createDrmSessionManager(drmConfig, okHttpDataSourceFactory)
+            val drmSessionManager = com.example.util.DrmHelper.createDrmSessionManager(drmConfig, httpDataSourceFactory)
             if (drmSessionManager != null) {
                 mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
             }
@@ -762,7 +732,12 @@ fun VideoPlayerScreen(
             .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
             .build().apply {
                 volume = if (isMuted) 0f else 1.0f
-                val finalMediaUri = com.example.util.UrlSanitizer.toSafeUri(finalCleanUrl)
+                val finalMediaUri = when {
+                    finalCleanUrl.startsWith("file://") -> android.net.Uri.parse(finalCleanUrl)
+                    finalCleanUrl.startsWith("content://") -> android.net.Uri.parse(finalCleanUrl)
+                    finalCleanUrl.startsWith("/") -> android.net.Uri.fromFile(java.io.File(finalCleanUrl))
+                    else -> android.net.Uri.parse(finalCleanUrl)
+                }
 
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(finalMediaUri)
@@ -791,27 +766,26 @@ fun VideoPlayerScreen(
                     mediaItemBuilder.setDrmConfiguration(drmConfigBuilder.build())
                 }
 
-                val cleanPath = finalCleanUrl.substringBefore("?").lowercase()
-                val isMpd = cleanPath.endsWith(".mpd") || cleanPath.contains(".mpd") ||
+                val isMpd = finalCleanUrl.contains(".mpd", ignoreCase = true) ||
                         finalCleanUrl.contains("dash", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("mpd", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("mpd", ignoreCase = true) == true
 
-                val isM3u8 = cleanPath.endsWith(".m3u8") || cleanPath.contains(".m3u8") ||
+                val isM3u8 = finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
                         finalCleanUrl.contains("hls", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("hls", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("hls", ignoreCase = true) == true ||
                         isToffee
 
-                val isMp4 = cleanPath.endsWith(".mp4")
-                val isMkv = cleanPath.endsWith(".mkv")
-                val isWebm = cleanPath.endsWith(".webm")
-                val isTs = cleanPath.endsWith(".ts")
+                val isMp4 = finalCleanUrl.contains(".mp4", ignoreCase = true)
+                val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
+                val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
+                val isTs = finalCleanUrl.contains(".ts", ignoreCase = true)
 
-                if (isM3u8) {
-                    mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
-                } else if (isMpd) {
+                if (isMpd) {
                     mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
+                } else if (isM3u8) {
+                    mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
                 } else if (isMp4) {
                     mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.VIDEO_MP4)
                 } else if (isMkv) {
@@ -968,8 +942,8 @@ fun VideoPlayerScreen(
 
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
-                        // Mark current failed server for session auto-switching if multiple servers exist
-                        if (currentUrl.isNotBlank() && servers.size > 1) {
+                        // Mark current failed server
+                        if (currentUrl.isNotBlank()) {
                             com.example.util.ChannelStatusManager.markServerFailed(currentUrl)
                         }
                         if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
@@ -980,11 +954,8 @@ fun VideoPlayerScreen(
                             forceWebEngine = true
                             errorMessage = null
                         } else {
-                            val isBdix = currentUrl.contains("cineplexbd", ignoreCase = true) ||
-                                    currentUrl.contains("circleftp", ignoreCase = true) ||
-                                    currentUrl.contains("samonline", ignoreCase = true)
-                            val bdixHint = if (isBdix) " (BDIX সার্ভার: আপনার ইন্টারনেট BDIX সাপোর্টেড কিনা নিশ্চিত করুন)" else ""
-                            errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})$bdixHint। পুনরায় চেষ্টা করুন বা এক্সটার্নাল প্লেয়ারে চালান।"
+                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
+                            errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }
                 })
@@ -1667,17 +1638,9 @@ fun VideoPlayerScreen(
                     message = errorMessage ?: "",
                     onRetry = {
                         errorMessage = null
-                        com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                         exoPlayer.seekTo(0)
                         exoPlayer.prepare()
                         exoPlayer.play()
-                    },
-                    onOpenExternal = {
-                        com.example.util.ExternalPlayerHelper.launchExternalPlayer(
-                            context = context,
-                            url = currentUrl,
-                            title = currentMedia.title
-                        )
                     }
                 )
             }
@@ -2243,28 +2206,6 @@ fun VideoPlayerScreen(
                             Icon(
                                 imageVector = Icons.Rounded.PictureInPictureAlt,
                                 contentDescription = "PiP Mode",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-
-                        // External Player launcher (VLC / MX Player)
-                        IconButton(
-                            onClick = {
-                                com.example.util.ExternalPlayerHelper.launchExternalPlayer(
-                                    context = context,
-                                    url = currentUrl,
-                                    title = currentMedia.title
-                                )
-                            },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF1E293B).copy(alpha = 0.85f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.OpenInNew,
-                                contentDescription = "Play in External Player (VLC/MX)",
                                 tint = Color(0xFF00E5FF),
                                 modifier = Modifier.size(15.dp)
                             )
@@ -4053,8 +3994,7 @@ private fun PlayerBufferingLogoOverlay(
 @Composable
 private fun FullscreenErrorOverlay(
     message: String,
-    onRetry: () -> Unit,
-    onOpenExternal: (() -> Unit)? = null
+    onRetry: () -> Unit
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -4068,35 +4008,18 @@ private fun FullscreenErrorOverlay(
             Column(
                 modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(36.dp))
                 Text(text = message, color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Button(
+                    onClick = onRetry,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Button(
-                        onClick = onRetry,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("পুনরায় চেষ্টা করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (onOpenExternal != null) {
-                        OutlinedButton(
-                            onClick = onOpenExternal,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF00E5FF))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("VLC / MX প্লেয়ার", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("পুনরায় চেষ্টা করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

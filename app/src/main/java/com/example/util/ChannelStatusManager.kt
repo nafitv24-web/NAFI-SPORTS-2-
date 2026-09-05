@@ -87,6 +87,7 @@ object ChannelStatusManager {
         val p = prefs ?: return
         val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet()) ?: emptySet()
         val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
+        val failedServers = p.getStringSet(KEY_FAILED_SERVERS, emptySet()) ?: emptySet()
 
         for (id in failedSet) {
             workingStatusMap[id] = false
@@ -94,9 +95,8 @@ object ChannelStatusManager {
         for (id in verifiedSet) {
             workingStatusMap[id] = true
         }
-        // Clean up any stale server blacklist from older versions so servers aren't permanently locked out
-        if (p.contains(KEY_FAILED_SERVERS)) {
-            p.edit().remove(KEY_FAILED_SERVERS).apply()
+        for (url in failedServers) {
+            failedServerUrls.add(url)
         }
     }
 
@@ -111,12 +111,13 @@ object ChannelStatusManager {
     }
 
     /**
-     * Mark a specific server URL as failed/inactive for current session.
+     * Mark a specific server URL as failed/inactive.
      */
     fun markServerFailed(serverUrl: String) {
         val trimmed = serverUrl.trim()
         if (trimmed.isBlank()) return
         failedServerUrls.add(trimmed)
+        saveFailedServerToPrefs(trimmed)
     }
 
     /**
@@ -125,19 +126,25 @@ object ChannelStatusManager {
     fun markServerSuccess(serverUrl: String) {
         val trimmed = serverUrl.trim()
         if (trimmed.isBlank()) return
-        failedServerUrls.remove(trimmed)
+        if (failedServerUrls.remove(trimmed)) {
+            removeFailedServerFromPrefs(trimmed)
+        }
     }
 
     /**
-     * Returns the active servers for a media item, prioritizing working servers first
-     * while never omitting any valid servers so user can always switch servers.
+     * Returns the active servers for a media item, filtering out inactive/broken servers
+     * unless all servers would be filtered out (in which case it keeps valid format ones as fallback).
      */
     fun getActiveServers(mediaItem: MediaItem): List<StreamServer> {
         val allServers = mediaItem.getAllServers()
         if (allServers.isEmpty()) return emptyList()
 
-        val validServers = allServers.filter { isValidStreamFormat(it.url) }.ifEmpty { allServers }
-        return validServers.sortedBy { if (failedServerUrls.contains(it.url.trim())) 1 else 0 }
+        val active = allServers.filter { isServerActive(it.url) }
+        return if (active.isNotEmpty()) {
+            active
+        } else {
+            allServers.filter { isValidStreamFormat(it.url) }.ifEmpty { allServers }
+        }
     }
 
     /**
@@ -286,8 +293,7 @@ object ChannelStatusManager {
     private fun testSingleStreamUrl(url: String, extraHeaders: Map<String, String> = emptyMap()): Boolean {
         if (!isValidStreamFormat(url)) return false
 
-        val cleanUrl = UrlSanitizer.sanitizeStreamUrl(url)
-        val lowerUrl = cleanUrl.lowercase()
+        val lowerUrl = url.lowercase()
         // Determine appropriate User-Agent & Referer for known streaming networks
         val effectiveUa = extraHeaders["User-Agent"]
             ?: when {
@@ -298,21 +304,19 @@ object ChannelStatusManager {
             ?: when {
                 lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com/"
                 lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com/"
-                lowerUrl.contains("cineplexbd") || lowerUrl.contains("cineplex") -> "http://cineplexbd.net/"
                 else -> null
             }
         val effectiveOrigin = extraHeaders["Origin"]
             ?: when {
                 lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com"
                 lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com"
-                lowerUrl.contains("cineplexbd") || lowerUrl.contains("cineplex") -> "http://cineplexbd.net"
                 else -> null
             }
 
         return try {
             // First attempt: HEAD request (Fastest)
             val headBuilder = Request.Builder()
-                .url(cleanUrl)
+                .url(url)
                 .head()
                 .header("User-Agent", effectiveUa)
                 .header("Accept", "*/*")
@@ -340,7 +344,7 @@ object ChannelStatusManager {
             // Fallback: Range GET request (reads at most first 256 bytes, never streams continuously)
             if (code in listOf(400, 401, 403, 404, 405, 406, 416, 500, 501, 503)) {
                 val getBuilder = Request.Builder()
-                    .url(cleanUrl)
+                    .url(url)
                     .header("Range", "bytes=0-1024")
                     .header("User-Agent", effectiveUa)
                     .header("Accept", "*/*")
