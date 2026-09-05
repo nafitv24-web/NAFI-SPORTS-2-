@@ -48,16 +48,29 @@ object ChannelStatusManager {
     private var prefs: SharedPreferences? = null
 
     // Dedicated lightweight, zero-leak client for stream reachability checks
-    // Strict 2.5s call timeout prevents thread lockups on unresponsive streaming servers
+    // Lenient SSL and generous timeouts to prevent false offline detection on slow/custom stream servers
     private val checkClient by lazy {
+        val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(
+            object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+            }
+        )
+        val sslContext = javax.net.ssl.SSLContext.getInstance("SSL").apply {
+            init(null, trustAllCerts, java.security.SecureRandom())
+        }
+
         OkHttpClient.Builder()
-            .callTimeout(2500, TimeUnit.MILLISECONDS)
-            .connectTimeout(2000, TimeUnit.MILLISECONDS)
-            .readTimeout(2000, TimeUnit.MILLISECONDS)
+            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
+            .hostnameVerifier { _, _ -> true }
+            .callTimeout(8000, TimeUnit.MILLISECONDS)
+            .connectTimeout(5000, TimeUnit.MILLISECONDS)
+            .readTimeout(5000, TimeUnit.MILLISECONDS)
             .connectionPool(okhttp3.ConnectionPool(4, 15, TimeUnit.SECONDS))
             .followRedirects(true)
             .followSslRedirects(true)
-            .retryOnConnectionFailure(false)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -85,15 +98,18 @@ object ChannelStatusManager {
 
     private fun loadPersistedStatuses() {
         val p = prefs ?: return
-        // Reset old speculative failed caches so no playable stream is falsely marked offline
-        p.edit()
-            .remove(KEY_FAILED_CHANNELS)
-            .remove(KEY_FAILED_SERVERS)
-            .apply()
-
+        val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet()) ?: emptySet()
         val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet()) ?: emptySet()
+        val failedServers = p.getStringSet(KEY_FAILED_SERVERS, emptySet()) ?: emptySet()
+
+        for (id in failedSet) {
+            workingStatusMap[id] = false
+        }
         for (id in verifiedSet) {
             workingStatusMap[id] = true
+        }
+        for (url in failedServers) {
+            failedServerUrls.add(url)
         }
     }
 
@@ -148,16 +164,13 @@ object ChannelStatusManager {
      * Checks whether a channel is considered currently active and working.
      */
     fun isChannelActive(channel: MediaItem): Boolean {
-        // If explicitly recorded as failed (from actual player playback failure)
+        // If explicitly recorded status (either from background probe or player)
         val recordedStatus = workingStatusMap[channel.id]
-        if (recordedStatus == false) {
-            return false
-        }
-        if (recordedStatus == true) {
-            return true
+        if (recordedStatus != null) {
+            return recordedStatus
         }
 
-        // Check if stream URL is present and not a dummy
+        // Check if stream URL is present and not a dummy/invalid format
         val mainUrl = channel.streamUrl.trim()
         val allServers = channel.getAllServers()
 
@@ -166,19 +179,23 @@ object ChannelStatusManager {
         }
 
         val primaryUrl = mainUrl.ifBlank { allServers.firstOrNull()?.url.orEmpty() }.trim()
-        if (!isValidStreamFormat(primaryUrl)) {
+        val cleanPrimary = try { DrmHelper.extractStreamInfo(primaryUrl).cleanUrl } catch (_: Exception) { primaryUrl }
+        if (!isValidStreamFormat(cleanPrimary)) {
             return false
         }
 
         // Check if all servers in the channel are already marked broken by actual playback failure
         if (allServers.isNotEmpty()) {
-            val hasValidServer = allServers.any { isValidStreamFormat(it.url) && !failedServerUrls.contains(it.url.trim()) }
+            val hasValidServer = allServers.any {
+                val clean = try { DrmHelper.extractStreamInfo(it.url).cleanUrl } catch (_: Exception) { it.url.trim() }
+                isValidStreamFormat(clean) && !failedServerUrls.contains(clean)
+            }
             if (!hasValidServer) return false
-        } else if (failedServerUrls.contains(primaryUrl)) {
+        } else if (failedServerUrls.contains(cleanPrimary)) {
             return false
         }
 
-        // Valid channels are active by default so playable streams are never falsely marked offline
+        // Channels pending probe are assumed active initially so they are not prematurely flashed offline
         return true
     }
 
@@ -207,11 +224,9 @@ object ChannelStatusManager {
                         probingIds.add(nextItem.id)
                         try {
                             val isWorking = checkChannelReachability(nextItem)
-                            if (isWorking) {
-                                workingStatusMap[nextItem.id] = true
-                                batchResults[nextItem.id] = true
-                                processedInBatch++
-                            }
+                            workingStatusMap[nextItem.id] = isWorking
+                            batchResults[nextItem.id] = isWorking
+                            processedInBatch++
 
                             val now = System.currentTimeMillis()
                             // Debounce UI update tick to at least 1.5 seconds to prevent recomposition stutter
@@ -226,10 +241,13 @@ object ChannelStatusManager {
                             }
                         } catch (e: Exception) {
                             Log.w("ChannelStatusManager", "Probe error for ${nextItem.title}", e)
+                            workingStatusMap[nextItem.id] = false
+                            batchResults[nextItem.id] = false
+                            processedInBatch++
                         } finally {
                             probingIds.remove(nextItem.id)
                         }
-                        kotlinx.coroutines.delay(120) // 120ms throttle keeps device cool and network free
+                        kotlinx.coroutines.delay(100) // 100ms throttle keeps device cool and network free
                     }
 
                     if (batchResults.isNotEmpty()) {
@@ -261,13 +279,19 @@ object ChannelStatusManager {
 
         // Collect all distinct stream URLs
         val urlsToTest = mutableListOf<String>()
-        if (mainUrl.isNotBlank() && isValidStreamFormat(mainUrl)) {
-            urlsToTest.add(mainUrl)
+        if (mainUrl.isNotBlank()) {
+            val clean = try { DrmHelper.extractStreamInfo(mainUrl).cleanUrl } catch (_: Exception) { mainUrl }
+            if (isValidStreamFormat(clean)) {
+                urlsToTest.add(mainUrl)
+            }
         }
         for (server in allServers) {
             val sUrl = server.url.trim()
-            if (sUrl.isNotBlank() && isValidStreamFormat(sUrl) && !urlsToTest.contains(sUrl)) {
-                urlsToTest.add(sUrl)
+            if (sUrl.isNotBlank()) {
+                val clean = try { DrmHelper.extractStreamInfo(sUrl).cleanUrl } catch (_: Exception) { sUrl }
+                if (isValidStreamFormat(clean) && !urlsToTest.contains(sUrl)) {
+                    urlsToTest.add(sUrl)
+                }
             }
         }
 
@@ -289,6 +313,9 @@ object ChannelStatusManager {
             if (ok) {
                 anyServerWorking = true
                 markServerSuccess(url)
+                break // If any server works, channel is active
+            } else {
+                markServerFailed(url)
             }
         }
 
@@ -296,99 +323,110 @@ object ChannelStatusManager {
     }
 
     private fun testSingleStreamUrl(url: String, extraHeaders: Map<String, String> = emptyMap()): Boolean {
-        if (!isValidStreamFormat(url)) return false
+        val streamInfo = try { DrmHelper.extractStreamInfo(url) } catch (_: Exception) { null }
+        val cleanUrl = streamInfo?.cleanUrl ?: url.trim()
+        if (!isValidStreamFormat(cleanUrl)) return false
 
-        val lowerUrl = url.lowercase()
+        val combinedHeaders = mutableMapOf<String, String>()
+        combinedHeaders.putAll(extraHeaders)
+        if (streamInfo != null) {
+            combinedHeaders.putAll(streamInfo.headers)
+        }
+
+        val lowerUrl = cleanUrl.lowercase()
+        val isToffee = lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn")
+        val isHakuna = lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn")
+
         // Determine appropriate User-Agent & Referer for known streaming networks
-        val effectiveUa = extraHeaders["User-Agent"]
+        val effectiveUa = combinedHeaders["User-Agent"]
             ?: when {
-                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "Toffee (Linux;Android 14)"
-                else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                isToffee -> "Toffee (Linux;Android 14)"
+                lowerUrl.contains("nagorik") -> "Nagorik/1.0 (Android)"
+                else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
             }
-        val effectiveReferer = extraHeaders["Referer"]
+        val effectiveReferer = combinedHeaders["Referer"]
             ?: when {
-                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com/"
-                lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com/"
+                isToffee -> "https://toffeelive.com/"
+                isHakuna -> "https://hakunaymatata.com/"
                 else -> null
             }
-        val effectiveOrigin = extraHeaders["Origin"]
+        val effectiveOrigin = combinedHeaders["Origin"]
             ?: when {
-                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com"
-                lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com"
+                isToffee -> "https://toffeelive.com"
+                isHakuna -> "https://hakunaymatata.com"
                 else -> null
             }
 
         return try {
-            // First attempt: HEAD request (Fastest)
-            val headBuilder = Request.Builder()
-                .url(url)
-                .head()
+            val getBuilder = Request.Builder()
+                .url(cleanUrl)
+                .header("Range", "bytes=0-2048")
                 .header("User-Agent", effectiveUa)
                 .header("Accept", "*/*")
+                .header("Connection", "close")
 
-            if (effectiveReferer != null) headBuilder.header("Referer", effectiveReferer)
-            if (effectiveOrigin != null) headBuilder.header("Origin", effectiveOrigin)
-            extraHeaders.forEach { (k, v) ->
+            if (effectiveReferer != null) getBuilder.header("Referer", effectiveReferer)
+            if (effectiveOrigin != null) getBuilder.header("Origin", effectiveOrigin)
+            combinedHeaders.forEach { (k, v) ->
                 if (!k.equals("User-Agent", ignoreCase = true) &&
                     !k.equals("Referer", ignoreCase = true) &&
-                    !k.equals("Origin", ignoreCase = true)
+                    !k.equals("Origin", ignoreCase = true) &&
+                    !k.equals("Range", ignoreCase = true)
                 ) {
-                    headBuilder.header(k, v)
+                    getBuilder.header(k, v)
                 }
             }
 
-            val headCall = checkClient.newCall(headBuilder.build())
-            val headResp = headCall.execute()
-            val code = headResp.code
-            headResp.close()
+            val getCall = checkClient.newCall(getBuilder.build())
+            val getResp = getCall.execute()
+            getResp.use { resp ->
+                val getCode = resp.code
+                val getContentType = resp.header("Content-Type")?.lowercase() ?: ""
 
-            if (code in 200..399) {
-                return true
-            }
-
-            // Fallback: Range GET request (reads at most first 256 bytes, never streams continuously)
-            if (code in listOf(400, 401, 403, 404, 405, 406, 416, 500, 501, 503)) {
-                val getBuilder = Request.Builder()
-                    .url(url)
-                    .header("Range", "bytes=0-1024")
-                    .header("User-Agent", effectiveUa)
-                    .header("Accept", "*/*")
-
-                if (effectiveReferer != null) getBuilder.header("Referer", effectiveReferer)
-                if (effectiveOrigin != null) getBuilder.header("Origin", effectiveOrigin)
-                extraHeaders.forEach { (k, v) ->
-                    if (!k.equals("User-Agent", ignoreCase = true) &&
-                        !k.equals("Referer", ignoreCase = true) &&
-                        !k.equals("Origin", ignoreCase = true)
-                    ) {
-                        getBuilder.header(k, v)
-                    }
+                // 200 OK, 206 Partial Content, 3xx Redirects, 416 Range Not Satisfiable (stream resource exists)
+                if (getCode in 200..399 || getCode == 416) {
+                    return true
                 }
 
-                val getCall = checkClient.newCall(getBuilder.build())
-                val getResp = getCall.execute()
-                getResp.use { resp ->
-                    val getCode = resp.code
-                    val getContentType = resp.header("Content-Type")?.lowercase() ?: ""
+                // 401/403: Verify if it contains media content-type or EXTM3U
+                if (getCode == 401 || getCode == 403) {
                     val body = resp.body
                     val bodyBytes = try { body?.source()?.peek()?.readByteArray(256) ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
-
                     val isMediaContent = getContentType.contains("mpegurl") ||
                             getContentType.contains("video") ||
                             getContentType.contains("audio") ||
                             getContentType.contains("octet-stream") ||
                             getContentType.contains("vnd.apple") ||
                             String(bodyBytes).contains("#EXTM3U", ignoreCase = true)
-
-                    return when {
-                        getCode in 200..399 -> true
-                        (getCode == 401 || getCode == 403) && isMediaContent -> true
-                        else -> false
+                    if (isMediaContent) {
+                        return true
                     }
                 }
+
+                // If Range was rejected with 400 Bad Request, 405 Method Not Allowed or 501, try simple HEAD
+                if (getCode in listOf(400, 405, 501)) {
+                    val headBuilder = Request.Builder()
+                        .url(cleanUrl)
+                        .head()
+                        .header("User-Agent", effectiveUa)
+                        .header("Accept", "*/*")
+                    if (effectiveReferer != null) headBuilder.header("Referer", effectiveReferer)
+                    if (effectiveOrigin != null) headBuilder.header("Origin", effectiveOrigin)
+
+                    try {
+                        checkClient.newCall(headBuilder.build()).execute().use { headResp ->
+                            if (headResp.code in 200..399 || headResp.code == 416) {
+                                return true
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 404 Not Found, 410 Gone, 502/503/504 -> conclusively offline
+                return false
             }
-            false
         } catch (e: Exception) {
+            // DNS resolution failure, connection timeout, connection refused -> offline
             false
         }
     }
