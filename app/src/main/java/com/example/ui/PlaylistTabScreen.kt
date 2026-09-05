@@ -106,12 +106,6 @@ fun PlaylistTabScreen(
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    LaunchedEffect(showOnlyActive, playlistChannels) {
-        if (showOnlyActive && playlistChannels.isNotEmpty()) {
-            ChannelStatusManager.probeChannelsAsync(scope, playlistChannels)
-        }
-    }
-
     LaunchedEffect(selectedPlaylist) {
         val pl = selectedPlaylist
         if (pl != null) {

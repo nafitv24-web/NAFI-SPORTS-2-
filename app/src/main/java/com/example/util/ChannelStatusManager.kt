@@ -39,11 +39,12 @@ object ChannelStatusManager {
 
     private var prefs: SharedPreferences? = null
 
-    // Dedicated fast client for stream reachability checks (6s timeout)
+    // Dedicated lightweight client for stream reachability checks (3s timeout, compact connection pool)
     private val checkClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(3, TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(4, 30, TimeUnit.SECONDS))
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
@@ -180,35 +181,42 @@ object ChannelStatusManager {
     }
 
     /**
-     * Quickly probes a list of channels or movies in the background to verify whether
-     * their stream URLs are active or offline. Runs concurrently on Dispatchers.IO.
+     * Lightly probes unverified channels in the background (max 10 items, sequential with throttle)
+     * without saturating network sockets, thread pools, or SharedPreferences.
      */
     fun probeChannelsAsync(scope: CoroutineScope, items: List<MediaItem>) {
         if (items.isEmpty()) return
         scope.launch(Dispatchers.IO) {
             val toCheck = items.filter { item ->
-                item.id.isNotBlank() && !probingIds.contains(item.id)
-            }
+                item.id.isNotBlank() && !workingStatusMap.containsKey(item.id) && !probingIds.contains(item.id)
+            }.take(10)
             if (toCheck.isEmpty()) return@launch
 
             toCheck.forEach { probingIds.add(it.id) }
-            val semaphore = Semaphore(12)
+            val batchResults = mutableMapOf<String, Boolean>()
 
-            toCheck.forEach { item ->
-                launch(Dispatchers.IO) {
+            try {
+                for (item in toCheck) {
                     try {
-                        semaphore.withPermit {
-                            val isWorking = checkChannelReachability(item)
-                            workingStatusMap[item.id] = isWorking
-                            saveStatusToPrefs(item.id, isWorking)
-                            _statusUpdateTick.value = System.currentTimeMillis()
-                        }
+                        val isWorking = checkChannelReachability(item)
+                        workingStatusMap[item.id] = isWorking
+                        batchResults[item.id] = isWorking
                     } catch (e: Exception) {
                         Log.w("ChannelStatusManager", "Probe error for ${item.title}", e)
                     } finally {
                         probingIds.remove(item.id)
                     }
+                    kotlinx.coroutines.delay(100)
                 }
+
+                if (batchResults.isNotEmpty()) {
+                    batchSaveStatusToPrefs(batchResults)
+                    _statusUpdateTick.value = System.currentTimeMillis()
+                }
+            } catch (e: Exception) {
+                Log.w("ChannelStatusManager", "Batch probe error", e)
+            } finally {
+                toCheck.forEach { probingIds.remove(it.id) }
             }
         }
     }
@@ -456,6 +464,31 @@ object ChannelStatusManager {
                 .apply()
         } catch (e: Exception) {
             Log.w("ChannelStatusManager", "Failed to save channel status", e)
+        }
+    }
+
+    private fun batchSaveStatusToPrefs(batchResults: Map<String, Boolean>) {
+        val p = prefs ?: return
+        try {
+            val verifiedSet = p.getStringSet(KEY_VERIFIED_ACTIVE, emptySet())?.toMutableSet() ?: mutableSetOf()
+            val failedSet = p.getStringSet(KEY_FAILED_CHANNELS, emptySet())?.toMutableSet() ?: mutableSetOf()
+
+            batchResults.forEach { (id, isSuccess) ->
+                if (isSuccess) {
+                    failedSet.remove(id)
+                    verifiedSet.add(id)
+                } else {
+                    verifiedSet.remove(id)
+                    failedSet.add(id)
+                }
+            }
+
+            p.edit()
+                .putStringSet(KEY_VERIFIED_ACTIVE, verifiedSet)
+                .putStringSet(KEY_FAILED_CHANNELS, failedSet)
+                .apply()
+        } catch (e: Exception) {
+            Log.w("ChannelStatusManager", "Failed to batch save channel statuses", e)
         }
     }
 }

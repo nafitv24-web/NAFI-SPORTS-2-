@@ -75,12 +75,6 @@ fun LiveTvTabScreen(
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    LaunchedEffect(showOnlyActive, channels) {
-        if (showOnlyActive && channels.isNotEmpty()) {
-            ChannelStatusManager.probeChannelsAsync(coroutineScope, channels)
-        }
-    }
-
     val categories = remember(channels) {
         listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
     }
