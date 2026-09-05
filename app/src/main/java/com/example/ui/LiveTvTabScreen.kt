@@ -71,15 +71,14 @@ fun LiveTvTabScreen(
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Trigger non-blocking background health check on unverified channels safely
-    LaunchedEffect(channels) {
-        if (channels.isNotEmpty()) {
-            ChannelStatusManager.enqueueChannelsForProbing(channels)
-        }
-    }
-
     LaunchedEffect(showOnlyActive) {
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
+    }
+
+    LaunchedEffect(showOnlyActive, channels) {
+        if (showOnlyActive && channels.isNotEmpty()) {
+            ChannelStatusManager.probeChannelsAsync(coroutineScope, channels)
+        }
     }
 
     val categories = remember(channels) {
@@ -268,8 +267,8 @@ fun LiveTvTabScreen(
                             .height(140.dp)
                             .clickable { onSelectMedia(channel, filteredChannels) }
                     }
-                    val cardModifier = if (!isActive) {
-                        baseModifier.alpha(0.72f)
+                    val cardModifier = if (!isActive && showOnlyActive) {
+                        baseModifier.alpha(0.62f)
                     } else {
                         baseModifier
                     }
@@ -281,8 +280,8 @@ fun LiveTvTabScreen(
                             1.dp,
                             when {
                                 isTvMode && isFocused -> Color(0xFF00E5FF)
-                                isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
-                                else -> Color(0xFFEF4444).copy(alpha = 0.45f)
+                                showOnlyActive && isActive -> Color(0xFF10B981).copy(alpha = 0.5f)
+                                else -> Color(0xFF334155)
                             }
                         ),
                         modifier = cardModifier
@@ -365,7 +364,7 @@ fun LiveTvTabScreen(
                                         )
                                     }
                                 }
-                            } else {
+                            } else if (showOnlyActive) {
                                 Surface(
                                     shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
                                     color = Color(0xFF450A0A).copy(alpha = 0.95f),

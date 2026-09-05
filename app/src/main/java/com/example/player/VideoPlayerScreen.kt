@@ -136,7 +136,8 @@ fun VideoPlayerScreen(
     }
 
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
-    val servers = remember(currentMedia) { com.example.util.ChannelStatusManager.getActiveServers(currentMedia) }
+    val statusTick by com.example.util.ChannelStatusManager.statusUpdateTick.collectAsState()
+    val servers = remember(currentMedia, statusTick) { com.example.util.ChannelStatusManager.getActiveServers(currentMedia) }
     var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(0) }
     var currentUrl by remember(currentMedia, selectedServerIndex, servers) {
         mutableStateOf(servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl)
@@ -813,8 +814,6 @@ fun VideoPlayerScreen(
                                 hasStartedPlaying = true
                                 errorMessage = null
                                 isPlaying = playWhenReady
-                                com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id, currentMedia.title, currentUrl)
-                                com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                                 val dur = duration
                                 if (dur > 0 && dur != C.TIME_UNSET) {
                                     durationMs = dur
@@ -841,7 +840,7 @@ fun VideoPlayerScreen(
                         isBuffering = false
                         isActuallyBuffering = false
                         hasStartedPlaying = true
-                        com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id, currentMedia.title, currentUrl)
+                        com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id)
                         com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
                     }
 
@@ -927,10 +926,6 @@ fun VideoPlayerScreen(
 
                     override fun onIsPlayingChanged(playing: Boolean) {
                         isPlaying = playing
-                        if (playing) {
-                            com.example.util.ChannelStatusManager.markChannelSuccess(currentMedia.id, currentMedia.title, currentUrl)
-                            com.example.util.ChannelStatusManager.markServerSuccess(currentUrl)
-                        }
                     }
 
                     override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -960,7 +955,7 @@ fun VideoPlayerScreen(
                             forceWebEngine = true
                             errorMessage = null
                         } else {
-                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id, currentMedia.title, currentUrl)
+                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
                             errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }
