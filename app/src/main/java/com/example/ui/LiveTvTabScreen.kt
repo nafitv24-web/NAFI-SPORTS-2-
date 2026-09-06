@@ -62,25 +62,24 @@ fun LiveTvTabScreen(
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
     onToggleFavorite: (String) -> Unit,
-    onAddChannel: (MediaItem) -> Unit = {},
-    onOpenAutoBlock: ((List<MediaItem>) -> Unit)? = null
+    onAddChannel: (MediaItem) -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("ALL") }
     var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
-    var showInternalAutoBlock by remember { mutableStateOf(false) }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(showOnlyActive) {
-        ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
+    // Trigger non-blocking background health check on unverified channels safely
+    LaunchedEffect(channels) {
+        if (channels.isNotEmpty()) {
+            ChannelStatusManager.enqueueChannelsForProbing(channels)
+        }
     }
 
-    LaunchedEffect(showOnlyActive, channels) {
-        if (showOnlyActive && channels.isNotEmpty()) {
-            ChannelStatusManager.probeChannelsAsync(coroutineScope, channels)
-        }
+    LaunchedEffect(showOnlyActive) {
+        ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
     val categories = remember(channels) {
@@ -95,23 +94,11 @@ fun LiveTvTabScreen(
                 "FAVORITE" -> favoriteIds.contains(channel.id)
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
-            matchesSearch && matchesCategory
+            val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
+            matchesSearch && matchesCategory && matchesActive
         }.distinctBy { it.id }
 
-        if (showOnlyActive) {
-            // Active channels on TOP, offline channels at the BOTTOM
-            list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
-        } else {
-            list
-        }
-    }
-
-    if (showInternalAutoBlock) {
-        OfflineChannelAutoBlockScreen(
-            initialMediaItems = channels,
-            onBack = { showInternalAutoBlock = false }
-        )
-        return
+        list
     }
 
     Column(
@@ -174,7 +161,7 @@ fun LiveTvTabScreen(
                             .background(if (showOnlyActive) Color(0xFF10B981) else Color(0xFF64748B))
                     )
                     Text(
-                        text = "Only Active",
+                        text = "Only Active Channel",
                         color = if (showOnlyActive) Color(0xFF34D399) else Color(0xFFCBD5E1),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -189,41 +176,6 @@ fun LiveTvTabScreen(
                             uncheckedThumbColor = Color(0xFF94A3B8),
                             uncheckedTrackColor = Color(0xFF334155)
                         )
-                    )
-                }
-            }
-
-            // 'অটো-ব্লক' Manager Button
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF7F1D1D).copy(alpha = 0.5f),
-                border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
-                modifier = Modifier
-                    .clickable {
-                        if (onOpenAutoBlock != null) {
-                            onOpenAutoBlock(channels)
-                        } else {
-                            showInternalAutoBlock = true
-                        }
-                    }
-                    .padding(vertical = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Block,
-                        contentDescription = "অটো-ব্লক",
-                        tint = Color(0xFFFCA5A5),
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Text(
-                        text = "অটো-ব্লক",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -312,8 +264,8 @@ fun LiveTvTabScreen(
                             .height(140.dp)
                             .clickable { onSelectMedia(channel, filteredChannels) }
                     }
-                    val cardModifier = if (!isActive && showOnlyActive) {
-                        baseModifier.alpha(0.62f)
+                    val cardModifier = if (!isActive) {
+                        baseModifier.alpha(0.72f)
                     } else {
                         baseModifier
                     }
@@ -325,8 +277,8 @@ fun LiveTvTabScreen(
                             1.dp,
                             when {
                                 isTvMode && isFocused -> Color(0xFF00E5FF)
-                                showOnlyActive && isActive -> Color(0xFF10B981).copy(alpha = 0.5f)
-                                else -> Color(0xFF334155)
+                                isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
+                                else -> Color(0xFFEF4444).copy(alpha = 0.45f)
                             }
                         ),
                         modifier = cardModifier
@@ -409,7 +361,7 @@ fun LiveTvTabScreen(
                                         )
                                     }
                                 }
-                            } else if (showOnlyActive) {
+                            } else {
                                 Surface(
                                     shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
                                     color = Color(0xFF450A0A).copy(alpha = 0.95f),

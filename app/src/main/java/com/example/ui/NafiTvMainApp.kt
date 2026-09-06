@@ -152,8 +152,6 @@ fun NafiTvMainApp(
     var activeMovieBrowserProvider by remember { mutableStateOf<MovieProvider?>(null) }
     var isExtensionsManagementActive by remember { mutableStateOf(false) }
     var isOfflineDownloadsActive by remember { mutableStateOf(false) }
-    var isAutoBlockScreenActive by remember { mutableStateOf(false) }
-    var autoBlockInitialChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var cloudStreamRepos by remember { mutableStateOf(repository.getSavedCloudStreamRepos()) }
     var allMovieProviders by remember { mutableStateOf(repository.getAllMovieProviders()) }
 
@@ -580,15 +578,6 @@ fun NafiTvMainApp(
                 currentTab = AppTab.MOVIES
             }
         )
-    } else if (isAutoBlockScreenActive) {
-        // OFFLINE CHANNEL AUTO-BLOCK SCREEN
-        OfflineChannelAutoBlockScreen(
-            initialMediaItems = autoBlockInitialChannels.ifEmpty { liveTvList + (customList + m3uList).filter { it.type == MediaType.LIVE_TV } },
-            onBack = { isAutoBlockScreenActive = false },
-            onChannelsUpdated = {
-                refreshAllData()
-            }
-        )
     } else if (isAdminViewActive) {
         // FULLSCREEN ADMIN CONTROL APP (Exact UI from Screenshot 1 & 3)
         AdminControlAppScreen(
@@ -964,11 +953,7 @@ fun NafiTvMainApp(
                                     repository.toggleFavorite(id)
                                     favoriteIds = repository.getFavoriteIds()
                                 },
-                                onAddChannel = handleAddCustomMedia,
-                                onOpenAutoBlock = { channels ->
-                                    autoBlockInitialChannels = channels
-                                    isAutoBlockScreenActive = true
-                                }
+                                onAddChannel = handleAddCustomMedia
                             )
                         }
 
@@ -996,11 +981,7 @@ fun NafiTvMainApp(
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
                                 },
-                                onPlaylistsChanged = { refreshAllData() },
-                                onOpenAutoBlock = { channels ->
-                                    autoBlockInitialChannels = channels
-                                    isAutoBlockScreenActive = true
-                                }
+                                onPlaylistsChanged = { refreshAllData() }
                             )
 
                             AppTab.MENU -> MenuScreen(
@@ -1025,10 +1006,6 @@ fun NafiTvMainApp(
                                 },
                                 onOpenAdminApp = { isAdminViewActive = true },
                                 onOpenOfflineDownloads = { isOfflineDownloadsActive = true },
-                                onOpenAutoBlock = {
-                                    autoBlockInitialChannels = liveTvList + (customList + m3uList).filter { it.type == MediaType.LIVE_TV }
-                                    isAutoBlockScreenActive = true
-                                },
                                 onOpenExtensionManager = { isExtensionsManagementActive = true },
                                 onCheckForUpdates = { checkForUpdates(isManualCheck = true) },
                                 availableUpdateInfo = availableUpdateInfo,
@@ -1322,11 +1299,7 @@ fun NafiTvMainApp(
                                     repository.toggleFavorite(id)
                                     favoriteIds = repository.getFavoriteIds()
                                 },
-                                onAddChannel = handleAddCustomMedia,
-                                onOpenAutoBlock = { channels ->
-                                    autoBlockInitialChannels = channels
-                                    isAutoBlockScreenActive = true
-                                }
+                                onAddChannel = handleAddCustomMedia
                             )
                         }
 
@@ -1354,11 +1327,7 @@ fun NafiTvMainApp(
                                 selectedMediaItem = item
                                 activePlaybackPlaylist = playlist
                             },
-                            onPlaylistsChanged = { refreshAllData() },
-                            onOpenAutoBlock = { channels ->
-                                autoBlockInitialChannels = channels
-                                isAutoBlockScreenActive = true
-                            }
+                            onPlaylistsChanged = { refreshAllData() }
                         )
 
                         AppTab.MENU -> MenuScreen(
@@ -1383,10 +1352,6 @@ fun NafiTvMainApp(
                             },
                             onOpenAdminApp = { isAdminViewActive = true },
                             onOpenOfflineDownloads = { isOfflineDownloadsActive = true },
-                            onOpenAutoBlock = {
-                                autoBlockInitialChannels = liveTvList + (customList + m3uList).filter { it.type == MediaType.LIVE_TV }
-                                isAutoBlockScreenActive = true
-                            },
                             onOpenExtensionManager = { isExtensionsManagementActive = true },
                             onCheckForUpdates = { checkForUpdates(isManualCheck = true) },
                             availableUpdateInfo = availableUpdateInfo,
@@ -1602,7 +1567,6 @@ fun MenuScreen(
     onOpenAdminApp: () -> Unit,
     onOpenExtensionManager: () -> Unit = {},
     onOpenOfflineDownloads: () -> Unit = {},
-    onOpenAutoBlock: () -> Unit = {},
     onPlayDirectStream: (url: String, title: String) -> Unit,
     onM3uLoaded: (List<MediaItem>) -> Unit,
     onCustomAdded: (MediaItem) -> Unit,
@@ -1808,65 +1772,6 @@ fun MenuScreen(
                             Text(
                                 text = "ডাউনলোডকৃত মুভি ও ভিডিও ইন্টারনেট ছাড়াই উপভোগ করুন",
                                 color = Color(0xFF94A3B8),
-                                fontSize = 11.5.sp
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowForwardIos,
-                        contentDescription = null,
-                        tint = Color(0xFF64748B),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-        // CARD 0.6: Offline Channel Auto-Block Manager (অফলাইন চ্যানেল অটো-ব্লক)
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenAutoBlock() }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFEF4444).copy(alpha = 0.15f),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Block,
-                                    contentDescription = null,
-                                    tint = Color(0xFFEF4444),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "🛡️ অফলাইন চ্যানেল অটো-ব্লক (Auto-Block)",
-                                color = Color.White,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "M3U লাইভ স্ট্রিম স্ক্যান, অফলাইন শনাক্তকরণ ও স্বয়ংক্রিয় ব্লক",
-                                color = Color(0xFFFCA5A5),
                                 fontSize = 11.5.sp
                             )
                         }

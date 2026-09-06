@@ -136,8 +136,7 @@ fun VideoPlayerScreen(
     }
 
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
-    val statusTick by com.example.util.ChannelStatusManager.statusUpdateTick.collectAsState()
-    val servers = remember(currentMedia, statusTick) { com.example.util.ChannelStatusManager.getActiveServers(currentMedia) }
+    val servers = remember(currentMedia) { com.example.util.ChannelStatusManager.getActiveServers(currentMedia) }
     var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(0) }
     var currentUrl by remember(currentMedia, selectedServerIndex, servers) {
         mutableStateOf(servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl)

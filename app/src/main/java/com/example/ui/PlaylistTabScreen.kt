@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
@@ -62,6 +61,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
@@ -87,8 +87,7 @@ fun PlaylistTabScreen(
     repository: MediaRepository,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
-    onPlaylistsChanged: () -> Unit,
-    onOpenAutoBlock: ((List<MediaItem>) -> Unit)? = null
+    onPlaylistsChanged: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedPlaylist by remember { mutableStateOf<PlaylistInfo?>(null) }
@@ -96,9 +95,6 @@ fun PlaylistTabScreen(
     var channelSearchQuery by remember { mutableStateOf("") }
     var isLoadingChannels by remember { mutableStateOf(false) }
     var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
-
-    var showInternalAutoBlock by remember { mutableStateOf(false) }
-    var internalAutoBlockChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
 
@@ -109,12 +105,6 @@ fun PlaylistTabScreen(
 
     LaunchedEffect(showOnlyActive) {
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
-    }
-
-    LaunchedEffect(showOnlyActive, playlistChannels) {
-        if (showOnlyActive && playlistChannels.isNotEmpty()) {
-            ChannelStatusManager.probeChannelsAsync(scope, playlistChannels)
-        }
     }
 
     LaunchedEffect(selectedPlaylist) {
@@ -130,20 +120,6 @@ fun PlaylistTabScreen(
                 isLoadingChannels = false
             }
         }
-    }
-
-    if (showInternalAutoBlock) {
-        OfflineChannelAutoBlockScreen(
-            initialMediaItems = internalAutoBlockChannels,
-            onBack = { showInternalAutoBlock = false },
-            onChannelsUpdated = { updated ->
-                if (selectedPlaylist != null) {
-                    playlistChannels = updated
-                }
-                onPlaylistsChanged()
-            }
-        )
-        return
     }
 
     Column(
@@ -195,61 +171,28 @@ fun PlaylistTabScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // "অটো-ব্লক" Button
-                    Button(
-                        onClick = {
-                            if (onOpenAutoBlock != null) {
-                                onOpenAutoBlock(emptyList())
-                            } else {
-                                internalAutoBlockChannels = emptyList()
-                                showInternalAutoBlock = true
-                            }
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF7F1D1D)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Block,
-                            contentDescription = null,
-                            tint = Color(0xFFFCA5A5),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "অটো-ব্লক",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    // "+ প্লেলিস্ট যোগ করুন" Button
-                    Button(
-                        onClick = { showAddPlaylistDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "প্লেলিস্ট যোগ করুন",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                // "+ প্লেলিস্ট যোগ করুন" Button
+                Button(
+                    onClick = { showAddPlaylistDialog = true },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2563EB)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "প্লেলিস্ট যোগ করুন",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -443,37 +386,6 @@ fun PlaylistTabScreen(
                         fontSize = 11.sp
                     )
                 }
-
-                // Auto-Block Button for this playlist
-                Button(
-                    onClick = {
-                        if (onOpenAutoBlock != null) {
-                            onOpenAutoBlock(playlistChannels)
-                        } else {
-                            internalAutoBlockChannels = playlistChannels
-                            showInternalAutoBlock = true
-                        }
-                    },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF7F1D1D)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Block,
-                        contentDescription = "Auto-Block",
-                        tint = Color(0xFFFCA5A5),
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "অটো-ব্লক",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
 
             // Channel Search Row with Only Active Toggle
@@ -557,6 +469,13 @@ fun PlaylistTabScreen(
                 }
             }
 
+            // Enqueue unverified playlist channels for safe background probing
+            LaunchedEffect(playlistChannels) {
+                if (playlistChannels.isNotEmpty()) {
+                    ChannelStatusManager.enqueueChannelsForProbing(playlistChannels)
+                }
+            }
+
             val filteredChannels = remember(playlistChannels, channelSearchQuery, showOnlyActive, statusTick) {
                 val list = if (channelSearchQuery.isBlank()) playlistChannels else {
                     playlistChannels.filter {
@@ -565,8 +484,7 @@ fun PlaylistTabScreen(
                     }
                 }
                 if (showOnlyActive) {
-                    // Active channels on TOP, offline channels at the BOTTOM
-                    list.sortedByDescending { ChannelStatusManager.isChannelActive(it) }
+                    list.filter { ChannelStatusManager.isChannelActive(it) }
                 } else {
                     list
                 }
@@ -621,14 +539,14 @@ fun PlaylistTabScreen(
                                 1.dp,
                                 when {
                                     isCardFocused -> Color(0xFFFFD600)
-                                    showOnlyActive && isActive -> Color(0xFF10B981).copy(alpha = 0.5f)
-                                    showOnlyActive && !isActive -> Color(0xFFEF4444).copy(alpha = 0.3f)
-                                    else -> Color(0xFF1E293B)
+                                    isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
+                                    else -> Color(0xFFEF4444).copy(alpha = 0.45f)
                                 }
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(if (isTvMode) 130.dp else 115.dp)
+                                .alpha(if (!isActive) 0.72f else 1.0f)
                                 .onFocusChanged { isCardFocused = it.isFocused }
                                 .focusable()
                                 .clickable { onSelectMedia(item, playlistChannels) }
@@ -697,7 +615,7 @@ fun PlaylistTabScreen(
                                             )
                                         }
                                     }
-                                } else if (showOnlyActive) {
+                                } else {
                                     Surface(
                                         shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
                                         color = Color(0xFF450A0A).copy(alpha = 0.95f),
