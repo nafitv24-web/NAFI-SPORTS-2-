@@ -682,7 +682,7 @@ fun OfflineChannelAutoBlockScreen(
                             if (isCheckingThis || isScanning) return@ChannelAutoBlockCard
                             singleCheckingId = channel.id
                             coroutineScope.launch {
-                                val res = manager.checkChannelStatus(channel.url)
+                                val res = manager.checkChannelWithFallbacks(channel)
                                 val updated = if (res.status == ChannelStatus.ONLINE) {
                                     manager.unblockChannelId(channel.id)
                                     channel.copy(

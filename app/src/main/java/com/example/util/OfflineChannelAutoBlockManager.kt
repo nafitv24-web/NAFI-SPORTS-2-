@@ -52,13 +52,13 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    // Dedicated OkHttpClient with 10s connect, read, and call timeouts
+    // Dedicated OkHttpClient with 8s connect and read timeouts, following redirects
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .callTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
         .build()
 
     // In-memory memoization cache for tested URLs to avoid redundant network pings
@@ -129,19 +129,20 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
     }
 
     // =========================================================================
-    // ১. checkChannelStatus(url)
+    // ১. checkChannelStatus(url) & checkChannelWithFallbacks(channel)
     // =========================================================================
     /**
      * Checks a stream URL to verify if it is online or offline.
-     * - Uses HEAD request with 10-second timeout
+     * - Uses HEAD request with 8-second timeout
+     * - Falls back to Range GET (0-4096 bytes) if HEAD returns an error code (400-503)
+     * - Supports custom headers, stream-specific User-Agent, Referer, and Origin
+     * - Correctly detects HLS / media stream signatures (#EXTM3U, octet-stream, etc.)
      * - Measures response time in milliseconds
-     * - Maps errors cleanly:
-     *   * Network error -> 'Connection failed'
-     *   * Timeout -> 'Request timeout'
-     *   * HTTP error -> 'HTTP 404', 'HTTP 500', etc.
-     *   * Invalid URL -> 'Invalid URL'
      */
-    suspend fun checkChannelStatus(url: String): ChannelCheckResult = withContext(Dispatchers.IO) {
+    suspend fun checkChannelStatus(
+        url: String,
+        headers: Map<String, String> = emptyMap()
+    ): ChannelCheckResult = withContext(Dispatchers.IO) {
         val trimmed = url.trim()
         if (trimmed.isBlank() || !isValidStreamUrl(trimmed)) {
             return@withContext ChannelCheckResult(
@@ -154,15 +155,46 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
         }
 
         val startTime = SystemClock.elapsedRealtime()
+        val lowerUrl = trimmed.lowercase()
+
+        // Match the player's User-Agent / Referer / Origin conventions
+        val effectiveUa = headers["User-Agent"]
+            ?: when {
+                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "Toffee (Linux;Android 14)"
+                else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
+        val effectiveReferer = headers["Referer"]
+            ?: when {
+                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com/"
+                lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com/"
+                else -> null
+            }
+        val effectiveOrigin = headers["Origin"]
+            ?: when {
+                lowerUrl.contains("toffee") || lowerUrl.contains("bldcmprod-cdn") -> "https://toffeelive.com"
+                lowerUrl.contains("hakunaymatata") || lowerUrl.contains("sacdn") -> "https://hakunaymatata.com"
+                else -> null
+            }
+
         try {
-            val request = Request.Builder()
+            val headBuilder = Request.Builder()
                 .url(trimmed)
                 .head()
-                .header("User-Agent", getBrowserUserAgent(trimmed))
+                .header("User-Agent", effectiveUa)
                 .header("Accept", "*/*")
-                .build()
 
-            val response = httpClient.newCall(request).execute()
+            if (effectiveReferer != null) headBuilder.header("Referer", effectiveReferer)
+            if (effectiveOrigin != null) headBuilder.header("Origin", effectiveOrigin)
+            headers.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) &&
+                    !k.equals("Referer", ignoreCase = true) &&
+                    !k.equals("Origin", ignoreCase = true)
+                ) {
+                    headBuilder.header(k, v)
+                }
+            }
+
+            val response = httpClient.newCall(headBuilder.build()).execute()
             val elapsed = SystemClock.elapsedRealtime() - startTime
             val code = response.code
             val isOk = response.isSuccessful || code in 200..399
@@ -176,10 +208,18 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
                     reason = "OK (HTTP $code)",
                     responseTime = elapsed
                 )
-            } else if (code in listOf(400, 401, 403, 405, 416, 500, 503)) {
-                // Many HLS/M3U8 servers reject HEAD requests with 405 Method Not Allowed or 403.
-                // Fallback to minimal range GET (first 1KB) to confirm stream reachability
-                checkWithRangeGet(trimmed, startTime, code)
+            } else if (code in listOf(400, 401, 403, 404, 405, 406, 416, 500, 501, 503)) {
+                // Many HLS/M3U8 servers reject HEAD requests with 405 Method Not Allowed, 403, or 401.
+                // Fallback to minimal range GET (first 4KB) with deep media inspection
+                checkWithRangeGet(
+                    url = trimmed,
+                    originalStartTime = startTime,
+                    originalCode = code,
+                    effectiveUa = effectiveUa,
+                    effectiveReferer = effectiveReferer,
+                    effectiveOrigin = effectiveOrigin,
+                    customHeaders = headers
+                )
             } else {
                 ChannelCheckResult(
                     url = trimmed,
@@ -211,22 +251,42 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
         }
     }
 
-    private fun checkWithRangeGet(url: String, originalStartTime: Long, originalCode: Int): ChannelCheckResult {
+    private fun checkWithRangeGet(
+        url: String,
+        originalStartTime: Long,
+        originalCode: Int,
+        effectiveUa: String,
+        effectiveReferer: String?,
+        effectiveOrigin: String?,
+        customHeaders: Map<String, String>
+    ): ChannelCheckResult {
         return try {
-            val getRequest = Request.Builder()
+            val getBuilder = Request.Builder()
                 .url(url)
-                .header("Range", "bytes=0-1024")
-                .header("User-Agent", getBrowserUserAgent(url))
+                .header("Range", "bytes=0-4096")
+                .header("User-Agent", effectiveUa)
                 .header("Accept", "*/*")
-                .build()
 
-            val getResponse = httpClient.newCall(getRequest).execute()
+            if (effectiveReferer != null) getBuilder.header("Referer", effectiveReferer)
+            if (effectiveOrigin != null) getBuilder.header("Origin", effectiveOrigin)
+            customHeaders.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) &&
+                    !k.equals("Referer", ignoreCase = true) &&
+                    !k.equals("Origin", ignoreCase = true)
+                ) {
+                    getBuilder.header(k, v)
+                }
+            }
+
+            val getResponse = httpClient.newCall(getBuilder.build()).execute()
             val getElapsed = SystemClock.elapsedRealtime() - originalStartTime
             val getCode = getResponse.code
             val isSuccessful = getResponse.isSuccessful || getCode in 200..399
             val contentType = getResponse.header("Content-Type")?.lowercase().orEmpty()
             val body = getResponse.body
-            val peekBytes = try { body?.source()?.peek()?.readByteArray(256) ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
+            val bodyLength = body?.contentLength() ?: 0L
+            val peekBytes = try { body?.source()?.peek()?.readByteArray(512) ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
+            val peekString = try { String(peekBytes) } catch (_: Exception) { "" }
             getResponse.close()
 
             val isMedia = contentType.contains("mpegurl") ||
@@ -234,9 +294,14 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
                     contentType.contains("audio") ||
                     contentType.contains("octet-stream") ||
                     contentType.contains("apple") ||
-                    String(peekBytes).contains("#EXTM3U", ignoreCase = true)
+                    peekString.contains("#EXTM3U", ignoreCase = true) ||
+                    peekString.contains("#EXT-X", ignoreCase = true)
 
-            if (isSuccessful || isMedia) {
+            // If 200-399 -> definitely online
+            // If 401/403 with active media response -> server is alive and media is reachable by player
+            val isChannelOnline = isSuccessful || isMedia || ((getCode == 401 || getCode == 403) && (bodyLength > 0 || peekBytes.isNotEmpty()))
+
+            if (isChannelOnline) {
                 ChannelCheckResult(
                     url = url,
                     status = ChannelStatus.ONLINE,
@@ -268,6 +333,43 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
                 responseTime = elapsed
             )
         }
+    }
+
+    /**
+     * Checks a BlockableChannel across its main stream URL and any candidate backup servers,
+     * applying channel-specific headers (User-Agent, Referer, Cookies, etc.).
+     * If ANY server is online, the channel is considered ONLINE!
+     */
+    suspend fun checkChannelWithFallbacks(channel: BlockableChannel): ChannelCheckResult = withContext(Dispatchers.IO) {
+        val candidates = channel.getAllCandidateUrls()
+        if (candidates.isEmpty()) {
+            return@withContext ChannelCheckResult(
+                url = channel.url,
+                status = ChannelStatus.OFFLINE,
+                code = 0,
+                reason = "No stream URL",
+                responseTime = 0L
+            )
+        }
+
+        val effectiveHeaders = channel.getEffectiveHeaders()
+        var lastOfflineResult: ChannelCheckResult? = null
+
+        for (candUrl in candidates) {
+            val res = checkChannelStatus(candUrl, effectiveHeaders)
+            if (res.status == ChannelStatus.ONLINE) {
+                return@withContext res
+            }
+            lastOfflineResult = res
+        }
+
+        lastOfflineResult ?: ChannelCheckResult(
+            url = channel.url,
+            status = ChannelStatus.OFFLINE,
+            code = 0,
+            reason = "Stream offline",
+            responseTime = 0L
+        )
     }
 
     private fun isValidStreamUrl(url: String): Boolean {
@@ -446,8 +548,8 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
         val jobs = blockedOnly.map { channel ->
             async {
                 val result = semaphore.withPermit {
-                    // Force refresh without memoized cache for re-checking
-                    checkChannelStatus(channel.url)
+                    // Force refresh without memoized cache for re-checking candidate streams
+                    checkChannelWithFallbacks(channel)
                 }
                 resultMap[channel.id] = result
                 val cur = progressCounter.incrementAndGet()
@@ -559,7 +661,7 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
         val jobs = channels.mapIndexed { index, channel ->
             async {
                 val res = semaphore.withPermit {
-                    checkChannelStatus(channel.url)
+                    checkChannelWithFallbacks(channel)
                 }
 
                 val cur = progress.incrementAndGet()
@@ -633,6 +735,15 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
                     put("lastChecked", ch.lastChecked ?: "")
                     put("responseTime", ch.responseTime)
                     put("httpCode", ch.httpCode)
+                    if (ch.backupUrls.isNotEmpty()) {
+                        val backupsArr = JSONArray()
+                        ch.backupUrls.forEach { backupsArr.put(it) }
+                        put("backupUrls", backupsArr)
+                    }
+                    ch.userAgent?.let { put("userAgent", it) }
+                    ch.referrer?.let { put("referrer", it) }
+                    ch.origin?.let { put("origin", it) }
+                    ch.cookie?.let { put("cookie", it) }
                 }
                 jsonArray.put(obj)
             }
@@ -657,6 +768,16 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
                 val obj = jsonArray.getJSONObject(i)
                 val id = obj.optString("id", "")
                 val isBlocked = obj.optBoolean("isBlocked", false) || blockedChannelIds.contains(id)
+
+                val backupsList = mutableListOf<String>()
+                val backupsArr = obj.optJSONArray("backupUrls")
+                if (backupsArr != null) {
+                    for (bIdx in 0 until backupsArr.length()) {
+                        val bUrl = backupsArr.optString(bIdx, "")
+                        if (bUrl.isNotBlank()) backupsList.add(bUrl)
+                    }
+                }
+
                 list.add(
                     BlockableChannel(
                         id = id,
@@ -670,7 +791,12 @@ class OfflineChannelAutoBlockManager(private val context: Context) {
                         blockedAt = obj.optString("blockedAt").takeIf { it.isNotBlank() },
                         lastChecked = obj.optString("lastChecked").takeIf { it.isNotBlank() },
                         responseTime = obj.optLong("responseTime", 0L),
-                        httpCode = obj.optInt("httpCode", 0)
+                        httpCode = obj.optInt("httpCode", 0),
+                        backupUrls = backupsList,
+                        userAgent = obj.optString("userAgent").takeIf { it.isNotBlank() },
+                        referrer = obj.optString("referrer").takeIf { it.isNotBlank() },
+                        origin = obj.optString("origin").takeIf { it.isNotBlank() },
+                        cookie = obj.optString("cookie").takeIf { it.isNotBlank() }
                     )
                 )
             }
