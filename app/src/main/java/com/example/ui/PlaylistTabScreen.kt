@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
@@ -86,7 +87,8 @@ fun PlaylistTabScreen(
     repository: MediaRepository,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
-    onPlaylistsChanged: () -> Unit
+    onPlaylistsChanged: () -> Unit,
+    onOpenAutoBlock: ((List<MediaItem>) -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedPlaylist by remember { mutableStateOf<PlaylistInfo?>(null) }
@@ -94,6 +96,9 @@ fun PlaylistTabScreen(
     var channelSearchQuery by remember { mutableStateOf("") }
     var isLoadingChannels by remember { mutableStateOf(false) }
     var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
+
+    var showInternalAutoBlock by remember { mutableStateOf(false) }
+    var internalAutoBlockChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
 
@@ -125,6 +130,20 @@ fun PlaylistTabScreen(
                 isLoadingChannels = false
             }
         }
+    }
+
+    if (showInternalAutoBlock) {
+        OfflineChannelAutoBlockScreen(
+            initialMediaItems = internalAutoBlockChannels,
+            onBack = { showInternalAutoBlock = false },
+            onChannelsUpdated = { updated ->
+                if (selectedPlaylist != null) {
+                    playlistChannels = updated
+                }
+                onPlaylistsChanged()
+            }
+        )
+        return
     }
 
     Column(
@@ -176,28 +195,61 @@ fun PlaylistTabScreen(
                     }
                 }
 
-                // "+ প্লেলিস্ট যোগ করুন" Button
-                Button(
-                    onClick = { showAddPlaylistDialog = true },
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2563EB)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "প্লেলিস্ট যোগ করুন",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // "অটো-ব্লক" Button
+                    Button(
+                        onClick = {
+                            if (onOpenAutoBlock != null) {
+                                onOpenAutoBlock(emptyList())
+                            } else {
+                                internalAutoBlockChannels = emptyList()
+                                showInternalAutoBlock = true
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF7F1D1D)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Block,
+                            contentDescription = null,
+                            tint = Color(0xFFFCA5A5),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "অটো-ব্লক",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // "+ প্লেলিস্ট যোগ করুন" Button
+                    Button(
+                        onClick = { showAddPlaylistDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2563EB)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "প্লেলিস্ট যোগ করুন",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
@@ -389,6 +441,37 @@ fun PlaylistTabScreen(
                         text = "${playlistChannels.size} চ্যানেল সংরক্ষিত",
                         color = Color(0xFF94A3B8),
                         fontSize = 11.sp
+                    )
+                }
+
+                // Auto-Block Button for this playlist
+                Button(
+                    onClick = {
+                        if (onOpenAutoBlock != null) {
+                            onOpenAutoBlock(playlistChannels)
+                        } else {
+                            internalAutoBlockChannels = playlistChannels
+                            showInternalAutoBlock = true
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF7F1D1D)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Block,
+                        contentDescription = "Auto-Block",
+                        tint = Color(0xFFFCA5A5),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "অটো-ব্লক",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

@@ -38,6 +38,7 @@ object ChannelStatusManager {
     val statusUpdateTick: StateFlow<Long> = _statusUpdateTick.asStateFlow()
 
     private var prefs: SharedPreferences? = null
+    private var autoBlockManager: OfflineChannelAutoBlockManager? = null
 
     // Dedicated fast client for stream reachability checks (6s timeout)
     private val checkClient by lazy {
@@ -53,6 +54,9 @@ object ChannelStatusManager {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             loadPersistedStatuses()
+        }
+        if (autoBlockManager == null) {
+            autoBlockManager = OfflineChannelAutoBlockManager.getInstance(context)
         }
     }
 
@@ -151,6 +155,11 @@ object ChannelStatusManager {
      *    - Check if all servers are already marked as failed
      */
     fun isChannelActive(channel: MediaItem): Boolean {
+        // If channel is explicitly blocked via Auto-Block manager
+        if (autoBlockManager?.isChannelBlocked(channel.id) == true) {
+            return false
+        }
+
         // If explicitly recorded in workingStatusMap
         val recordedStatus = workingStatusMap[channel.id]
         if (recordedStatus != null) {
