@@ -41,6 +41,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        try {
+            com.example.data.MediaRepository(this).recordUserPresence("অ্যাপে প্রবেশ করেছেন")
+        } catch (_: Exception) {}
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

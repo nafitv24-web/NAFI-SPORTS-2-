@@ -1055,10 +1055,21 @@ fun AdminControlAppScreen(
                                 displayedList.forEach { user ->
                                     val timeDiff = System.currentTimeMillis() - user.lastSeen
                                     val timeText = when {
-                                        user.isOnline || timeDiff < 60_000L -> "🟢 এইমাত্র সক্রিয়"
-                                        timeDiff < 3600_000L -> "${timeDiff / 60_000L} মিনিট আগে সক্রিয়"
-                                        timeDiff < 86400_000L -> "${timeDiff / 3600_000L} ঘণ্টা আগে সক্রিয়"
-                                        else -> "${timeDiff / 86400_000L} দিন আগে সক্রিয়"
+                                        user.isOnline || Math.abs(timeDiff) < 60_000L -> "🟢 এইমাত্র সক্রিয়"
+                                        timeDiff in 0 until 3600_000L -> "${maxOf(1L, timeDiff / 60_000L)} মিনিট আগে"
+                                        timeDiff in 0 until 86400_000L -> "${timeDiff / 3600_000L} ঘণ্টা আগে"
+                                        timeDiff >= 86400_000L -> "${timeDiff / 86400_000L} দিন আগে"
+                                        else -> "🟢 এইমাত্র সক্রিয়"
+                                    }
+                                    val devIcon = when (user.deviceType) {
+                                        "tv" -> Icons.Rounded.Tv
+                                        "tablet" -> Icons.Rounded.TabletAndroid
+                                        else -> if (user.deviceModel.contains("TV", ignoreCase = true) || user.deviceModel.contains("Box", ignoreCase = true) || user.deviceModel.contains("MiBox", ignoreCase = true)) Icons.Rounded.Tv else Icons.Rounded.Smartphone
+                                    }
+                                    val devTypeBadge = when (user.deviceType) {
+                                        "tv" -> "📺 TV"
+                                        "tablet" -> "💻 Tablet"
+                                        else -> if (user.deviceModel.contains("TV", ignoreCase = true) || user.deviceModel.contains("Box", ignoreCase = true)) "📺 TV" else "📱 Phone"
                                     }
                                     Card(
                                         shape = RoundedCornerShape(10.dp),
@@ -1095,7 +1106,7 @@ fun AdminControlAppScreen(
                                                         contentAlignment = Alignment.Center
                                                     ) {
                                                         Icon(
-                                                            imageVector = if (user.isOnline) Icons.Rounded.Smartphone else Icons.Rounded.PhoneAndroid,
+                                                            imageVector = devIcon,
                                                             contentDescription = null,
                                                             tint = if (user.isOnline) Color(0xFF34D399) else Color(0xFF94A3B8),
                                                             modifier = Modifier.size(18.dp)
@@ -1103,14 +1114,29 @@ fun AdminControlAppScreen(
                                                     }
                                                     Spacer(modifier = Modifier.width(10.dp))
                                                     Column {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(
+                                                                text = user.deviceModel,
+                                                                color = Color.White,
+                                                                fontSize = 13.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(4.dp),
+                                                                color = Color(0xFF1E293B)
+                                                            ) {
+                                                                Text(
+                                                                    text = devTypeBadge,
+                                                                    color = Color(0xFF38BDF8),
+                                                                    fontSize = 9.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                )
+                                                            }
+                                                        }
                                                         Text(
-                                                            text = user.deviceModel,
-                                                            color = Color.White,
-                                                            fontSize = 13.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                        Text(
-                                                            text = "ID: ${user.id.take(12)} • App ${user.appVersion}",
+                                                            text = "ID: ${user.id} • App ${user.appVersion}",
                                                             color = Color(0xFF64748B),
                                                             fontSize = 10.sp
                                                         )

@@ -175,20 +175,30 @@ fun NafiTvMainApp(
     // App Exit Confirmation State
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
 
-    // Synchronize screen orientation based on selected mode
+    // Synchronize screen orientation based on selected mode and hardware type (TV / Tablet / Mobile)
     LaunchedEffect(activeUserMode, isTvMode) {
-        when (activeUserMode) {
-            AppUserMode.REMOTE -> {
-                isTvMode = true
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            }
-            AppUserMode.MOBILE -> {
-                isTvMode = false
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
-            null -> {
-                // On Welcome / Mode Selection Screen
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val devType = repository.detectDeviceType()
+        if (devType == "tv") {
+            // Android TV / TV boxes must NEVER be forced into portrait mode
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            isTvMode = true
+        } else if (devType == "tablet") {
+            // Tablets and foldables can freely rotate between portrait and landscape
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            when (activeUserMode) {
+                AppUserMode.REMOTE -> {
+                    isTvMode = true
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+                AppUserMode.MOBILE -> {
+                    isTvMode = false
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+                null -> {
+                    // On Welcome / Mode Selection Screen
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
             }
         }
     }
@@ -457,7 +467,7 @@ fun NafiTvMainApp(
         }
     }
 
-    // Periodic user presence heartbeat (Quota optimized: 15-minute pulse)
+    // Periodic user presence heartbeat (Consistent 60-second pulse for real-time tracking)
     LaunchedEffect(currentTab, selectedMediaItem) {
         val activity = when {
             selectedMediaItem != null -> "দেখছেন: ${selectedMediaItem?.title?.take(25)}"
@@ -472,7 +482,7 @@ fun NafiTvMainApp(
             try {
                 repository.recordUserPresence(activity)
             } catch (_: Exception) {}
-            delay(900_000L) // Pulse presence every 15 minutes (quota-safe)
+            delay(60_000L) // Pulse presence every 60 seconds (rock-solid real-time tracking)
         }
     }
 

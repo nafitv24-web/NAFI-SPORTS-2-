@@ -5240,11 +5240,42 @@ class MediaRepository(private val context: Context) {
     // -------------------------------------------------------------
     // USER ANALYTICS & ACTIVE USERS TRACKING (Firebase RTDB + Location)
     // -------------------------------------------------------------
+    fun detectDeviceType(): String {
+        val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as? android.app.UiModeManager
+        val isTelevision = uiModeManager?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
+                context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        if (isTelevision) return "tv"
+
+        val model = android.os.Build.MODEL.lowercase()
+        val dev = android.os.Build.DEVICE.lowercase()
+        if (model.contains("tv") || model.contains("box") || dev.contains("tv") || dev.contains("box") || model.contains("mibox") || model.contains("chromecast")) {
+            return "tv"
+        }
+
+        val config = context.resources.configuration
+        val isTablet = (config.screenLayout and android.content.res.Configuration.SCREENLAYOUT_SIZE_MASK) >= android.content.res.Configuration.SCREENLAYOUT_SIZE_LARGE ||
+                config.smallestScreenWidthDp >= 600
+        if (isTablet) return "tablet"
+
+        return "mobile"
+    }
+
     fun getOrCreateDeviceId(): String {
+        val hw = "${android.os.Build.MANUFACTURER}_${android.os.Build.MODEL}_${android.os.Build.BOARD}_${android.os.Build.DEVICE}".filter { it.isLetterOrDigit() || it == '_' }
+        val storedHw = prefs.getString("device_hardware_fingerprint", null)
         var id = prefs.getString("device_unique_user_id", null)
+        if (storedHw != null && storedHw != hw) {
+            id = null
+        }
         if (id.isNullOrBlank()) {
-            id = "user_" + UUID.randomUUID().toString().replace("-", "").take(12)
-            prefs.edit().putString("device_unique_user_id", id).apply()
+            val dType = detectDeviceType()
+            val shortHw = hw.take(6).lowercase()
+            val randomPart = UUID.randomUUID().toString().replace("-", "").take(8)
+            id = "user_${dType}_${shortHw}_$randomPart"
+            prefs.edit()
+                .putString("device_unique_user_id", id)
+                .putString("device_hardware_fingerprint", hw)
+                .apply()
         }
         return id
     }
@@ -5416,8 +5447,12 @@ class MediaRepository(private val context: Context) {
     fun recordUserPresence(currentActivity: String = "ব্রাউজিং") {
         try {
             val now = System.currentTimeMillis()
-            // Quota optimization: Only send heartbeat every 10 minutes or if initial startup
-            if (lastPresenceTimestamp > 0 && (now - lastPresenceTimestamp < 10 * 60 * 1000L)) {
+            val isActivityChanged = lastPresenceActivity != currentActivity
+            // Allow immediate update when activity changed (min 5s debounce), or periodic heartbeat every 60s
+            if (!isActivityChanged && lastPresenceTimestamp > 0 && (now - lastPresenceTimestamp < 60_000L)) {
+                return
+            }
+            if (isActivityChanged && lastPresenceTimestamp > 0 && (now - lastPresenceTimestamp < 5_000L)) {
                 return
             }
             lastPresenceTimestamp = now
@@ -5439,6 +5474,7 @@ class MediaRepository(private val context: Context) {
             val appVersion = "v${com.example.BuildConfig.VERSION_NAME}"
             val versionCode = com.example.BuildConfig.VERSION_CODE
             val netType = detectNetworkType()
+            val devType = detectDeviceType()
 
             // Background sync to Firebase Realtime Database with managed lifecycle scope
             repositoryScope.launch {
@@ -5473,6 +5509,7 @@ class MediaRepository(private val context: Context) {
                             put("isp", isp)
                             put("ip", ip)
                             put("current_activity", currentActivity)
+                            put("device_type", devType)
                         }
                         val activeBody = activeObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                         val activeTargetUrl = appendRtdbAuth("$cleanUrl/active_users/$deviceId.json")
@@ -5497,6 +5534,7 @@ class MediaRepository(private val context: Context) {
                                 put("country", country)
                                 put("country_code", countryCode)
                                 put("network_type", netType)
+                                put("device_type", devType)
                             }
                             val userBody = userObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                             val allTargetUrl = appendRtdbAuth("$cleanUrl/all_users/$deviceId.json")
@@ -5517,7 +5555,7 @@ class MediaRepository(private val context: Context) {
     suspend fun fetchUserAnalytics(): AppUserAnalytics = withContext(Dispatchers.IO) {
         val rtdbUrl = getSavedFirebaseUrl()
         val now = System.currentTimeMillis()
-        val activeThresholdMillis = 5 * 60 * 1000L // Active in the last 5 minutes
+        val activeThresholdMillis = 8 * 60 * 1000L // Active in the last 8 minutes (heartbeat sends every 60s)
 
         val allList = mutableListOf<ActiveUserInfo>()
         var totalLifetimeCount = 0
@@ -5555,8 +5593,14 @@ class MediaRepository(private val context: Context) {
                             val isp = uObj.optString("isp", "")
                             val netType = uObj.optString("network_type", "WiFi")
                             val curAct = uObj.optString("current_activity", "ব্রাউজিং")
+                            val rawType = uObj.optString("device_type", "")
+                            val devType = if (rawType.isNotBlank()) rawType else {
+                                val m = deviceModel.lowercase()
+                                if (m.contains("tv") || m.contains("box") || m.contains("mibox") || m.contains("chromecast")) "tv" else "mobile"
+                            }
 
-                            val isCurrentlyOnline = (now - lastSeen) <= activeThresholdMillis
+                            val timeDiff = now - lastSeen
+                            val isCurrentlyOnline = (timeDiff in -300_000L..activeThresholdMillis) || (Math.abs(timeDiff) <= activeThresholdMillis)
                             allList.add(
                                 ActiveUserInfo(
                                     id = k,
@@ -5574,7 +5618,8 @@ class MediaRepository(private val context: Context) {
                                     ip = ip,
                                     isp = isp,
                                     networkType = netType,
-                                    currentActivity = curAct
+                                    currentActivity = curAct,
+                                    deviceType = devType
                                 )
                             )
                         }
@@ -5631,7 +5676,8 @@ class MediaRepository(private val context: Context) {
             ip = myIp,
             isp = myIsp,
             networkType = detectNetworkType(),
-            currentActivity = "অ্যাডমিন প্যানেল"
+            currentActivity = "অ্যাডমিন প্যানেল",
+            deviceType = detectDeviceType()
         )
 
         if (existingIndex >= 0) {

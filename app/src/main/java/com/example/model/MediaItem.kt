@@ -172,7 +172,8 @@ data class ActiveUserInfo(
     val ip: String = "",
     val isp: String = "",
     val networkType: String = "WiFi",
-    val currentActivity: String = "ব্রাউজিং"
+    val currentActivity: String = "ব্রাউজিং",
+    val deviceType: String = "mobile"
 )
 
 data class LocationTrafficStat(
