@@ -24,8 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.layout.ContentScale
@@ -49,21 +47,8 @@ fun ModeSelectionScreen(
     onExitApp: () -> Unit
 ) {
     // Track focused or active selection
-    val isTvDevice = remember { repository?.detectDeviceType() == "tv" }
-    var selectedMode by remember { mutableStateOf<AppUserMode?>(if (isTvDevice) AppUserMode.REMOTE else null) }
-    var focusedMode by remember { mutableStateOf<AppUserMode?>(if (isTvDevice) AppUserMode.REMOTE else AppUserMode.MOBILE) }
-    val remoteCardFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-    val mobileCardFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        try {
-            if (isTvDevice) {
-                remoteCardFocusRequester.requestFocus()
-            } else {
-                mobileCardFocusRequester.requestFocus()
-            }
-        } catch (_: Exception) {}
-    }
+    var selectedMode by remember { mutableStateOf<AppUserMode?>(null) }
+    var focusedMode by remember { mutableStateOf<AppUserMode?>(AppUserMode.MOBILE) }
 
     // Marquee scrolling ticker text state (fetched from repository & remote Firebase)
     var tickerText by remember {
@@ -315,7 +300,6 @@ fun ModeSelectionScreen(
                     isSelected = selectedMode == AppUserMode.MOBILE,
                     isFocused = focusedMode == AppUserMode.MOBILE,
                     isLandscape = isLandscape,
-                    focusRequester = mobileCardFocusRequester,
                     onFocusChanged = { if (it) focusedMode = AppUserMode.MOBILE },
                     onSelect = {
                         selectedMode = AppUserMode.MOBILE
@@ -341,7 +325,6 @@ fun ModeSelectionScreen(
                     isSelected = selectedMode == AppUserMode.REMOTE,
                     isFocused = focusedMode == AppUserMode.REMOTE,
                     isLandscape = isLandscape,
-                    focusRequester = remoteCardFocusRequester,
                     onFocusChanged = { if (it) focusedMode = AppUserMode.REMOTE },
                     onSelect = {
                         selectedMode = AppUserMode.REMOTE
@@ -483,7 +466,6 @@ private fun ModeOptionCard(
     isSelected: Boolean,
     isFocused: Boolean,
     isLandscape: Boolean,
-    focusRequester: FocusRequester? = null,
     onFocusChanged: (Boolean) -> Unit,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
@@ -505,7 +487,6 @@ private fun ModeOptionCard(
         color = Color.Transparent,
         shadowElevation = if (isFocused || isSelected) 14.dp else 4.dp,
         modifier = modifier
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .scale(scale)
             .onFocusChanged { onFocusChanged(it.isFocused) }
             .focusable()
