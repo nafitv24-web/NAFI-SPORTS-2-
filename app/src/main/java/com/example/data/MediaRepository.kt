@@ -86,6 +86,8 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.m3u"
         const val DEFAULT_MOVIES_JSON_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/movies.json"
         const val DEFAULT_MOVIES_M3U_URL = DEFAULT_MOVIES_JSON_URL
+        const val DEFAULT_MIX_MOVIES_M3U_URL = "https://raw.githubusercontent.com/abusaeeidx/Movie-Playlist-Auto-update/refs/heads/main/Mix_Movies.m3u"
+        const val DEFAULT_LATEST_MOVIES_M3U_URL = "https://raw.githubusercontent.com/srhady/join_telegram_chennal-livesportsplay/refs/heads/main/latest_movies.m3u"
         const val DEFAULT_M3U_URL = DEFAULT_LIVE_TV_M3U_URL
         const val DEFAULT_ADMIN_PIN = "40541273"
         const val FIREBASE_PROJECT_ID = "nafitv24-live"
@@ -1207,9 +1209,36 @@ class MediaRepository(private val context: Context) {
                     if (currentOrigin.isNullOrBlank()) currentOrigin = "https://toffeelive.com"
                 }
 
+                // Normalize Pixeldrain URLs in M3U playlists
+                val isPixeldrain = streamUrl.contains("pixeldrain", ignoreCase = true) || streamUrl.contains("pixeldra.in", ignoreCase = true)
+                if (isPixeldrain) {
+                    val pId = streamUrl.substringAfter("/api/file/").substringAfter("/u/").substringBefore("?").substringBefore("/")
+                    if (pId.isNotBlank()) {
+                        streamUrl = "https://pixeldrain.com/api/file/$pId?download"
+                    }
+                    if (currentReferrer.isNullOrBlank()) currentReferrer = "https://pixeldrain.com/"
+                    if (currentOrigin.isNullOrBlank()) currentOrigin = "https://pixeldrain.com"
+                }
+
                 val isMovie = currentGroup.contains("movie", ignoreCase = true) ||
                         currentGroup.contains("cinema", ignoreCase = true) ||
-                        currentGroup.contains("vod", ignoreCase = true)
+                        currentGroup.contains("vod", ignoreCase = true) ||
+                        currentGroup.contains("series", ignoreCase = true) ||
+                        currentGroup.contains("drama", ignoreCase = true) ||
+                        currentGroup.contains("film", ignoreCase = true) ||
+                        currentGroup.contains("action", ignoreCase = true) ||
+                        currentGroup.contains("comedy", ignoreCase = true) ||
+                        currentGroup.contains("thriller", ignoreCase = true) ||
+                        currentGroup.contains("horror", ignoreCase = true) ||
+                        currentGroup.contains("romance", ignoreCase = true) ||
+                        currentGroup.contains("adventure", ignoreCase = true) ||
+                        currentGroup.contains("hollywood", ignoreCase = true) ||
+                        currentGroup.contains("bollywood", ignoreCase = true) ||
+                        currentGroup.contains("south", ignoreCase = true) ||
+                        currentGroup.contains("bangla", ignoreCase = true) ||
+                        isPixeldrain ||
+                        streamUrl.contains(".mp4", ignoreCase = true) ||
+                        streamUrl.contains(".mkv", ignoreCase = true)
 
                 val mediaType = when {
                     isMovie -> MediaType.MOVIE
@@ -1931,6 +1960,26 @@ class MediaRepository(private val context: Context) {
                 url = DEFAULT_LIVE_TV_M3U_URL,
                 logoUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=200&fit=crop",
                 description = "Global News, Movies, Music & TV",
+                type = "M3U",
+                isAdmin = true,
+                isReadOnly = true
+            ),
+            PlaylistInfo(
+                id = "pl_mix_movies_auto",
+                title = "Mix Movies (Auto Update)",
+                url = DEFAULT_MIX_MOVIES_M3U_URL,
+                logoUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=200&fit=crop",
+                description = "Mix Movies Auto Update Collection (Pixeldrain & Direct)",
+                type = "M3U",
+                isAdmin = true,
+                isReadOnly = true
+            ),
+            PlaylistInfo(
+                id = "pl_latest_movies_live",
+                title = "Latest Movies Live",
+                url = DEFAULT_LATEST_MOVIES_M3U_URL,
+                logoUrl = "https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0?w=200&fit=crop",
+                description = "Latest Cinema & OTT Movies Collection",
                 type = "M3U",
                 isAdmin = true,
                 isReadOnly = true

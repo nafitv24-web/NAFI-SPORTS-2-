@@ -569,9 +569,16 @@ fun VideoPlayerScreen(
         if (!extractedCookie.isNullOrBlank()) {
             requestHeaders["Cookie"] = extractedCookie
         }
+
+        // Special headers for Pixeldrain / file-sharing domains
+        val isPixeldrainUrl = finalCleanUrl.contains("pixeldrain", ignoreCase = true) || finalCleanUrl.contains("pixeldra.in", ignoreCase = true)
+        if (isPixeldrainUrl) {
+            if (!requestHeaders.containsKey("Referer")) requestHeaders["Referer"] = "https://pixeldrain.com/"
+            if (!requestHeaders.containsKey("Origin")) requestHeaders["Origin"] = "https://pixeldrain.com"
+        }
+
         requestHeaders["Accept"] = "*/*"
         requestHeaders["Connection"] = "keep-alive"
-        requestHeaders["Accept-Encoding"] = "gzip, deflate"
         requestHeaders["Cache-Control"] = "no-cache"
         requestHeaders.putAll(dynamicHeaders)
 
@@ -770,18 +777,23 @@ fun VideoPlayerScreen(
                 val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
                 val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
                 val isTs = finalCleanUrl.contains(".ts", ignoreCase = true)
+                val isFileHost = finalCleanUrl.contains("pixeldrain", ignoreCase = true) ||
+                        finalCleanUrl.contains("pixeldra.in", ignoreCase = true) ||
+                        finalCleanUrl.contains("drive.google.com", ignoreCase = true) ||
+                        finalCleanUrl.contains("dropbox.com", ignoreCase = true) ||
+                        finalCleanUrl.contains("mediafire.com", ignoreCase = true)
 
                 val isMpd = finalCleanUrl.contains(".mpd", ignoreCase = true) ||
                         finalCleanUrl.contains("dash", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("mpd", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("mpd", ignoreCase = true) == true
 
-                val isM3u8 = finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
-                        finalCleanUrl.contains("hls", ignoreCase = true) ||
+                val isM3u8 = !isFileHost && (finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
+                        finalCleanUrl.contains("/hls/", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("hls", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("hls", ignoreCase = true) == true ||
                         isToffee ||
-                        ((currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT || currentMedia.isLive) && !isMp4 && !isMkv && !isWebm && !isMpd && !isTs)
+                        ((currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT || currentMedia.isLive) && !isMp4 && !isMkv && !isWebm && !isMpd && !isTs && !isFileHost))
 
                 if (isMpd) {
                     mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
@@ -1637,7 +1649,14 @@ fun VideoPlayerScreen(
                         exoPlayer.seekTo(0)
                         exoPlayer.prepare()
                         exoPlayer.play()
-                    }
+                    },
+                    onSwitchToWebPlayer = {
+                        errorMessage = null
+                        forceWebEngine = true
+                    },
+                    onNextServer = if (servers.size > 1) {
+                        { cycleNextServer() }
+                    } else null
                 )
             }
 
@@ -2324,18 +2343,32 @@ fun VideoPlayerScreen(
                             ) {
                                 Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(28.dp))
                                 Text(text = errorMessage ?: "", color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
-                                Button(
-                                    onClick = {
-                                        errorMessage = null
-                                        exoPlayer.seekTo(0)
-                                        exoPlayer.prepare()
-                                        exoPlayer.play()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Text("Retry", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Button(
+                                        onClick = {
+                                            errorMessage = null
+                                            exoPlayer.seekTo(0)
+                                            exoPlayer.prepare()
+                                            exoPlayer.play()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Retry", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            errorMessage = null
+                                            forceWebEngine = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1), contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("ওয়েব প্লেয়ার", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -3988,14 +4021,16 @@ private fun PlayerBufferingLogoOverlay(
 @Composable
 private fun FullscreenErrorOverlay(
     message: String,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onSwitchToWebPlayer: (() -> Unit)? = null,
+    onNextServer: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Card(
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier.padding(24.dp),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.95f))
         ) {
@@ -4006,14 +4041,37 @@ private fun FullscreenErrorOverlay(
             ) {
                 Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(36.dp))
                 Text(text = message, color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center)
-                Button(
-                    onClick = onRetry,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("পুনরায় চেষ্টা করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onRetry,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("পুনরায় চেষ্টা", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (onSwitchToWebPlayer != null) {
+                        Button(
+                            onClick = onSwitchToWebPlayer,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1), contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("🌐 ওয়েব প্লেয়ার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (onNextServer != null) {
+                        OutlinedButton(
+                            onClick = onNextServer,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("বিকল্প সার্ভার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }

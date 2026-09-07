@@ -357,7 +357,7 @@ fun NafiTvMainApp(
                 }
 
                 // -------------------------------------------------------------
-                // ধাপ ৩: তার পর মুভি ও সিরিজ লোড হবে (Third: Movies)
+                // ধাপ ৩: তার পর মুভি ও সিরিজ লোড হবে (Third: Movies & Auto-Update Playlists)
                 // -------------------------------------------------------------
                 try {
                     val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
@@ -376,8 +376,34 @@ fun NafiTvMainApp(
                         }
                     } else emptyList()
 
+                    val mixMovies = try {
+                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
+                            it.copy(
+                                type = MediaType.MOVIE,
+                                tournament = "MIX_MOVIES",
+                                category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
+                            )
+                        }.filterNot { deleted.contains(it.id) }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        emptyList()
+                    }
+
+                    val latestMovies = try {
+                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL).map {
+                            it.copy(
+                                type = MediaType.MOVIE,
+                                tournament = "LATEST_MOVIES",
+                                category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
+                            )
+                        }.filterNot { deleted.contains(it.id) }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        emptyList()
+                    }
+
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                    val updatedMov = (customMov + moviesM3u)
+                    val updatedMov = (customMov + moviesM3u + mixMovies + latestMovies)
                         .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                         .distinctBy { it.id }
 

@@ -67,6 +67,21 @@ data class MediaItem(
         ) {
             list.add(StreamServer("সার্ভার ২", backupUrl.trim()))
         }
+
+        // Automatic mirror endpoints for Pixeldrain URLs
+        val lower = streamUrl.lowercase()
+        if (lower.contains("pixeldrain") || lower.contains("pixeldra.in")) {
+            val fileId = streamUrl.substringAfter("/api/file/").substringAfter("/u/").substringBefore("?").substringBefore("/")
+            if (fileId.isNotBlank()) {
+                val s1 = "https://pixeldrain.dev/api/file/$fileId?download"
+                val s2 = "https://pixeldrain.com/api/file/$fileId?download"
+                val s3 = "https://pixeldrain.com/api/file/$fileId"
+                if (list.none { it.url.equals(s1, ignoreCase = true) }) list.add(StreamServer("Pixeldrain Dev", s1))
+                if (list.none { it.url.equals(s2, ignoreCase = true) }) list.add(StreamServer("Pixeldrain Com", s2))
+                if (list.none { it.url.equals(s3, ignoreCase = true) }) list.add(StreamServer("Pixeldrain Direct", s3))
+            }
+        }
+
         val distinctList = list.distinctBy { it.url.trim() }
         if (distinctList.isEmpty()) {
             return if (streamUrl.isNotBlank()) listOf(StreamServer("সার্ভার ১", streamUrl.trim())) else emptyList()

@@ -64,14 +64,23 @@ fun WebStreamPlayer(
 
     // Try background OkHttp extraction first before rendering WebView
     LaunchedEffect(embedUrl) {
-        isExtractingNative = true
-        extractionStatus = "অ্যাডহীন নেটিভ প্লেয়ারের জন্য স্ট্রিম এক্সট্রাক্ট হচ্ছে..."
-        val directResult = StreamExtractor.extractDirectStream(embedUrl)
-        if (directResult != null && directResult.streamUrl.isNotBlank()) {
-            onDirectStreamDetected(directResult.streamUrl)
-            return@LaunchedEffect
+        val lower = embedUrl.lowercase()
+        // If it's a social/embed player that plays best in web engine, skip native extraction
+        if (!lower.contains("youtube.com") && !lower.contains("youtu.be")) {
+            isExtractingNative = true
+            extractionStatus = "অ্যাডহীন নেটিভ প্লেয়ারের জন্য স্ট্রিম এক্সট্রাক্ট হচ্ছে..."
+            val directResult = StreamExtractor.extractDirectStream(embedUrl)
+            if (directResult != null && directResult.streamUrl.isNotBlank() &&
+                (directResult.streamUrl.contains(".m3u8", ignoreCase = true) ||
+                 directResult.streamUrl.contains(".mpd", ignoreCase = true) ||
+                 directResult.streamUrl.contains(".mp4", ignoreCase = true) ||
+                 directResult.streamUrl.contains(".mkv", ignoreCase = true) ||
+                 directResult.streamUrl.contains("pixeldrain", ignoreCase = true))) {
+                onDirectStreamDetected(directResult.streamUrl)
+                return@LaunchedEffect
+            }
+            isExtractingNative = false
         }
-        isExtractingNative = false
     }
 
     DisposableEffect(Unit) {
@@ -123,7 +132,7 @@ fun WebStreamPlayer(
                         addJavascriptInterface(object {
                             @JavascriptInterface
                             fun onFoundStream(url: String) {
-                                if (url.isNotBlank() && !adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
+                                if (url.isNotBlank() && !url.startsWith("blob:", ignoreCase = true) && !adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
                                     post {
                                         onDirectStreamDetected(url)
                                     }
@@ -153,11 +162,12 @@ fun WebStreamPlayer(
                                 }
 
                                 // Sniff direct streams (.m3u8, .mpd, .mp4, /dash/, /hls/, blob/stream endpoints)
-                                val isDirectVideo = lower.contains(".m3u8") ||
+                                val isDirectVideo = (lower.contains(".m3u8") ||
                                         lower.contains(".mpd") ||
                                         lower.contains("/dash/") ||
                                         lower.contains("/hls/") ||
-                                        (lower.contains(".mp4") && !lower.contains("thumb") && !lower.contains("preview"))
+                                        (lower.contains(".mp4") && !lower.contains("thumb") && !lower.contains("preview"))) &&
+                                        !lower.startsWith("blob:")
 
                                 if (isDirectVideo) {
                                     post {
@@ -301,7 +311,14 @@ fun WebStreamPlayer(
                             }
                         }
 
-                        loadUrl(embedUrl)
+                        loadSmartEmbed(this, embedUrl)
+                    }
+                },
+                update = { view ->
+                    val currentTag = view.tag as? String
+                    if (currentTag != embedUrl) {
+                        view.tag = embedUrl
+                        loadSmartEmbed(view, embedUrl)
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -357,5 +374,61 @@ fun WebStreamPlayer(
                 }
             }
         }
+    }
+}
+
+private fun loadSmartEmbed(webView: WebView, rawUrl: String) {
+    val clean = rawUrl.trim()
+    val lower = clean.lowercase()
+
+    if (lower.contains("youtube.com") || lower.contains("youtu.be")) {
+        val ytId = StreamExtractor.extractYouTubeId(clean) ?: clean
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <style>
+                    * { margin:0; padding:0; box-sizing:border-box; background:#000; overflow:hidden; }
+                    html, body, iframe { width:100vw; height:100vh; border:none; display:block; }
+                </style>
+            </head>
+            <body>
+                <iframe src="https://www.youtube-nocookie.com/embed/$ytId?autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=1" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" 
+                    allowfullscreen>
+                </iframe>
+            </body>
+            </html>
+        """.trimIndent()
+        webView.loadDataWithBaseURL("https://www.youtube-nocookie.com", html, "text/html", "UTF-8", null)
+    } else if (lower.contains("facebook.com") || lower.contains("fb.watch") || lower.contains("fb.com")) {
+        val encoded = try {
+            java.net.URLEncoder.encode(clean, "UTF-8")
+        } catch (_: Exception) {
+            clean
+        }
+        val fbPluginUrl = "https://www.facebook.com/plugins/video.php?href=$encoded&autoplay=1&show_text=0"
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <style>
+                    * { margin:0; padding:0; box-sizing:border-box; background:#000; overflow:hidden; }
+                    html, body, iframe { width:100vw; height:100vh; border:none; display:block; }
+                </style>
+            </head>
+            <body>
+                <iframe src="$fbPluginUrl" 
+                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen" 
+                    allowfullscreen>
+                </iframe>
+            </body>
+            </html>
+        """.trimIndent()
+        webView.loadDataWithBaseURL("https://www.facebook.com", html, "text/html", "UTF-8", null)
+    } else {
+        webView.loadUrl(clean)
     }
 }
