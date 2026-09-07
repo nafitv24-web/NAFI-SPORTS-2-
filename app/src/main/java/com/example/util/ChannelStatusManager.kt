@@ -132,19 +132,11 @@ object ChannelStatusManager {
     }
 
     /**
-     * Returns the active servers for a media item, filtering out inactive/broken servers
-     * unless all servers would be filtered out (in which case it keeps valid format ones as fallback).
+     * Returns the active servers for a media item. Always returns all available servers
+     * so that the user can freely choose or switch to any server.
      */
     fun getActiveServers(mediaItem: MediaItem): List<StreamServer> {
-        val allServers = mediaItem.getAllServers()
-        if (allServers.isEmpty()) return emptyList()
-
-        val active = allServers.filter { isServerActive(it.url) }
-        return if (active.isNotEmpty()) {
-            active
-        } else {
-            allServers.filter { isValidStreamFormat(it.url) }.ifEmpty { allServers }
-        }
+        return mediaItem.getAllServers()
     }
 
     /**

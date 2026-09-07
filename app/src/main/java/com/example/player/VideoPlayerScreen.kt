@@ -136,9 +136,9 @@ fun VideoPlayerScreen(
     }
 
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
-    val servers = remember(currentMedia) { com.example.util.ChannelStatusManager.getActiveServers(currentMedia) }
+    val servers = remember(currentMedia) { currentMedia.getAllServers() }
     var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(0) }
-    var currentUrl by remember(currentMedia, selectedServerIndex, servers) {
+    var currentUrl by remember(currentMedia) {
         mutableStateOf(servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl)
     }
 
@@ -766,6 +766,11 @@ fun VideoPlayerScreen(
                     mediaItemBuilder.setDrmConfiguration(drmConfigBuilder.build())
                 }
 
+                val isMp4 = finalCleanUrl.contains(".mp4", ignoreCase = true)
+                val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
+                val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
+                val isTs = finalCleanUrl.contains(".ts", ignoreCase = true)
+
                 val isMpd = finalCleanUrl.contains(".mpd", ignoreCase = true) ||
                         finalCleanUrl.contains("dash", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("mpd", ignoreCase = true) == true ||
@@ -775,12 +780,8 @@ fun VideoPlayerScreen(
                         finalCleanUrl.contains("hls", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("hls", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("hls", ignoreCase = true) == true ||
-                        isToffee
-
-                val isMp4 = finalCleanUrl.contains(".mp4", ignoreCase = true)
-                val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
-                val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
-                val isTs = finalCleanUrl.contains(".ts", ignoreCase = true)
+                        isToffee ||
+                        ((currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT || currentMedia.isLive) && !isMp4 && !isMkv && !isWebm && !isMpd && !isTs)
 
                 if (isMpd) {
                     mediaItemBuilder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
@@ -942,19 +943,17 @@ fun VideoPlayerScreen(
 
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
-                        // Mark current failed server
-                        if (currentUrl.isNotBlank()) {
-                            com.example.util.ChannelStatusManager.markServerFailed(currentUrl)
-                        }
-                        if (servers.size > 1 && selectedServerIndex < servers.size - 1) {
+                        val currentServers = currentMedia.getAllServers()
+                        if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
                             selectedServerIndex++
-                            currentUrl = servers[selectedServerIndex].url
-                            errorMessage = "সার্ভার পরিবর্তন হচ্ছে: ${servers[selectedServerIndex].name}..."
+                            val targetServer = currentServers[selectedServerIndex]
+                            currentUrl = targetServer.url
+                            errorMessage = "সার্ভার পরিবর্তন হচ্ছে: ${targetServer.name}..."
+                            channelOsdKey = System.currentTimeMillis()
                         } else if (isWebEmbedUrl) {
                             forceWebEngine = true
                             errorMessage = null
                         } else {
-                            com.example.util.ChannelStatusManager.markChannelFailed(currentMedia.id)
                             errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }
@@ -1010,21 +1009,31 @@ fun VideoPlayerScreen(
 
     // Switch stream server by index
     fun switchServer(targetIndex: Int) {
-        if (servers.isEmpty()) return
-        val newIndex = targetIndex.coerceIn(0, servers.size - 1)
+        val allServers = currentMedia.getAllServers()
+        if (allServers.isEmpty()) return
+        val newIndex = targetIndex.coerceIn(0, allServers.size - 1)
         selectedServerIndex = newIndex
-        val targetServer = servers[newIndex]
+        val targetServer = allServers[newIndex]
+        val oldUrl = currentUrl
         currentUrl = targetServer.url
         isBuffering = true
         errorMessage = null
         channelOsdKey = System.currentTimeMillis()
+        if (oldUrl == targetServer.url) {
+            try {
+                exoPlayer.seekTo(0)
+                exoPlayer.prepare()
+                exoPlayer.play()
+            } catch (_: Exception) {}
+        }
         android.widget.Toast.makeText(context, "${targetServer.name} চালু হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     // Cycle to next available stream server
     fun cycleNextServer() {
-        if (servers.size > 1) {
-            val nextIdx = (selectedServerIndex + 1) % servers.size
+        val allServers = currentMedia.getAllServers()
+        if (allServers.size > 1) {
+            val nextIdx = (selectedServerIndex + 1) % allServers.size
             switchServer(nextIdx)
         } else {
             android.widget.Toast.makeText(context, "এই চ্যানেলে ১টি মাত্র সার্ভার রয়েছে", android.widget.Toast.LENGTH_SHORT).show()
@@ -1037,57 +1046,44 @@ fun VideoPlayerScreen(
         remoteNumberKey = System.currentTimeMillis()
     }
 
-    // Switch to Next / Previous Channel with multi-server sequential traversal:
-    // If a channel has multiple servers, Remote Up/Down first iterates through all servers of the channel before moving to the next/prev channel
+    // Switch to Next / Previous Channel cleanly and reliably without trapping inside multi-server loops
     fun switchChannel(delta: Int) {
-        val currentServers = currentMedia.getAllServers()
-        if (delta > 0) {
-            // Going Forward (Down button / Next Channel)
-            if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
-                // Play next server of the current channel first
-                val nextServerIdx = selectedServerIndex + 1
-                switchServer(nextServerIdx)
-                return
-            }
-            // If already at last server or single server, move to next channel (server index 0)
-            val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
-            val currentIndex = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }
-            if (currentIndex != -1 && list.isNotEmpty()) {
-                val nextIndex = (currentIndex + 1).mod(list.size)
-                val nextItem = list[nextIndex]
-                isBuffering = true
-                currentMedia = nextItem
-                selectedServerIndex = 0
-                val newServers = nextItem.getAllServers()
-                currentUrl = newServers.firstOrNull()?.url ?: nextItem.streamUrl
-                errorMessage = null
-                onSelectMedia(nextItem)
-                channelOsdKey = System.currentTimeMillis()
-            }
-        } else if (delta < 0) {
-            // Going Backward (Up button / Previous Channel)
-            if (currentServers.size > 1 && selectedServerIndex > 0) {
-                // Play previous server of the current channel first
-                val prevServerIdx = selectedServerIndex - 1
-                switchServer(prevServerIdx)
-                return
-            }
-            // If already at first server or single server, move to previous channel (at its last server)
-            val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
-            val currentIndex = list.indexOfFirst { it.id == currentMedia.id || it.streamUrl == currentMedia.streamUrl }
-            if (currentIndex != -1 && list.isNotEmpty()) {
-                val prevIndex = (currentIndex - 1).mod(list.size)
-                val prevItem = list[prevIndex]
-                val prevServers = prevItem.getAllServers()
-                isBuffering = true
-                currentMedia = prevItem
-                selectedServerIndex = if (prevServers.size > 1) prevServers.size - 1 else 0
-                currentUrl = prevServers.getOrNull(selectedServerIndex)?.url ?: prevItem.streamUrl
-                errorMessage = null
-                onSelectMedia(prevItem)
-                channelOsdKey = System.currentTimeMillis()
+        val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+        if (list.isEmpty()) return
+
+        var currentIndex = list.indexOfFirst { it.id == currentMedia.id }
+        if (currentIndex == -1) {
+            currentIndex = list.indexOfFirst { it.title.trim().equals(currentMedia.title.trim(), ignoreCase = true) }
+        }
+        if (currentIndex == -1) {
+            currentIndex = list.indexOfFirst { it.streamUrl.trim().equals(currentMedia.streamUrl.trim(), ignoreCase = true) }
+        }
+        if (currentIndex == -1) {
+            val currentServers = currentMedia.getAllServers()
+            val allCurrentUrls = currentServers.map { it.url.trim() }.toSet()
+            currentIndex = list.indexOfFirst { item ->
+                item.getAllServers().any { allCurrentUrls.contains(it.url.trim()) }
             }
         }
+        if (currentIndex == -1) {
+            currentIndex = 0
+        }
+
+        val targetIndex = if (delta > 0) {
+            (currentIndex + 1) % list.size
+        } else {
+            if (currentIndex - 1 < 0) list.size - 1 else currentIndex - 1
+        }
+
+        val targetItem = list[targetIndex]
+        isBuffering = true
+        currentMedia = targetItem
+        selectedServerIndex = 0
+        val targetServers = targetItem.getAllServers()
+        currentUrl = targetServers.firstOrNull()?.url ?: targetItem.streamUrl
+        errorMessage = null
+        onSelectMedia(targetItem)
+        channelOsdKey = System.currentTimeMillis()
     }
 
     fun toggleFullscreen() {
@@ -1872,26 +1868,24 @@ fun VideoPlayerScreen(
                                             .fillMaxWidth()
                                             .onFocusChanged { focusState ->
                                                 isFocused = focusState.isFocused
-                                                if (focusState.isFocused && !isCurrent) {
-                                                    isBuffering = true
-                                                    currentMedia = item
-                                                    selectedServerIndex = 0
-                                                    val newServers = item.getAllServers()
-                                                    currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                                    errorMessage = null
-                                                    onSelectMedia(item)
-                                                }
                                             }
                                             .focusable()
                                             .clickable {
-                                                if (!isCurrent) {
-                                                    isBuffering = true
-                                                    currentMedia = item
-                                                    selectedServerIndex = 0
-                                                    val newServers = item.getAllServers()
-                                                    currentUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                                    errorMessage = null
-                                                    onSelectMedia(item)
+                                                isBuffering = true
+                                                currentMedia = item
+                                                selectedServerIndex = 0
+                                                val newServers = item.getAllServers()
+                                                val oldUrl = currentUrl
+                                                val nextUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                currentUrl = nextUrl
+                                                errorMessage = null
+                                                onSelectMedia(item)
+                                                if (oldUrl == nextUrl) {
+                                                    try {
+                                                        exoPlayer.seekTo(0)
+                                                        exoPlayer.prepare()
+                                                        exoPlayer.play()
+                                                    } catch (_: Exception) {}
                                                 }
                                             },
                                         shape = RoundedCornerShape(8.dp),

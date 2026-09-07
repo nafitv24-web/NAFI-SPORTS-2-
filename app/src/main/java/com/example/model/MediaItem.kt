@@ -59,17 +59,27 @@ data class MediaItem(
             list.addAll(servers.filter { it.url.isNotBlank() })
         }
         if (streamUrl.isNotBlank() && list.none { it.url.trim().equals(streamUrl.trim(), ignoreCase = true) }) {
-            list.add(0, StreamServer("সার্ভার ১ (Main)", streamUrl.trim()))
+            list.add(0, StreamServer("সার্ভার ১", streamUrl.trim()))
         }
         if (!backupUrl.isNullOrBlank() && 
             !backupUrl.trim().equals(streamUrl.trim(), ignoreCase = true) && 
             list.none { it.url.trim().equals(backupUrl.trim(), ignoreCase = true) }
         ) {
-            list.add(StreamServer("সার্ভার ২ (Backup)", backupUrl.trim()))
+            list.add(StreamServer("সার্ভার ২", backupUrl.trim()))
         }
         val distinctList = list.distinctBy { it.url.trim() }
-        return distinctList.ifEmpty {
-            if (streamUrl.isNotBlank()) listOf(StreamServer("সার্ভার ১ (Main)", streamUrl.trim())) else emptyList()
+        if (distinctList.isEmpty()) {
+            return if (streamUrl.isNotBlank()) listOf(StreamServer("সার্ভার ১", streamUrl.trim())) else emptyList()
+        }
+        return distinctList.mapIndexed { index, server ->
+            val num = index + 1
+            val rawName = server.name.trim()
+            val cleanName = if (rawName.isBlank() || rawName.equals(title.trim(), ignoreCase = true) || rawName.matches(Regex("^(?i)(server|সার্ভার)\\s*\\d*.*"))) {
+                "সার্ভার $num"
+            } else {
+                "সার্ভার $num ($rawName)"
+            }
+            StreamServer(name = cleanName, url = server.url.trim())
         }
     }
 }

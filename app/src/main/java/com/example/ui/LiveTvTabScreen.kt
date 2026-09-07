@@ -46,10 +46,24 @@ fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     return grouped.values.map { list ->
         val first = list.first()
         if (list.size == 1) {
-            first
+            val allServers = first.getAllServers()
+            first.copy(servers = allServers)
         } else {
-            val allServers = list.flatMap { it.servers.ifEmpty { listOf(StreamServer(name = it.title, url = it.streamUrl)) } }
-            first.copy(servers = allServers.distinctBy { it.url })
+            val combinedServers = list.flatMap { it.getAllServers() }.distinctBy { it.url.trim() }
+            val mergedServers = combinedServers.mapIndexed { idx, s ->
+                val num = idx + 1
+                val rawName = s.name.trim()
+                val cleanName = if (rawName.isBlank() || rawName.equals(first.title.trim(), ignoreCase = true) || rawName.matches(Regex("^(?i)(server|সার্ভার)\\s*\\d*.*"))) {
+                    "সার্ভার $num"
+                } else {
+                    "সার্ভার $num ($rawName)"
+                }
+                StreamServer(cleanName, s.url.trim())
+            }
+            first.copy(
+                servers = mergedServers,
+                streamUrl = mergedServers.firstOrNull()?.url ?: first.streamUrl
+            )
         }
     }
 }
