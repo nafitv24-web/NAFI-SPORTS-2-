@@ -38,6 +38,8 @@ class MovieDownloadService : Service() {
 
         const val ACTION_START_DOWNLOAD = "com.example.service.ACTION_START_DOWNLOAD"
         const val ACTION_CANCEL_DOWNLOAD = "com.example.service.ACTION_CANCEL_DOWNLOAD"
+        const val ACTION_PAUSE_DOWNLOAD = "com.example.service.ACTION_PAUSE_DOWNLOAD"
+        const val ACTION_RESUME_DOWNLOAD = "com.example.service.ACTION_RESUME_DOWNLOAD"
         const val ACTION_STOP_SERVICE = "com.example.service.ACTION_STOP_SERVICE"
         const val EXTRA_MOVIE_ID = "extra_movie_id"
 
@@ -90,6 +92,16 @@ class MovieDownloadService : Service() {
             ACTION_CANCEL_DOWNLOAD -> {
                 if (!movieId.isNullOrBlank()) {
                     MovieDownloadManager.cancelDownload(movieId)
+                }
+            }
+            ACTION_PAUSE_DOWNLOAD -> {
+                if (!movieId.isNullOrBlank()) {
+                    MovieDownloadManager.pauseDownload(movieId)
+                }
+            }
+            ACTION_RESUME_DOWNLOAD -> {
+                if (!movieId.isNullOrBlank()) {
+                    MovieDownloadManager.resumeDownload(applicationContext, movieId)
                 }
             }
             ACTION_STOP_SERVICE -> {
@@ -205,17 +217,29 @@ class MovieDownloadService : Service() {
             .setContentIntent(pendingAppIntent)
 
         if (!activeMovieId.isNullOrBlank()) {
+            val pauseIntent = Intent(this, MovieDownloadService::class.java).apply {
+                action = ACTION_PAUSE_DOWNLOAD
+                putExtra(EXTRA_MOVIE_ID, activeMovieId)
+            }
+            val pausePendingIntent = PendingIntent.getService(
+                this,
+                activeMovieId.hashCode() + 10,
+                pauseIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(R.mipmap.ic_launcher, "⏸️ পজ", pausePendingIntent)
+
             val cancelIntent = Intent(this, MovieDownloadService::class.java).apply {
                 action = ACTION_CANCEL_DOWNLOAD
                 putExtra(EXTRA_MOVIE_ID, activeMovieId)
             }
             val cancelPendingIntent = PendingIntent.getService(
                 this,
-                activeMovieId.hashCode(),
+                activeMovieId.hashCode() + 20,
                 cancelIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(R.mipmap.ic_launcher, "বাতিল করুন", cancelPendingIntent)
+            builder.addAction(R.mipmap.ic_launcher, "বাতিল", cancelPendingIntent)
         }
 
         return builder.build()

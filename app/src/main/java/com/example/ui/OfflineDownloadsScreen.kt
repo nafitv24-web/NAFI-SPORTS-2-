@@ -68,6 +68,12 @@ fun OfflineDownloadsScreen(
         }
     }
 
+    val pausedProgressList = remember(activeDownloadsMap) {
+        activeDownloadsMap.values.filter {
+            it.state == DownloadState.PAUSED
+        }
+    }
+
     val filteredList = remember(downloadedMovies, searchQuery) {
         if (searchQuery.isBlank()) downloadedMovies else {
             downloadedMovies.filter {
@@ -167,8 +173,56 @@ fun OfflineDownloadsScreen(
                     activeProgressList.forEach { progress ->
                         ActiveDownloadCard(
                             progress = progress,
+                            onPause = {
+                                MovieDownloadManager.pauseDownload(progress.movieId)
+                            },
                             onCancel = {
-                                MovieDownloadManager.cancelDownload(progress.movieId)
+                                MovieDownloadManager.cancelDownload(progress.movieId, deletePartialFile = true, context = context)
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Paused / Interrupted Downloads Section
+            if (pausedProgressList.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF131C31))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Rounded.PauseCircle,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "স্থগিত ডাউনলোডসমূহ (${pausedProgressList.size} টি)",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    pausedProgressList.forEach { progress ->
+                        PausedDownloadCard(
+                            progress = progress,
+                            onResume = {
+                                MovieDownloadManager.resumeDownload(context, progress.movieId)
+                            },
+                            onDelete = {
+                                MovieDownloadManager.deletePartialDownload(context, progress.movieId)
                             }
                         )
                     }
@@ -218,7 +272,7 @@ fun OfflineDownloadsScreen(
             }
 
             // Downloaded Movies List
-            if (filteredList.isEmpty() && activeProgressList.isEmpty()) {
+            if (filteredList.isEmpty() && activeProgressList.isEmpty() && pausedProgressList.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -348,6 +402,7 @@ fun OfflineDownloadsScreen(
 @Composable
 fun ActiveDownloadCard(
     progress: MovieDownloadProgress,
+    onPause: () -> Unit,
     onCancel: () -> Unit
 ) {
     Card(
@@ -374,16 +429,30 @@ fun ActiveDownloadCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(
-                    onClick = onCancel,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Cancel",
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(18.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onPause,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Pause,
+                            contentDescription = "Pause",
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = onCancel,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Cancel",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 
@@ -411,6 +480,102 @@ fun ActiveDownloadCard(
                     color = Color(0xFF10B981),
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PausedDownloadCard(
+    progress: MovieDownloadProgress,
+    onResume: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2438)),
+        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.6f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "⏸️ ${progress.title}",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = "Delete Partial",
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            LinearProgressIndicator(
+                progress = { if (progress.totalBytes > 0) progress.progress else 0.5f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = Color(0xFFF59E0B),
+                trackColor = Color(0xFF334155)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${progress.downloadedSizeFormatted} সংরক্ষিত (${progress.progressPercent}%)",
+                    color = Color(0xFFF59E0B),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "স্থগিত (Resume করুন)",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 11.sp
+                )
+            }
+
+            Button(
+                onClick = onResume,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth().height(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "পুনরায় চালু করুন (${progress.downloadedSizeFormatted} থেকে)",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }

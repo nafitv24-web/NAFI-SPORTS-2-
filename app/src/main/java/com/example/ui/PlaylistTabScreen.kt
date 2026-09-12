@@ -476,7 +476,7 @@ fun PlaylistTabScreen(
                 }
             }
 
-            val filteredChannels = remember(playlistChannels, channelSearchQuery, showOnlyActive, statusTick) {
+            val filteredChannels = remember(playlistChannels, channelSearchQuery, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
                 val list = if (channelSearchQuery.isBlank()) playlistChannels else {
                     playlistChannels.filter {
                         it.title.contains(channelSearchQuery, ignoreCase = true) ||

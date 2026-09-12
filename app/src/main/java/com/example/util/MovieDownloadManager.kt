@@ -29,20 +29,18 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 
 enum class DownloadState {
     IDLE,
     PENDING,
     DOWNLOADING,
+    PAUSED,
     COMPLETED,
     FAILED,
     CANCELLED
@@ -59,7 +57,9 @@ data class MovieDownloadProgress(
     val totalSizeFormatted: String = "0 MB",
     val speedFormatted: String = "0 KB/s",
     val state: DownloadState = DownloadState.IDLE,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val targetUrl: String = "",
+    val mediaItem: MediaItem? = null
 )
 
 data class DownloadedMovie(
@@ -96,10 +96,20 @@ data class DownloadedMovie(
     }
 }
 
+/**
+ * Resumable, High-Speed Movie Download Manager.
+ * Features:
+ * 1. HTTP Range Resume (206 Partial Content): picks up exactly where left off if internet drops or download fails.
+ * 2. Automatic network reconnection retry loop for brief connectivity loss.
+ * 3. Never deletes partial (.part) downloads on network error or app pause.
+ * 4. Persists unfinished tasks across app and phone restarts so users can resume anytime.
+ * 5. Low CPU & RAM usage: 128KB buffered I/O with throttled UI state emissions.
+ */
 object MovieDownloadManager {
 
     private const val PREFS_NAME = "nafi_movie_downloads_prefs"
     private const val KEY_DOWNLOADED_MOVIES = "key_downloaded_movies_json"
+    private const val KEY_PAUSED_TASKS = "key_paused_tasks_json"
     private const val NOTIF_CHANNEL_ID = "nafi_movie_download_channel"
     private const val NOTIF_CHANNEL_NAME = "মুভি ডাউনলোড নোটিফিকেশন"
 
@@ -112,23 +122,26 @@ object MovieDownloadManager {
     private val _downloadedMoviesFlow = MutableStateFlow<List<DownloadedMovie>>(emptyList())
     val downloadedMoviesFlow: StateFlow<List<DownloadedMovie>> = _downloadedMoviesFlow.asStateFlow()
 
-    // Ultra-optimized High-Throughput HTTP Client for maximum download speed
-    private val downloadHttpClient = OkHttpClient.Builder()
-        .connectionPool(ConnectionPool(64, 10, TimeUnit.MINUTES))
-        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .retryOnConnectionFailure(true)
-        .build()
+    // High-throughput, resilient HTTP client
+    private val downloadHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(32, 10, TimeUnit.MINUTES))
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun init(context: Context) {
         createNotificationChannel(context)
         refreshDownloadedMoviesList(context)
+        restorePausedTasks(context)
     }
 
     private fun getPrefs(context: Context): SharedPreferences {
@@ -142,95 +155,12 @@ object MovieDownloadManager {
                 NOTIF_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "মুভি ডাউনলোডের লাইভ প্রগ্রেস ও সম্পন্ন নোটিফিকেশন"
-                enableVibration(false)
+                description = "মুভি ডাউনলোড প্রগ্রেস ও নোটিফিকেশন"
                 setShowBadge(false)
             }
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            nm?.createNotificationChannel(channel)
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.createNotificationChannel(channel)
         }
-    }
-
-    fun getDownloadedMovies(context: Context): List<DownloadedMovie> {
-        val prefs = getPrefs(context)
-        val jsonStr = prefs.getString(KEY_DOWNLOADED_MOVIES, null) ?: return emptyList()
-        val list = mutableListOf<DownloadedMovie>()
-        try {
-            val arr = JSONArray(jsonStr)
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val item = DownloadedMovie(
-                    id = obj.optString("id"),
-                    title = obj.optString("title"),
-                    category = obj.optString("category", "Movie"),
-                    logoUrl = obj.optString("logoUrl").takeIf { it.isNotBlank() },
-                    year = obj.optString("year").takeIf { it.isNotBlank() },
-                    quality = obj.optString("quality", "HD"),
-                    downloadUrl = obj.optString("downloadUrl"),
-                    localFilePath = obj.optString("localFilePath"),
-                    fileSizeBytes = obj.optLong("fileSizeBytes"),
-                    fileSizeFormatted = obj.optString("fileSizeFormatted", "0 MB"),
-                    downloadDateFormatted = obj.optString("downloadDateFormatted"),
-                    downloadTimestamp = obj.optLong("downloadTimestamp", System.currentTimeMillis())
-                )
-                // Only include if file actually exists on storage
-                if (item.fileExists) {
-                    list.add(item)
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return list.sortedByDescending { it.downloadTimestamp }
-    }
-
-    fun refreshDownloadedMoviesList(context: Context) {
-        val movies = getDownloadedMovies(context)
-        _downloadedMoviesFlow.value = movies
-    }
-
-    private fun saveDownloadedMovie(context: Context, movie: DownloadedMovie) {
-        val currentList = getDownloadedMovies(context).toMutableList()
-        currentList.removeAll { it.id == movie.id }
-        currentList.add(0, movie)
-
-        val arr = JSONArray()
-        for (item in currentList) {
-            val obj = JSONObject().apply {
-                put("id", item.id)
-                put("title", item.title)
-                put("category", item.category)
-                put("logoUrl", item.logoUrl ?: "")
-                put("year", item.year ?: "")
-                put("quality", item.quality)
-                put("downloadUrl", item.downloadUrl)
-                put("localFilePath", item.localFilePath)
-                put("fileSizeBytes", item.fileSizeBytes)
-                put("fileSizeFormatted", item.fileSizeFormatted)
-                put("downloadDateFormatted", item.downloadDateFormatted)
-                put("downloadTimestamp", item.downloadTimestamp)
-            }
-            arr.put(obj)
-        }
-        getPrefs(context).edit().putString(KEY_DOWNLOADED_MOVIES, arr.toString()).apply()
-        _downloadedMoviesFlow.value = currentList
-    }
-
-    fun isMovieDownloaded(context: Context, movieId: String): Boolean {
-        val movies = _downloadedMoviesFlow.value.ifEmpty { getDownloadedMovies(context) }
-        return movies.any { it.id == movieId && it.fileExists }
-    }
-
-    fun getDownloadedMovie(context: Context, movieId: String): DownloadedMovie? {
-        val movies = _downloadedMoviesFlow.value.ifEmpty { getDownloadedMovies(context) }
-        return movies.firstOrNull { it.id == movieId && it.fileExists }
-    }
-
-    fun getDownloadedFile(context: Context, movieId: String): File? {
-        val movie = getDownloadedMovie(context, movieId) ?: return null
-        if (movie.localFilePath.isBlank()) return null
-        val file = File(movie.localFilePath)
-        return if (file.exists()) file else null
     }
 
     fun isMovieDownloading(movieId: String): Boolean {
@@ -238,63 +168,110 @@ object MovieDownloadManager {
         return prog?.state == DownloadState.DOWNLOADING || prog?.state == DownloadState.PENDING
     }
 
-    fun getMovieDownloadProgress(movieId: String): MovieDownloadProgress? {
-        return activeProgressMap[movieId]
+    fun isMoviePaused(movieId: String): Boolean {
+        val prog = activeProgressMap[movieId]
+        return prog?.state == DownloadState.PAUSED
     }
 
-    fun deleteDownloadedMovie(context: Context, movieId: String): Boolean {
-        try {
-            val currentList = getDownloadedMovies(context).toMutableList()
-            val target = currentList.firstOrNull { it.id == movieId }
-            if (target != null) {
-                val file = File(target.localFilePath)
-                if (file.exists()) {
-                    file.delete()
-                }
-                currentList.removeAll { it.id == movieId }
-
-                val arr = JSONArray()
-                for (item in currentList) {
-                    val obj = JSONObject().apply {
-                        put("id", item.id)
-                        put("title", item.title)
-                        put("category", item.category)
-                        put("logoUrl", item.logoUrl ?: "")
-                        put("year", item.year ?: "")
-                        put("quality", item.quality)
-                        put("downloadUrl", item.downloadUrl)
-                        put("localFilePath", item.localFilePath)
-                        put("fileSizeBytes", item.fileSizeBytes)
-                        put("fileSizeFormatted", item.fileSizeFormatted)
-                        put("downloadDateFormatted", item.downloadDateFormatted)
-                        put("downloadTimestamp", item.downloadTimestamp)
-                    }
-                    arr.put(obj)
-                }
-                getPrefs(context).edit().putString(KEY_DOWNLOADED_MOVIES, arr.toString()).apply()
-                _downloadedMoviesFlow.value = currentList
-                return true
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+    fun hasPartialDownload(context: Context, movieId: String): Boolean {
+        val prog = activeProgressMap[movieId]
+        if (prog != null && prog.downloadedBytes > 0L && (prog.state == DownloadState.PAUSED || prog.state == DownloadState.FAILED)) {
+            return true
         }
-        return false
+        val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            ?: File(context.filesDir, "movies")
+        val idPrefix = "NAFITV_${movieId.take(8)}_"
+        return moviesDir.listFiles()?.any { it.name.startsWith(idPrefix) && it.name.endsWith(".part") && it.length() > 0L } == true
     }
 
-    fun cancelDownload(movieId: String) {
+    fun getPartialDownloadBytes(context: Context, movieId: String): Long {
+        val prog = activeProgressMap[movieId]
+        if (prog != null && prog.downloadedBytes > 0L) return prog.downloadedBytes
+        val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            ?: File(context.filesDir, "movies")
+        val idPrefix = "NAFITV_${movieId.take(8)}_"
+        val file = moviesDir.listFiles()?.firstOrNull { it.name.startsWith(idPrefix) && it.name.endsWith(".part") }
+        return file?.length() ?: 0L
+    }
+
+    fun isMovieDownloaded(context: Context, movieId: String): Boolean {
+        val list = getDownloadedMovies(context)
+        return list.any { it.id == movieId && it.fileExists }
+    }
+
+    fun pauseDownload(movieId: String) {
         activeDownloadJobs[movieId]?.cancel()
         activeDownloadJobs.remove(movieId)
-        activeProgressMap[movieId] = MovieDownloadProgress(
-            movieId = movieId,
-            title = activeProgressMap[movieId]?.title ?: "",
-            state = DownloadState.CANCELLED
-        )
+        activeProgressMap[movieId]?.let { cur ->
+            activeProgressMap[movieId] = cur.copy(
+                state = DownloadState.PAUSED,
+                speedFormatted = "স্থগিত"
+            )
+            _downloadsState.value = HashMap(activeProgressMap)
+        }
+    }
+
+    fun resumeDownload(context: Context, movieId: String) {
+        val prog = activeProgressMap[movieId]
+        if (prog?.mediaItem != null) {
+            startDownload(
+                context = context,
+                mediaItem = prog.mediaItem,
+                preferredUrl = prog.targetUrl
+            )
+            return
+        }
+        val pausedList = getStoredPausedTasks(context)
+        val task = pausedList.firstOrNull { it.id == movieId }
+        if (task != null) {
+            startDownload(
+                context = context,
+                mediaItem = task.toMediaItem(),
+                preferredUrl = task.downloadUrl
+            )
+        }
+    }
+
+    fun cancelDownload(movieId: String, deletePartialFile: Boolean = false, context: Context? = null) {
+        activeDownloadJobs[movieId]?.cancel()
+        activeDownloadJobs.remove(movieId)
+
+        if (deletePartialFile && context != null) {
+            deletePartialDownload(context, movieId)
+        } else {
+            activeProgressMap[movieId]?.let { cur ->
+                activeProgressMap[movieId] = cur.copy(
+                    state = DownloadState.PAUSED,
+                    speedFormatted = "স্থগিত"
+                )
+                _downloadsState.value = HashMap(activeProgressMap)
+            }
+        }
+    }
+
+    fun deletePartialDownload(context: Context, movieId: String): Boolean {
+        activeDownloadJobs[movieId]?.cancel()
+        activeDownloadJobs.remove(movieId)
+        activeProgressMap.remove(movieId)
         _downloadsState.value = HashMap(activeProgressMap)
+        removePausedTask(context, movieId)
+
+        val notifId = (movieId.hashCode() and 0x7FFFFFFF)
+        cancelNotification(context, notifId)
+
+        val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            ?: File(context.filesDir, "movies")
+        val idPrefix = "NAFITV_${movieId.take(8)}_"
+        moviesDir.listFiles()?.filter { it.name.startsWith(idPrefix) && it.name.endsWith(".part") }?.forEach {
+            try { it.delete() } catch (_: Exception) {}
+        }
+        return true
     }
 
     /**
-     * Start downloading a movie file with maximum speed buffers, multi-connection pooling,
-     * background foreground service persistence, and real-time speed monitoring.
+     * Start or resume downloading a movie file.
+     * If a .part file exists from a previous attempt, Range: bytes=$existingBytes- is sent
+     * to resume without restarting from 0.
      */
     fun startDownload(
         context: Context,
@@ -324,169 +301,195 @@ object MovieDownloadManager {
         }
 
         val notifId = (mediaItem.id.hashCode() and 0x7FFFFFFF)
+
+        // Determine destination file paths
+        val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            ?: File(context.filesDir, "movies").apply { mkdirs() }
+        if (!moviesDir.exists()) moviesDir.mkdirs()
+
+        val safeTitle = mediaItem.title
+            .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+            .take(40)
+
+        val ext = when {
+            targetUrl.contains(".mp4", ignoreCase = true) -> ".mp4"
+            targetUrl.contains(".mkv", ignoreCase = true) -> ".mkv"
+            targetUrl.contains(".webm", ignoreCase = true) -> ".webm"
+            targetUrl.contains(".ts", ignoreCase = true) -> ".ts"
+            targetUrl.contains(".mov", ignoreCase = true) -> ".mov"
+            targetUrl.contains(".avi", ignoreCase = true) -> ".avi"
+            else -> ".mp4"
+        }
+
+        val finalFileName = "NAFITV_${mediaItem.id.take(8)}_$safeTitle$ext"
+        val finalFile = File(moviesDir, finalFileName)
+        val partFileName = "$finalFileName.part"
+        val partFile = File(moviesDir, partFileName)
+
+        if (finalFile.exists() && finalFile.length() > 0L) {
+            refreshDownloadedMoviesList(context)
+            Toast.makeText(context, "মুভিটি ইতিমধ্যে সম্পূর্ণ ডাউনলোড করা আছে!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val existingBytes = if (partFile.exists()) partFile.length() else 0L
+
         val initialProgress = MovieDownloadProgress(
             movieId = mediaItem.id,
             title = mediaItem.title,
-            state = DownloadState.PENDING
+            downloadedBytes = existingBytes,
+            downloadedSizeFormatted = formatBytes(existingBytes),
+            state = DownloadState.PENDING,
+            targetUrl = targetUrl,
+            mediaItem = mediaItem
         )
         activeProgressMap[mediaItem.id] = initialProgress
         _downloadsState.value = HashMap(activeProgressMap)
 
-        // Launch Foreground Service to ensure download never dies when user exits app
+        // Launch Foreground Service for uninterrupted background downloads
         MovieDownloadService.startService(context)
 
-        Toast.makeText(context, "📥 '${mediaItem.title}' দ্রুত ডাউনলোড শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
+        if (existingBytes > 0L) {
+            Toast.makeText(context, "📥 '${mediaItem.title}' ডাউনলোড ${formatBytes(existingBytes)} থেকে পুনরায় শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "📥 '${mediaItem.title}' দ্রুত ডাউনলোড শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
+        }
         onStarted?.invoke()
 
+        var finalTotalBytes = 0L
+
         val job = coroutineScope.launch {
-            var targetFile: File? = null
+            var retryAttempt = 0
+            val maxNetworkRetries = 5
+            var isDownloadFinished = false
 
-            try {
-                val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
-                    ?: File(context.filesDir, "movies").apply { mkdirs() }
-                if (!moviesDir.exists()) moviesDir.mkdirs()
+            while (isActive && retryAttempt <= maxNetworkRetries && !isDownloadFinished) {
+                var currentPartLength = if (partFile.exists()) partFile.length() else 0L
+                var response: okhttp3.Response? = null
+                var randomAccessFile: RandomAccessFile? = null
+                var inputStream: BufferedInputStream? = null
 
-                val safeTitle = mediaItem.title
-                    .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-                    .take(40)
-
-                val ext = when {
-                    targetUrl.contains(".mp4", ignoreCase = true) -> ".mp4"
-                    targetUrl.contains(".mkv", ignoreCase = true) -> ".mkv"
-                    targetUrl.contains(".webm", ignoreCase = true) -> ".webm"
-                    targetUrl.contains(".ts", ignoreCase = true) -> ".ts"
-                    targetUrl.contains(".mov", ignoreCase = true) -> ".mov"
-                    targetUrl.contains(".avi", ignoreCase = true) -> ".avi"
-                    else -> ".mp4"
-                }
-
-                val fileName = "NAFITV_${mediaItem.id.take(8)}_$safeTitle$ext"
-                targetFile = File(moviesDir, fileName)
-                if (targetFile.exists()) {
-                    targetFile.delete()
-                }
-
-                val createRequestBuilder: () -> Request.Builder = {
-                    val builder = Request.Builder()
+                try {
+                    val requestBuilder = Request.Builder()
                         .url(targetUrl)
                         .addHeader("User-Agent", mediaItem.userAgent ?: "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
                         .addHeader("Accept", "*/*")
                         .addHeader("Connection", "keep-alive")
-                    mediaItem.referrer?.let { builder.addHeader("Referer", it) }
-                    mediaItem.cookie?.let { builder.addHeader("Cookie", it) }
-                    mediaItem.origin?.let { builder.addHeader("Origin", it) }
-                    mediaItem.customHeaders?.forEach { (k, v) -> builder.addHeader(k, v) }
-                    builder
-                }
+                        .addHeader("Accept-Encoding", "identity")
 
-                val probeRequest = createRequestBuilder()
-                    .addHeader("Accept-Encoding", "identity")
-                    .build()
+                    mediaItem.referrer?.let { requestBuilder.addHeader("Referer", it) }
+                    mediaItem.cookie?.let { requestBuilder.addHeader("Cookie", it) }
+                    mediaItem.origin?.let { requestBuilder.addHeader("Origin", it) }
+                    mediaItem.customHeaders?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
 
-                val response = downloadHttpClient.newCall(probeRequest).execute()
-                if (!response.isSuccessful) {
-                    throw Exception("সার্ভার রেসপন্স কোড: ${response.code}")
-                }
-
-                val body = response.body ?: throw Exception("সার্ভার থেকে কোনো ডাটা পাওয়া যায়নি")
-                val totalBytes = body.contentLength()
-                val totalFormatted = if (totalBytes > 0) formatBytes(totalBytes) else "অজানা সাইজ"
-
-                val acceptRanges = response.header("Accept-Ranges")
-                val supportsRanges = (acceptRanges != null && acceptRanges.contains("bytes", ignoreCase = true)) || (totalBytes > 8 * 1024 * 1024)
-
-                showProgressNotification(context, notifId, mediaItem.title, 0, "ডাউনলোড শুরু হচ্ছে...")
-
-                val totalDownloadedAtomic = AtomicLong(0L)
-                var lastUiUpdate = System.currentTimeMillis()
-                var lastBytesForSpeed = 0L
-                var lastSpeedCalcTime = System.currentTimeMillis()
-                var currentSpeed = "0 KB/s"
-
-                val numWorkers = if (supportsRanges && totalBytes >= 8 * 1024 * 1024) 4 else 1
-
-                if (numWorkers > 1) {
-                    response.close() // Release probe stream
-
-                    // Pre-allocate file
-                    val rafInit = RandomAccessFile(targetFile, "rw")
-                    try {
-                        rafInit.setLength(totalBytes)
-                    } finally {
-                        rafInit.close()
+                    // Send Range header if we have existing partial bytes
+                    if (currentPartLength > 0L) {
+                        requestBuilder.addHeader("Range", "bytes=$currentPartLength-")
                     }
 
-                    val chunkSize = totalBytes / numWorkers
-                    val workerJobs = (0 until numWorkers).map { workerIndex ->
-                        val startByte = workerIndex * chunkSize
-                        val endByte = if (workerIndex == numWorkers - 1) totalBytes - 1 else (workerIndex + 1) * chunkSize - 1
+                    response = downloadHttpClient.newCall(requestBuilder.build()).execute()
+                    val responseCode = response.code
 
-                        async(Dispatchers.IO) {
-                            val rangeRequest = createRequestBuilder()
-                                .addHeader("Range", "bytes=$startByte-$endByte")
-                                .addHeader("Accept-Encoding", "identity")
-                                .build()
+                    var isResuming = false
+                    var streamContentLength = 0L
 
-                            val segResponse = downloadHttpClient.newCall(rangeRequest).execute()
-                            if (!segResponse.isSuccessful && segResponse.code != 206) {
-                                throw Exception("Segment $workerIndex error: ${segResponse.code}")
-                            }
-
-                            val segBody = segResponse.body ?: throw Exception("Segment $workerIndex empty body")
-                            val segStream = BufferedInputStream(segBody.byteStream(), 256 * 1024)
-                            val raf = RandomAccessFile(targetFile, "rw")
-                            raf.seek(startByte)
-
-                            val segBuffer = ByteArray(256 * 1024)
-                            var readBytes: Int
-                            try {
-                                while (segStream.read(segBuffer).also { readBytes = it } != -1) {
-                                    if (!isActive) throw CancellationException()
-                                    raf.write(segBuffer, 0, readBytes)
-                                    totalDownloadedAtomic.addAndGet(readBytes.toLong())
-                                }
-                            } finally {
-                                try { raf.close() } catch (_: Exception) {}
-                                try { segStream.close() } catch (_: Exception) {}
-                                try { segBody.close() } catch (_: Exception) {}
-                            }
+                    if (responseCode == 206) {
+                        // 206 Partial Content: Server resumes from currentPartLength!
+                        isResuming = true
+                        val contentRange = response.header("Content-Range")
+                        finalTotalBytes = parseTotalFromContentRange(contentRange)
+                            ?: (currentPartLength + (response.body?.contentLength() ?: 0L))
+                        streamContentLength = response.body?.contentLength() ?: 0L
+                    } else if (responseCode == 200) {
+                        // Server does not support range, streaming from 0
+                        isResuming = false
+                        currentPartLength = 0L
+                        finalTotalBytes = response.body?.contentLength() ?: 0L
+                        streamContentLength = finalTotalBytes
+                    } else if (responseCode == 416) {
+                        // Requested Range Not Satisfiable: partFile may already be complete or invalid
+                        response.close()
+                        if (currentPartLength > 0L) {
+                            partFile.delete()
+                            currentPartLength = 0L
+                            continue
+                        } else {
+                            throw Exception("সার্ভার রেসপন্স ত্রুটি: HTTP 416 (Range Not Satisfiable)")
                         }
+                    } else {
+                        throw Exception("সার্ভার রেসপন্স কোড: $responseCode")
                     }
 
-                    while (workerJobs.any { it.isActive }) {
+                    val body = response.body ?: throw Exception("সার্ভার থেকে ডাটা পাওয়া যায়নি")
+
+                    randomAccessFile = RandomAccessFile(partFile, "rw")
+                    if (isResuming) {
+                        randomAccessFile.seek(currentPartLength)
+                    } else {
+                        randomAccessFile.setLength(0L)
+                    }
+
+                    // Save paused task metadata so app can resume even after restart
+                    savePausedTask(context, mediaItem, targetUrl, partFile.absolutePath, currentPartLength, finalTotalBytes)
+
+                    val bufferSize = 128 * 1024 // 128 KB buffer for optimal memory & I/O balance
+                    inputStream = BufferedInputStream(body.byteStream(), bufferSize)
+                    val buffer = ByteArray(bufferSize)
+                    var bytesRead: Int
+                    var totalDownloaded = currentPartLength
+
+                    var lastUiUpdateTime = System.currentTimeMillis()
+                    var lastSpeedCalcTime = System.currentTimeMillis()
+                    var lastBytesForSpeed = currentPartLength
+                    var currentSpeedFormatted = "0 KB/s"
+
+                    // Reset retry counter on successful connection
+                    retryAttempt = 0
+
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                         if (!isActive) {
-                            workerJobs.forEach { it.cancel() }
-                            throw CancellationException("ডাউনলোড বাতিল করা হয়েছে")
+                            throw CancellationException("ব্যবহারকারী ডাউনলোড স্থগিত করেছেন")
                         }
 
-                        val curDownloaded = totalDownloadedAtomic.get()
+                        randomAccessFile.write(buffer, 0, bytesRead)
+                        totalDownloaded += bytesRead
+
                         val now = System.currentTimeMillis()
+
+                        // Calculate speed every 800ms
                         if (now - lastSpeedCalcTime >= 800) {
-                            val bytesInPeriod = curDownloaded - lastBytesForSpeed
-                            val timePeriodSec = (now - lastSpeedCalcTime) / 1000.0
-                            val speedBytesPerSec = if (timePeriodSec > 0) (bytesInPeriod / timePeriodSec).toLong() else 0L
-                            currentSpeed = formatSpeed(speedBytesPerSec)
-                            lastBytesForSpeed = curDownloaded
+                            val bytesDiff = totalDownloaded - lastBytesForSpeed
+                            val durationSec = (now - lastSpeedCalcTime) / 1000.0
+                            val speedVal = if (durationSec > 0) (bytesDiff / durationSec).toLong() else 0L
+                            currentSpeedFormatted = formatSpeed(speedVal)
+                            lastBytesForSpeed = totalDownloaded
                             lastSpeedCalcTime = now
                         }
 
-                        if (now - lastUiUpdate >= 250) {
-                            lastUiUpdate = now
-                            val progressFloat = (curDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                        // Update UI and Notification every 250ms or when finished
+                        if (now - lastUiUpdateTime >= 250 || (finalTotalBytes > 0 && totalDownloaded >= finalTotalBytes)) {
+                            lastUiUpdateTime = now
+                            val progressFloat = if (finalTotalBytes > 0) {
+                                (totalDownloaded.toFloat() / finalTotalBytes.toFloat()).coerceIn(0f, 1f)
+                            } else 0f
                             val progressPercent = (progressFloat * 100).toInt()
-                            val downloadedFormatted = formatBytes(curDownloaded)
+                            val dlFormatted = formatBytes(totalDownloaded)
+                            val totFormatted = if (finalTotalBytes > 0) formatBytes(finalTotalBytes) else "অজানা"
 
                             val prog = MovieDownloadProgress(
                                 movieId = mediaItem.id,
                                 title = mediaItem.title,
                                 progress = progressFloat,
                                 progressPercent = progressPercent,
-                                downloadedBytes = curDownloaded,
-                                totalBytes = totalBytes,
-                                downloadedSizeFormatted = downloadedFormatted,
-                                totalSizeFormatted = totalFormatted,
-                                speedFormatted = currentSpeed,
-                                state = DownloadState.DOWNLOADING
+                                downloadedBytes = totalDownloaded,
+                                totalBytes = finalTotalBytes,
+                                downloadedSizeFormatted = dlFormatted,
+                                totalSizeFormatted = totFormatted,
+                                speedFormatted = currentSpeedFormatted,
+                                state = DownloadState.DOWNLOADING,
+                                errorMessage = null,
+                                targetUrl = targetUrl,
+                                mediaItem = mediaItem
                             )
                             activeProgressMap[mediaItem.id] = prog
                             _downloadsState.value = HashMap(activeProgressMap)
@@ -496,83 +499,59 @@ object MovieDownloadManager {
                                 notifId = notifId,
                                 title = mediaItem.title,
                                 progress = progressPercent,
-                                statusText = "$downloadedFormatted / $totalFormatted • ⚡ $currentSpeed ($progressPercent%)"
+                                statusText = "$dlFormatted / $totFormatted • ⚡ $currentSpeedFormatted ($progressPercent%)",
+                                movieId = mediaItem.id
                             )
                         }
-                        delay(200)
                     }
 
-                    workerJobs.awaitAll()
+                    // Flush all remaining bytes to storage safely
+                    randomAccessFile.fd.sync()
+                    isDownloadFinished = true
+                    break
 
-                } else {
-                    // Ultra-fast 512KB single-stream buffer pipeline
-                    val bufferSize = 512 * 1024
-                    val inputStream = BufferedInputStream(body.byteStream(), bufferSize)
-                    val outputStream = BufferedOutputStream(FileOutputStream(targetFile), bufferSize)
+                } catch (e: CancellationException) {
+                    // User explicitly paused or cancelled
+                    throw e
+                } catch (e: Exception) {
+                    retryAttempt++
+                    if (retryAttempt <= maxNetworkRetries && isActive) {
+                        val waitSec = retryAttempt * 2
+                        val currentBytes = if (partFile.exists()) partFile.length() else 0L
+                        val statusText = "ইন্টারনেট বিচ্ছিন্ন। $waitSec সেকেন্ডে পুনঃসংযোগ চেষ্টা ($retryAttempt/$maxNetworkRetries)..."
 
-                    val buffer = ByteArray(bufferSize)
-                    var bytesRead: Int
-                    var totalBytesRead = 0L
-
-                    try {
-                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                            if (!isActive) {
-                                throw CancellationException("ডাউনলোড বাতিল করা হয়েছে")
-                            }
-
-                            outputStream.write(buffer, 0, bytesRead)
-                            totalBytesRead += bytesRead
-
-                            val now = System.currentTimeMillis()
-                            if (now - lastSpeedCalcTime >= 800) {
-                                val bytesInPeriod = totalBytesRead - lastBytesForSpeed
-                                val timePeriodSec = (now - lastSpeedCalcTime) / 1000.0
-                                val speedBytesPerSec = if (timePeriodSec > 0) (bytesInPeriod / timePeriodSec).toLong() else 0L
-                                currentSpeed = formatSpeed(speedBytesPerSec)
-                                lastBytesForSpeed = totalBytesRead
-                                lastSpeedCalcTime = now
-                            }
-
-                            if (now - lastUiUpdate >= 250 || (totalBytes > 0 && totalBytesRead == totalBytes)) {
-                                lastUiUpdate = now
-                                val progressFloat = if (totalBytes > 0) (totalBytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
-                                val progressPercent = (progressFloat * 100).toInt()
-                                val downloadedFormatted = formatBytes(totalBytesRead)
-
-                                val prog = MovieDownloadProgress(
-                                    movieId = mediaItem.id,
-                                    title = mediaItem.title,
-                                    progress = progressFloat,
-                                    progressPercent = progressPercent,
-                                    downloadedBytes = totalBytesRead,
-                                    totalBytes = totalBytes,
-                                    downloadedSizeFormatted = downloadedFormatted,
-                                    totalSizeFormatted = totalFormatted,
-                                    speedFormatted = currentSpeed,
-                                    state = DownloadState.DOWNLOADING
-                                )
-                                activeProgressMap[mediaItem.id] = prog
-                                _downloadsState.value = HashMap(activeProgressMap)
-
-                                showProgressNotification(
-                                    context = context,
-                                    notifId = notifId,
-                                    title = mediaItem.title,
-                                    progress = progressPercent,
-                                    statusText = "$downloadedFormatted / $totalFormatted • ⚡ $currentSpeed ($progressPercent%)"
-                                )
-                            }
+                        activeProgressMap[mediaItem.id]?.let { cur ->
+                            activeProgressMap[mediaItem.id] = cur.copy(
+                                downloadedBytes = currentBytes,
+                                speedFormatted = statusText,
+                                state = DownloadState.DOWNLOADING
+                            )
+                            _downloadsState.value = HashMap(activeProgressMap)
                         }
-                        outputStream.flush()
-                    } finally {
-                        try { outputStream.close() } catch (_: Exception) {}
-                        try { inputStream.close() } catch (_: Exception) {}
-                        try { body.close() } catch (_: Exception) {}
-                    }
-                }
 
-                // Finalize Downloaded Movie Record
-                val actualFileSize = targetFile.length()
+                        delay(waitSec * 1000L)
+                    } else {
+                        throw e
+                    }
+                } finally {
+                    try { inputStream?.close() } catch (_: Exception) {}
+                    try { randomAccessFile?.close() } catch (_: Exception) {}
+                    try { response?.close() } catch (_: Exception) {}
+                }
+            }
+
+            if (isDownloadFinished && partFile.exists()) {
+                // Atomic rename of .part to final file
+                if (finalFile.exists()) {
+                    finalFile.delete()
+                }
+                val renamed = partFile.renameTo(finalFile)
+                val actualFile = if (renamed) finalFile else partFile
+                val actualFileSize = actualFile.length()
+
+                // Remove from paused tasks since download is complete
+                removePausedTask(context, mediaItem.id)
+
                 val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
                 val downloadedMovie = DownloadedMovie(
                     id = mediaItem.id,
@@ -582,13 +561,12 @@ object MovieDownloadManager {
                     year = mediaItem.year,
                     quality = mediaItem.quality,
                     downloadUrl = targetUrl,
-                    localFilePath = targetFile.absolutePath,
+                    localFilePath = actualFile.absolutePath,
                     fileSizeBytes = actualFileSize,
                     fileSizeFormatted = formatBytes(actualFileSize),
                     downloadDateFormatted = dateFormat.format(Date()),
                     downloadTimestamp = System.currentTimeMillis()
                 )
-
                 saveDownloadedMovie(context, downloadedMovie)
 
                 val completedProg = MovieDownloadProgress(
@@ -601,7 +579,9 @@ object MovieDownloadManager {
                     downloadedSizeFormatted = formatBytes(actualFileSize),
                     totalSizeFormatted = formatBytes(actualFileSize),
                     speedFormatted = "সম্পন্ন",
-                    state = DownloadState.COMPLETED
+                    state = DownloadState.COMPLETED,
+                    targetUrl = targetUrl,
+                    mediaItem = mediaItem
                 )
                 activeProgressMap[mediaItem.id] = completedProg
                 _downloadsState.value = HashMap(activeProgressMap)
@@ -612,95 +592,226 @@ object MovieDownloadManager {
                     Toast.makeText(context, "✅ '${mediaItem.title}' ডাউনলোড সফল হয়েছে!", Toast.LENGTH_LONG).show()
                     onComplete?.invoke(downloadedMovie)
                 }
+            }
+        }
 
-            } catch (e: CancellationException) {
-                targetFile?.delete()
-                cancelNotification(context, notifId)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                targetFile?.delete()
+        job.invokeOnCompletion { cause ->
+            activeDownloadJobs.remove(mediaItem.id)
+
+            if (cause is CancellationException) {
+                // Keep partial file for resuming!
+                val currentBytes = if (partFile.exists()) partFile.length() else 0L
+                savePausedTask(context, mediaItem, targetUrl, partFile.absolutePath, currentBytes, finalTotalBytes)
+
+                val pausedProg = MovieDownloadProgress(
+                    movieId = mediaItem.id,
+                    title = mediaItem.title,
+                    progress = activeProgressMap[mediaItem.id]?.progress ?: 0f,
+                    progressPercent = activeProgressMap[mediaItem.id]?.progressPercent ?: 0,
+                    downloadedBytes = currentBytes,
+                    totalBytes = activeProgressMap[mediaItem.id]?.totalBytes ?: finalTotalBytes,
+                    downloadedSizeFormatted = formatBytes(currentBytes),
+                    totalSizeFormatted = activeProgressMap[mediaItem.id]?.totalSizeFormatted ?: "0 MB",
+                    speedFormatted = "স্থগিত",
+                    state = DownloadState.PAUSED,
+                    errorMessage = "ডাউনলোড স্থগিত রাখা হয়েছে। পুনরায় চালু বাটনে চাপলে এখান থেকেই শুরু হবে।",
+                    targetUrl = targetUrl,
+                    mediaItem = mediaItem
+                )
+                activeProgressMap[mediaItem.id] = pausedProg
+                _downloadsState.value = HashMap(activeProgressMap)
+
+                showPausedNotification(
+                    context = context,
+                    notifId = notifId,
+                    title = mediaItem.title,
+                    downloadedSize = formatBytes(currentBytes),
+                    percent = pausedProg.progressPercent,
+                    movieId = mediaItem.id
+                )
+            } else if (cause != null) {
+                // Failure after all retries exhausted: KEEP partFile for resuming!
+                val currentBytes = if (partFile.exists()) partFile.length() else 0L
+                val totalBytes = activeProgressMap[mediaItem.id]?.totalBytes ?: finalTotalBytes
+                val percent = if (totalBytes > 0) ((currentBytes * 100) / totalBytes).toInt() else 0
+
+                savePausedTask(context, mediaItem, targetUrl, partFile.absolutePath, currentBytes, totalBytes)
 
                 val failProg = MovieDownloadProgress(
                     movieId = mediaItem.id,
                     title = mediaItem.title,
-                    state = DownloadState.FAILED,
-                    errorMessage = e.message ?: "ডাউনলোড ব্যর্থ হয়েছে"
+                    progress = if (totalBytes > 0) (currentBytes.toFloat() / totalBytes).coerceIn(0f, 1f) else 0f,
+                    progressPercent = percent,
+                    downloadedBytes = currentBytes,
+                    totalBytes = totalBytes,
+                    downloadedSizeFormatted = formatBytes(currentBytes),
+                    totalSizeFormatted = if (totalBytes > 0) formatBytes(totalBytes) else "অজানা",
+                    speedFormatted = "স্থগিত (ইন্টারনেট সমস্যা)",
+                    state = DownloadState.PAUSED,
+                    errorMessage = "ইন্টারনেট সংযোগ বিচ্ছিন্ন হয়েছে। পুনরায় শুরু করলে ${formatBytes(currentBytes)} থেকেই চলবে।",
+                    targetUrl = targetUrl,
+                    mediaItem = mediaItem
                 )
                 activeProgressMap[mediaItem.id] = failProg
                 _downloadsState.value = HashMap(activeProgressMap)
 
-                showFailedNotification(context, notifId, mediaItem.title, e.message)
+                showPausedNotification(
+                    context = context,
+                    notifId = notifId,
+                    title = mediaItem.title,
+                    downloadedSize = formatBytes(currentBytes),
+                    percent = percent,
+                    movieId = mediaItem.id
+                )
 
-                withContext(Dispatchers.Main) {
-                    val errMsg = "মুভি ডাউনলোডে ত্রুটি: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}"
+                coroutineScope.launch(Dispatchers.Main) {
+                    val errMsg = "ইন্টারনেট সমস্যার কারণে ডাউনলোড স্থগিত রাখা হয়েছে (${formatBytes(currentBytes)})। পুনরায় শুরু বাটনে চাপলে এখান থেকেই চলবে।"
                     Toast.makeText(context, errMsg, Toast.LENGTH_LONG).show()
                     onError?.invoke(errMsg)
                 }
-            } finally {
-                activeDownloadJobs.remove(mediaItem.id)
             }
         }
 
         activeDownloadJobs[mediaItem.id] = job
     }
 
-    /**
-     * Fallback to System DownloadManager / External browser if stream is protected or direct browser download requested
-     */
-    fun openExternalOrSystemDownload(context: Context, mediaItem: MediaItem, customUrl: String? = null) {
-        try {
-            val url = customUrl?.trim()?.takeIf { it.isNotBlank() } ?: mediaItem.streamUrl.trim()
-            if (url.isBlank()) {
-                Toast.makeText(context, "ডাউনলোড লিংক নেই!", Toast.LENGTH_SHORT).show()
-                return
-            }
-
-            val safeTitle = mediaItem.title.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-            val request = DownloadManager.Request(Uri.parse(url)).apply {
-                setTitle("NAFI TV 24: ${mediaItem.title}")
-                setDescription("মুভি ডাউনলোড হচ্ছে...")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "NAFITV_${safeTitle}.mp4")
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                mediaItem.userAgent?.let { addRequestHeader("User-Agent", it) }
-                mediaItem.referrer?.let { addRequestHeader("Referer", it) }
-            }
-
-            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-            if (dm != null) {
-                dm.enqueue(request)
-                Toast.makeText(context, "📥 সিস্টেম ডাউনলোড ম্যানেজারে যুক্ত হয়েছে...", Toast.LENGTH_SHORT).show()
-            } else {
-                openBrowserDownload(context, url)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            openBrowserDownload(context, mediaItem.streamUrl)
+    private fun parseTotalFromContentRange(contentRange: String?): Long? {
+        if (contentRange.isNullOrBlank()) return null
+        return try {
+            val slashIndex = contentRange.lastIndexOf('/')
+            if (slashIndex != -1 && slashIndex + 1 < contentRange.length) {
+                val totalStr = contentRange.substring(slashIndex + 1).trim()
+                if (totalStr != "*") totalStr.toLong() else null
+            } else null
+        } catch (_: Exception) {
+            null
         }
     }
 
-    fun openBrowserDownload(context: Context, url: String) {
+    // --- Paused Task Persistence (survives app kill and phone reboot) ---
+
+    private fun savePausedTask(
+        context: Context,
+        mediaItem: MediaItem,
+        targetUrl: String,
+        partFilePath: String,
+        downloadedBytes: Long,
+        totalBytes: Long
+    ) {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val prefs = getPrefs(context)
+            val jsonStr = prefs.getString(KEY_PAUSED_TASKS, "[]") ?: "[]"
+            val array = JSONArray(jsonStr)
+            val newArray = JSONArray()
+
+            val taskObj = JSONObject().apply {
+                put("id", mediaItem.id)
+                put("title", mediaItem.title)
+                put("category", mediaItem.category)
+                put("logoUrl", mediaItem.logoUrl ?: "")
+                put("year", mediaItem.year ?: "")
+                put("quality", mediaItem.quality)
+                put("downloadUrl", targetUrl)
+                put("partFilePath", partFilePath)
+                put("downloadedBytes", downloadedBytes)
+                put("totalBytes", totalBytes)
             }
-            context.startActivity(intent)
-            Toast.makeText(context, "ব্রাউজারে ডাউনলোড লিংক খোলা হচ্ছে...", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(context, "ব্রাউজার খোলা সম্ভব হয়নি: ${e.message}", Toast.LENGTH_SHORT).show()
+            newArray.put(taskObj)
+
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                if (obj.optString("id") != mediaItem.id) {
+                    newArray.put(obj)
+                }
+            }
+            prefs.edit().putString(KEY_PAUSED_TASKS, newArray.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    private fun removePausedTask(context: Context, movieId: String) {
+        try {
+            val prefs = getPrefs(context)
+            val jsonStr = prefs.getString(KEY_PAUSED_TASKS, "[]") ?: "[]"
+            val array = JSONArray(jsonStr)
+            val newArray = JSONArray()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                if (obj.optString("id") != movieId) {
+                    newArray.put(obj)
+                }
+            }
+            prefs.edit().putString(KEY_PAUSED_TASKS, newArray.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    private fun getStoredPausedTasks(context: Context): List<DownloadedMovie> {
+        return try {
+            val prefs = getPrefs(context)
+            val jsonStr = prefs.getString(KEY_PAUSED_TASKS, "[]") ?: "[]"
+            val array = JSONArray(jsonStr)
+            val list = mutableListOf<DownloadedMovie>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    DownloadedMovie(
+                        id = obj.getString("id"),
+                        title = obj.getString("title"),
+                        category = obj.optString("category", "Movie"),
+                        logoUrl = obj.optString("logoUrl").takeIf { it.isNotBlank() },
+                        year = obj.optString("year").takeIf { it.isNotBlank() },
+                        quality = obj.optString("quality", "HD"),
+                        downloadUrl = obj.optString("downloadUrl"),
+                        localFilePath = obj.optString("partFilePath"),
+                        fileSizeBytes = obj.optLong("downloadedBytes"),
+                        fileSizeFormatted = formatBytes(obj.optLong("downloadedBytes"))
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
         }
     }
+
+    private fun restorePausedTasks(context: Context) {
+        try {
+            val stored = getStoredPausedTasks(context)
+            for (task in stored) {
+                val file = File(task.localFilePath)
+                if (file.exists() && file.length() > 0L) {
+                    val partBytes = file.length()
+                    if (!activeProgressMap.containsKey(task.id)) {
+                        val prog = MovieDownloadProgress(
+                            movieId = task.id,
+                            title = task.title,
+                            progress = 0.5f,
+                            progressPercent = 50,
+                            downloadedBytes = partBytes,
+                            totalBytes = 0L,
+                            downloadedSizeFormatted = formatBytes(partBytes),
+                            totalSizeFormatted = "সংরক্ষিত",
+                            speedFormatted = "স্থগিত (Resume করুন)",
+                            state = DownloadState.PAUSED,
+                            targetUrl = task.downloadUrl,
+                            mediaItem = task.toMediaItem()
+                        )
+                        activeProgressMap[task.id] = prog
+                    }
+                }
+            }
+            _downloadsState.value = HashMap(activeProgressMap)
+        } catch (_: Exception) {}
+    }
+
+    // --- System Notifications ---
 
     private fun showProgressNotification(
         context: Context,
         notifId: Int,
         title: String,
         progress: Int,
-        statusText: String
+        statusText: String,
+        movieId: String
     ) {
         try {
             val intent = Intent(context, MainActivity::class.java).apply {
@@ -713,6 +824,18 @@ object MovieDownloadManager {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            // Pause action intent
+            val pauseIntent = Intent(context, MovieDownloadService::class.java).apply {
+                action = MovieDownloadService.ACTION_PAUSE_DOWNLOAD
+                putExtra(MovieDownloadService.EXTRA_MOVIE_ID, movieId)
+            }
+            val pausePendingIntent = PendingIntent.getService(
+                context,
+                notifId + 100,
+                pauseIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             val builder = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("মুভি ডাউনলোড হচ্ছে: $title")
@@ -722,6 +845,52 @@ object MovieDownloadManager {
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setContentIntent(pendingIntent)
+                .addAction(R.mipmap.ic_launcher, "⏸️ পজ করুন", pausePendingIntent)
+
+            NotificationManagerCompat.from(context).notify(notifId, builder.build())
+        } catch (_: Exception) {}
+    }
+
+    private fun showPausedNotification(
+        context: Context,
+        notifId: Int,
+        title: String,
+        downloadedSize: String,
+        percent: Int,
+        movieId: String
+    ) {
+        try {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                notifId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Resume action intent
+            val resumeIntent = Intent(context, MovieDownloadService::class.java).apply {
+                action = MovieDownloadService.ACTION_RESUME_DOWNLOAD
+                putExtra(MovieDownloadService.EXTRA_MOVIE_ID, movieId)
+            }
+            val resumePendingIntent = PendingIntent.getService(
+                context,
+                notifId + 200,
+                resumeIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("⏸️ মুভি ডাউনলোড স্থগিত: $title")
+                .setContentText("সংরক্ষিত: $downloadedSize ($percent%) • পুনরায় শুরু করতে চাপুন")
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pendingIntent)
+                .addAction(R.mipmap.ic_launcher, "▶️ পুনরায় চালু করুন", resumePendingIntent)
 
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
         } catch (_: Exception) {}
@@ -756,29 +925,156 @@ object MovieDownloadManager {
         } catch (_: Exception) {}
     }
 
-    private fun showFailedNotification(
-        context: Context,
-        notifId: Int,
-        title: String,
-        error: String?
-    ) {
-        try {
-            val builder = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("❌ ডাউনলোড ব্যর্থ: $title")
-                .setContentText(error ?: "সার্ভার বা নেটওয়ার্ক সমস্যা")
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-
-            NotificationManagerCompat.from(context).notify(notifId, builder.build())
-        } catch (_: Exception) {}
-    }
-
-    private fun cancelNotification(context: Context, notifId: Int) {
+    fun cancelNotification(context: Context, notifId: Int) {
         try {
             NotificationManagerCompat.from(context).cancel(notifId)
         } catch (_: Exception) {}
     }
+
+    // --- Saved Movies Repository ---
+
+    fun getDownloadedMovies(context: Context): List<DownloadedMovie> {
+        val prefs = getPrefs(context)
+        val jsonStr = prefs.getString(KEY_DOWNLOADED_MOVIES, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(jsonStr)
+            val list = mutableListOf<DownloadedMovie>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    DownloadedMovie(
+                        id = obj.getString("id"),
+                        title = obj.getString("title"),
+                        category = obj.optString("category", "Movie"),
+                        logoUrl = obj.optString("logoUrl").takeIf { it.isNotBlank() },
+                        year = obj.optString("year").takeIf { it.isNotBlank() },
+                        quality = obj.optString("quality", "HD"),
+                        downloadUrl = obj.optString("downloadUrl"),
+                        localFilePath = obj.optString("localFilePath"),
+                        fileSizeBytes = obj.optLong("fileSizeBytes"),
+                        fileSizeFormatted = obj.optString("fileSizeFormatted"),
+                        downloadDateFormatted = obj.optString("downloadDateFormatted"),
+                        downloadTimestamp = obj.optLong("downloadTimestamp", System.currentTimeMillis())
+                    )
+                )
+            }
+            list.filter { it.fileExists }.sortedByDescending { it.downloadTimestamp }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveDownloadedMovie(context: Context, movie: DownloadedMovie) {
+        val existing = getDownloadedMovies(context).toMutableList()
+        existing.removeAll { it.id == movie.id }
+        existing.add(0, movie)
+        persistDownloadedMoviesList(context, existing)
+    }
+
+    fun deleteDownloadedMovie(context: Context, movieId: String): Boolean {
+        val existing = getDownloadedMovies(context).toMutableList()
+        val movie = existing.firstOrNull { it.id == movieId } ?: return false
+
+        try {
+            val file = File(movie.localFilePath)
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (_: Exception) {}
+
+        existing.removeAll { it.id == movieId }
+        persistDownloadedMoviesList(context, existing)
+        return true
+    }
+
+    fun refreshDownloadedMoviesList(context: Context) {
+        val movies = getDownloadedMovies(context)
+        _downloadedMoviesFlow.value = movies
+    }
+
+    fun getDownloadedMovie(context: Context, movieId: String): DownloadedMovie? {
+        return getDownloadedMovies(context).firstOrNull { it.id == movieId && it.fileExists }
+    }
+
+    fun getDownloadedFile(context: Context, movieId: String): File? {
+        val movie = getDownloadedMovie(context, movieId) ?: return null
+        val file = File(movie.localFilePath)
+        return if (file.exists()) file else null
+    }
+
+    private fun persistDownloadedMoviesList(context: Context, list: List<DownloadedMovie>) {
+        try {
+            val array = JSONArray()
+            for (m in list) {
+                val obj = JSONObject().apply {
+                    put("id", m.id)
+                    put("title", m.title)
+                    put("category", m.category)
+                    put("logoUrl", m.logoUrl ?: "")
+                    put("year", m.year ?: "")
+                    put("quality", m.quality)
+                    put("downloadUrl", m.downloadUrl)
+                    put("localFilePath", m.localFilePath)
+                    put("fileSizeBytes", m.fileSizeBytes)
+                    put("fileSizeFormatted", m.fileSizeFormatted)
+                    put("downloadDateFormatted", m.downloadDateFormatted)
+                    put("downloadTimestamp", m.downloadTimestamp)
+                }
+                array.put(obj)
+            }
+            getPrefs(context).edit().putString(KEY_DOWNLOADED_MOVIES, array.toString()).apply()
+            _downloadedMoviesFlow.value = list
+        } catch (_: Exception) {}
+    }
+
+    // --- External Browser / DownloadManager Fallback ---
+
+    fun openExternalOrSystemDownload(context: Context, mediaItem: MediaItem, customUrl: String? = null) {
+        try {
+            val url = customUrl?.trim()?.takeIf { it.isNotBlank() } ?: mediaItem.streamUrl.trim()
+            if (url.isBlank()) {
+                Toast.makeText(context, "ডাউনলোড লিংক নেই!", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val safeTitle = mediaItem.title.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+            val request = DownloadManager.Request(Uri.parse(url)).apply {
+                setTitle("NAFI TV: ${mediaItem.title}")
+                setDescription("মুভি ডাউনলোড হচ্ছে...")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "NAFITV_${safeTitle}.mp4")
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(true)
+                mediaItem.userAgent?.let { addRequestHeader("User-Agent", it) }
+                mediaItem.referrer?.let { addRequestHeader("Referer", it) }
+            }
+
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+            if (dm != null) {
+                dm.enqueue(request)
+                Toast.makeText(context, "📥 সিস্টেম ডাউনলোড ম্যানেজারে যুক্ত হয়েছে...", Toast.LENGTH_SHORT).show()
+            } else {
+                openBrowserDownload(context, url)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            openBrowserDownload(context, mediaItem.streamUrl)
+        }
+    }
+
+    fun openBrowserDownload(context: Context, url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            Toast.makeText(context, "ব্রাউজারে ডাউনলোড লিংক খোলা হচ্ছে...", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "ব্রাউজার খোলা সম্ভব হয়নি: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // --- Formatting Utilities ---
 
     fun formatBytes(bytes: Long): String {
         if (bytes <= 0) return "0 MB"

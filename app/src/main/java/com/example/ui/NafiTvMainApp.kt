@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Dialog
@@ -264,7 +265,7 @@ fun NafiTvMainApp(
 
     // Auto-fetch data: Sequential Loading (Events -> TV Channels -> Movies -> Playlists & Cloud)
     fun refreshAllData() {
-        coroutineScope.launch {
+        coroutineScope.launch(Dispatchers.IO) {
             isRefreshing = true
             try {
                 val deleted = repository.getDeletedIds()

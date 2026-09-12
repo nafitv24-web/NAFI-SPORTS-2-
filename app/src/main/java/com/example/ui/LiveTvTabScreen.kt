@@ -100,7 +100,7 @@ fun LiveTvTabScreen(
         listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, statusTick) {
+    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
         val list = channels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {

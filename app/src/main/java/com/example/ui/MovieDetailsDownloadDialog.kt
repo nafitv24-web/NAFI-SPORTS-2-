@@ -54,6 +54,8 @@ fun MovieDetailsDownloadDialog(
 
     val currentProgress: MovieDownloadProgress? = activeDownloadsMap[movie.id]
     val isDownloading = currentProgress?.state == DownloadState.DOWNLOADING || currentProgress?.state == DownloadState.PENDING
+    val isPaused = currentProgress?.state == DownloadState.PAUSED || (!isDownloading && MovieDownloadManager.hasPartialDownload(context, movie.id))
+    val partialBytes = if (currentProgress != null && currentProgress.downloadedBytes > 0) currentProgress.downloadedBytes else MovieDownloadManager.getPartialDownloadBytes(context, movie.id)
     val downloadedMovie = remember(downloadedMovies, movie.id) {
         downloadedMovies.firstOrNull { it.id == movie.id && it.fileExists }
     }
@@ -281,13 +283,23 @@ fun MovieDetailsDownloadDialog(
                                 )
                             }
 
-                            TextButton(
-                                onClick = {
-                                    MovieDownloadManager.cancelDownload(movie.id)
-                                },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("বাতিল", color = Color(0xFFEF4444), fontSize = 11.5.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = {
+                                        MovieDownloadManager.pauseDownload(movie.id)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("⏸️ পজ", color = Color(0xFFF59E0B), fontSize = 11.5.sp)
+                                }
+                                TextButton(
+                                    onClick = {
+                                        MovieDownloadManager.cancelDownload(movie.id, deletePartialFile = true, context = context)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("বাতিল", color = Color(0xFFEF4444), fontSize = 11.5.sp)
+                                }
                             }
                         }
 
@@ -317,6 +329,55 @@ fun MovieDetailsDownloadDialog(
                                 fontSize = 11.sp
                             )
                         }
+                    }
+                }
+            } else if (isPaused && !isDownloaded && partialBytes > 0L) {
+                // Paused Banner
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2438)),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.7f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Rounded.PauseCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFFF59E0B),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "ডাউনলোড স্থগিত (${MovieDownloadManager.formatBytes(partialBytes)} সংরক্ষিত)",
+                                    color = Color(0xFFF59E0B),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    MovieDownloadManager.deletePartialDownload(context, movie.id)
+                                    Toast.makeText(context, "আংশিক ডাউনলোড মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Text("🗑️ মুছুন", color = Color(0xFFEF4444), fontSize = 11.sp)
+                            }
+                        }
+                        Text(
+                            text = "ইন্টারনেট ড্রপ বা স্থগিত করা হয়েছিল। পুনরায় শুরু বাটনে চাপলে এখান থেকেই শুরু হবে।",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
@@ -423,12 +484,22 @@ fun MovieDetailsDownloadDialog(
                             .fillMaxWidth()
                             .height(48.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488))
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isPaused && partialBytes > 0L) Color(0xFF0284C7) else Color(0xFF0D9488)
+                        )
                     ) {
-                        Icon(Icons.Rounded.FileDownload, contentDescription = null, modifier = Modifier.size(22.dp))
+                        Icon(
+                            if (isPaused && partialBytes > 0L) Icons.Rounded.PlayArrow else Icons.Rounded.FileDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "📥 ডাউনলোড করুন",
+                            text = if (isPaused && partialBytes > 0L) {
+                                "▶️ ডাউনলোড চালিয়ে যান (${MovieDownloadManager.formatBytes(partialBytes)} থেকে)"
+                            } else {
+                                "📥 ডাউনলোড করুন"
+                            },
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )

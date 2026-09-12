@@ -201,8 +201,8 @@ object ChannelStatusManager {
                             processedInBatch++
 
                             val now = System.currentTimeMillis()
-                            // Debounce UI update tick to at least 1.5 seconds to prevent recomposition stutter
-                            if (processedInBatch >= 6 || (now - lastTickTime) >= 1500L) {
+                            // Debounce UI update tick to at least 3.5 seconds to prevent recomposition stutter
+                            if (processedInBatch >= 12 || (now - lastTickTime) >= 3500L) {
                                 batchSaveStatusToPrefs(batchResults)
                                 batchResults.clear()
                                 processedInBatch = 0
@@ -214,7 +214,7 @@ object ChannelStatusManager {
                         } finally {
                             probingIds.remove(nextItem.id)
                         }
-                        kotlinx.coroutines.delay(120) // 120ms throttle keeps device cool and network free
+                        kotlinx.coroutines.delay(180) // 180ms throttle keeps device cool and network free
                     }
 
                     if (batchResults.isNotEmpty()) {
