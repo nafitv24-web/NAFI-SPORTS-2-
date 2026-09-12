@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -81,6 +82,15 @@ fun LiveTvTabScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("ALL") }
     var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
+
+    // Intercept back press when searching or viewing a filtered category (keeps user in Live TV option)
+    BackHandler(enabled = searchQuery.isNotBlank() || (selectedCategory != "ALL" && selectedCategory.isNotBlank())) {
+        if (searchQuery.isNotBlank()) {
+            searchQuery = ""
+        } else {
+            selectedCategory = "ALL"
+        }
+    }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()

@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.activity.compose.BackHandler
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -57,6 +58,14 @@ fun OfflineDownloadsScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var movieToDelete by remember { mutableStateOf<DownloadedMovie?>(null) }
+
+    BackHandler {
+        if (searchQuery.isNotBlank()) {
+            searchQuery = ""
+        } else {
+            onBack()
+        }
+    }
 
     LaunchedEffect(Unit) {
         MovieDownloadManager.refreshDownloadedMoviesList(context)
