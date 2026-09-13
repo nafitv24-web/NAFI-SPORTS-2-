@@ -1408,7 +1408,10 @@ class MediaRepository(private val context: Context) {
         }
         fun l(key: String): Long? {
             val v = fields.optJSONObject(key) ?: return null
-            return if (v.has("integerValue")) v.optLong("integerValue") else null
+            return if (v.has("integerValue")) v.optLong("integerValue")
+            else if (v.has("stringValue")) v.optString("stringValue").toLongOrNull()
+            else if (v.has("doubleValue")) v.optDouble("doubleValue").toLong()
+            else null
         }
 
         val typeStr = s("type").trim().uppercase()

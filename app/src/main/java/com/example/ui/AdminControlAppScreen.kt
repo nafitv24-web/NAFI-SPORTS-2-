@@ -2111,7 +2111,16 @@ fun AdminControlAppScreen(
                                         editTeam2Score = item.score2 ?: ""
                                         editTeam2Logo = item.team2Logo ?: ""
                                         editMatchTime = item.matchTimeFormatted ?: item.eventTime ?: ""
-                                        editCountdownHours = item.countdownTargetSeconds?.let { (it / 3600).toString() } ?: ""
+                                        editCountdownHours = item.countdownTargetSeconds?.let { target ->
+                                            val now = System.currentTimeMillis()
+                                            val remainingMillis = when {
+                                                target > 1_000_000_000_000L -> maxOf(0L, target - now)
+                                                target > 1_000_000_000L -> maxOf(0L, (target * 1000L) - now)
+                                                else -> target * 1000L
+                                            }
+                                            val hrs = remainingMillis / (3600 * 1000.0)
+                                            if (hrs > 0.05) String.format(java.util.Locale.US, "%.1f", hrs) else ""
+                                        } ?: ""
                                         val curServers = item.getAllServers()
                                         editServers = if (curServers.isNotEmpty()) curServers else listOf(StreamServer("Server 1", item.streamUrl))
                                     },

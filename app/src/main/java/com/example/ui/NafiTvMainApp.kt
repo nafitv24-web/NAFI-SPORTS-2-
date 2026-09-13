@@ -2589,10 +2589,12 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
         clean = clean.replace(banglaDigits[i], ('0'.code + i).toChar())
     }
 
-    // Clean common prefixes and timezone tags
+    // Clean common prefixes, Bangla noise words, and timezone tags
     clean = clean.replace("সময়:", "", ignoreCase = true)
         .replace("Time:", "", ignoreCase = true)
         .replace("Date:", "", ignoreCase = true)
+        .replace("আজ", "", ignoreCase = true)
+        .replace("আগামীকাল", "", ignoreCase = true)
         .replace("(BST)", "", ignoreCase = true)
         .replace("(BDT)", "", ignoreCase = true)
         .replace("(UTC)", "", ignoreCase = true)
@@ -2612,7 +2614,8 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
         .trim()
 
     // Normalize "8:30pm" -> "8:30 PM", "08:30am" -> "08:30 AM"
-    clean = clean.replace(Regex("(?i)(\\d+:\\d+(?::\\d+)?)\\s*(am|pm)"), "$1 $2").uppercase()
+    clean = clean.replace(Regex("(?i)(\\d+:\\d+(?::\\d+)?)\\s*(am|pm)"), "$1 $2")
+    clean = clean.replace(Regex("(?i)(\\b\\d{1,2})\\s*(am|pm)\\b"), "$1:00 $2").uppercase()
     clean = clean.replace(Regex("\\s+"), " ").trim()
 
     val nowGmt6Cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("GMT+6"))
@@ -2653,7 +2656,11 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
         "HH:mm:ss",
         "HH:mm",
         "a hh:mm",
-        "a h:mm"
+        "a h:mm",
+        "h a",
+        "hh a",
+        "a h",
+        "a hh"
     )
 
     val timeZonesToCheck = listOf("GMT+6", java.util.TimeZone.getDefault().id, "UTC").distinct()
@@ -2670,11 +2677,18 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
                     val targetCal = java.util.Calendar.getInstance(tz).apply { time = date }
                     if (!pattern.contains("yyyy") && !pattern.contains("yyyy-")) {
                         targetCal.set(java.util.Calendar.YEAR, currentYear)
+                        if (targetCal.timeInMillis < System.currentTimeMillis() - 7 * 86400 * 1000L) {
+                            targetCal.add(java.util.Calendar.YEAR, 1)
+                        }
                     }
                     if (!pattern.contains("dd") && !pattern.contains("MMM") && !pattern.contains("MM") && !pattern.contains("d")) {
                         targetCal.set(java.util.Calendar.YEAR, currentYear)
                         targetCal.set(java.util.Calendar.MONTH, currentMonth)
                         targetCal.set(java.util.Calendar.DAY_OF_MONTH, currentDay)
+                        // If only time was provided (e.g. 02:00 AM) and it has passed by more than 3 hours, target tomorrow
+                        if (targetCal.timeInMillis < System.currentTimeMillis() - 3 * 3600 * 1000L) {
+                            targetCal.add(java.util.Calendar.DAY_OF_MONTH, 1)
+                        }
                     }
                     return targetCal.timeInMillis
                 }
@@ -2684,7 +2698,7 @@ fun parseEventTimeStringToEpochMillis(timeStr: String?): Long? {
     return null
 }
 
-fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
+fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long = 0L): Long {
     // If explicitly marked Live, no countdown
     if (sport.isLive || sport.status.equals("LIVE", ignoreCase = true) || sport.status.contains("LIVE NOW", ignoreCase = true)) {
         return 0L
@@ -2701,6 +2715,9 @@ fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
         } else if (raw > 1_000_000_000L) { // Seconds epoch timestamp
             val nowSec = nowMillis / 1000L
             return maxOf(0L, raw - nowSec)
+        } else {
+            // Relative seconds countdown fallback
+            return maxOf(0L, raw - tickCount)
         }
     }
 
@@ -2712,15 +2729,10 @@ fun calculateEventRemainingSeconds(sport: MediaItem, tickCount: Long): Long {
         return maxOf(0L, diff / 1000L)
     }
 
-    // 3. Relative seconds fallback if passed as small integer
-    if (raw != null && raw in 1L..1_000_000_000L) {
-        return maxOf(0L, raw - tickCount)
-    }
-
     return 0L
 }
 
-fun isEventLiveNow(sport: MediaItem, tickCount: Long): Boolean {
+fun isEventLiveNow(sport: MediaItem, tickCount: Long = 0L): Boolean {
     if (sport.isLive || sport.status.equals("LIVE", ignoreCase = true) || sport.status.contains("LIVE NOW", ignoreCase = true)) {
         return true
     }
@@ -2732,6 +2744,7 @@ fun isEventLiveNow(sport: MediaItem, tickCount: Long): Boolean {
     // If remaining seconds is 0, check if event has scheduled time in the recent past (within 8 hours match duration)
     val timeStr = sport.matchTimeFormatted?.takeIf { it.isNotBlank() } ?: sport.eventTime?.takeIf { it.isNotBlank() }
     val scheduledTimeMillis = (sport.countdownTargetSeconds?.takeIf { it > 1_000_000_000_000L })
+        ?: (sport.countdownTargetSeconds?.takeIf { it > 1_000_000_000L }?.let { it * 1000L })
         ?: parseEventTimeStringToEpochMillis(timeStr)
 
     if (scheduledTimeMillis != null) {
@@ -2746,10 +2759,15 @@ fun isEventLiveNow(sport: MediaItem, tickCount: Long): Boolean {
 @Composable
 fun formatEventCountdownString(seconds: Long): String {
     if (seconds <= 0L) return "00h 00m 00s"
-    val hours = seconds / 3600
+    val days = seconds / 86400
+    val hours = (seconds % 86400) / 3600
     val minutes = (seconds % 3600) / 60
     val secs = seconds % 60
-    return String.format("%02dh %02dm %02ds", hours, minutes, secs)
+    return if (days > 0) {
+        String.format(java.util.Locale.US, "%dd %02dh %02dm %02ds", days, hours, minutes, secs)
+    } else {
+        String.format(java.util.Locale.US, "%02dh %02dm %02ds", hours, minutes, secs)
+    }
 }
 
 @Composable
@@ -2772,16 +2790,16 @@ fun EventsScreen(
     }
     val statusFilters = listOf("All", "🔴 Live", "Upcoming", "Today", "Recent Results")
 
-    // Live ticking countdown state (gentle 30s interval for low-RAM TV boxes & mobiles)
+    // Live ticking countdown state (real-time 1-second interval)
     var tickCount by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
         while (isActive) {
-            kotlinx.coroutines.delay(30_000L)
+            kotlinx.coroutines.delay(1000L)
             tickCount++
         }
     }
 
-    val filteredSports = remember(sports, selectedCategory, selectedStatus, tickCount) {
+    val filteredSports = remember(sports, selectedCategory, selectedStatus, tickCount / 10L) {
         sports.filter { item ->
             val isLive = isEventLiveNow(item, tickCount)
             val catMatches = when (selectedCategory) {
@@ -2940,12 +2958,9 @@ fun EventsScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(filteredSports, key = { it.id }) { sport ->
-                    val remainingSecs = calculateEventRemainingSeconds(sport, tickCount)
-                    val isLiveNow = isEventLiveNow(sport, tickCount)
                     LiveEventMatchCard(
                         sport = sport,
-                        isLiveNow = isLiveNow,
-                        remainingSecs = remainingSecs,
+                        tickCount = tickCount,
                         isTvMode = isTvMode,
                         onSelectMedia = onSelectMedia
                     )
@@ -2958,14 +2973,29 @@ fun EventsScreen(
 @Composable
 fun LiveEventMatchCard(
     sport: MediaItem,
-    isLiveNow: Boolean,
-    remainingSecs: Long,
+    isLiveNow: Boolean = false,
+    remainingSecs: Long = 0L,
+    tickCount: Long = 0L,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit
 ) {
     val context = LocalContext.current
     var isCardFocused by remember { mutableStateOf(false) }
     var showNoLinkDialog by remember { mutableStateOf(false) }
+
+    // Real-time 1-second ticking ticker guarantee
+    var localTick by remember { mutableStateOf(0L) }
+    LaunchedEffect(sport.id, sport.countdownTargetSeconds, sport.matchTimeFormatted, sport.eventTime) {
+        while (isActive) {
+            kotlinx.coroutines.delay(1000L)
+            localTick++
+        }
+    }
+
+    val effectiveTick = if (tickCount > 0L) tickCount else localTick
+    val actualRemainingSecs = calculateEventRemainingSeconds(sport, effectiveTick)
+    val actualIsLive = isEventLiveNow(sport, effectiveTick) || sport.isLive || sport.status.equals("LIVE", ignoreCase = true) || sport.status.contains("LIVE NOW", ignoreCase = true)
+    val isEffectivelyLive = actualIsLive || (actualRemainingSecs <= 0L && (sport.countdownTargetSeconds != null || !sport.matchTimeFormatted.isNullOrBlank() || !sport.eventTime.isNullOrBlank()))
 
     val stageHeader = if (!sport.status.isNullOrBlank() &&
         !sport.status.equals("LIVE", ignoreCase = true) &&
@@ -3196,7 +3226,7 @@ fun LiveEventMatchCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    if (isLiveNow) {
+                    if (isEffectivelyLive) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = Color(0xFFEF4444).copy(alpha = 0.2f),
@@ -3271,8 +3301,8 @@ fun LiveEventMatchCard(
                     )
                 }
 
-                // Status / Countdown Banner
-                if (isLiveNow) {
+                // Status / Countdown Banner (Ticks down in real-time second by second)
+                if (isEffectivelyLive) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3289,6 +3319,23 @@ fun LiveEventMatchCard(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                } else if (actualRemainingSecs > 0L) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF1E293B).copy(alpha = 0.7f))
+                            .border(0.5.dp, Color(0xFF334155))
+                            .padding(vertical = 3.5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "⏳ বাকি: ${formatEventCountdownString(actualRemainingSecs)}",
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 } else {
                     Box(
                         modifier = Modifier
@@ -3300,7 +3347,7 @@ fun LiveEventMatchCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "⏳ বাকি: ${formatEventCountdownString(remainingSecs)}",
+                            text = "⏳ আসন্ন ম্যাচ (খুব শীঘ্রই শুরু হবে)",
                             color = Color(0xFFFBBF24),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -3445,21 +3492,23 @@ fun LiveEventMatchCard(
 @Composable
 fun AdminEventMatchCard(
     sport: MediaItem,
-    isLiveNow: Boolean,
-    remainingSecs: Long,
+    isLiveNow: Boolean = false,
+    remainingSecs: Long = 0L,
+    tickCount: Long = 0L,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit
 ) {
-    LiveEventMatchCard(sport, isLiveNow, remainingSecs, isTvMode, onSelectMedia)
+    LiveEventMatchCard(sport, isLiveNow, remainingSecs, tickCount, isTvMode, onSelectMedia)
 }
 
 @Composable
 fun JsonPosterEventCard(
     sport: MediaItem,
-    isLiveNow: Boolean,
-    remainingSecs: Long,
+    isLiveNow: Boolean = false,
+    remainingSecs: Long = 0L,
+    tickCount: Long = 0L,
     isTvMode: Boolean = false,
     onSelectMedia: (MediaItem) -> Unit
 ) {
-    LiveEventMatchCard(sport, isLiveNow, remainingSecs, isTvMode, onSelectMedia)
+    LiveEventMatchCard(sport, isLiveNow, remainingSecs, tickCount, isTvMode, onSelectMedia)
 }
