@@ -140,8 +140,6 @@ fun NafiTvMainApp(
     var currentTab by remember { mutableStateOf(AppTab.EVENTS) }
     var selectedMediaItem by remember { mutableStateOf<MediaItem?>(null) }
     var activePlaybackPlaylist by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var currentSelectedPlaylist by remember { mutableStateOf<PlaylistInfo?>(null) }
-    var cachedPlaylistChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     val initialSavedMode = remember {
         when (repository.getSavedUserMode()) {
             "REMOTE" -> AppUserMode.REMOTE
@@ -634,7 +632,11 @@ fun NafiTvMainApp(
     } else {
         // Intercept back press when at root screens to show Exit Confirmation Dialog
         BackHandler {
-            showExitConfirmationDialog = true
+            if (currentTab != AppTab.EVENTS) {
+                currentTab = AppTab.EVENTS
+            } else {
+                showExitConfirmationDialog = true
+            }
         }
 
         if (isTvMode) {
@@ -1002,17 +1004,6 @@ fun NafiTvMainApp(
                                 playlists = playlistsList,
                                 repository = repository,
                                 isTvMode = isTvMode,
-                                selectedPlaylist = currentSelectedPlaylist,
-                                onSelectPlaylist = { pl ->
-                                    currentSelectedPlaylist = pl
-                                    if (pl == null) {
-                                        cachedPlaylistChannels = emptyList()
-                                    }
-                                },
-                                cachedChannels = cachedPlaylistChannels,
-                                onChannelsLoaded = { _, channels ->
-                                    cachedPlaylistChannels = channels
-                                },
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
@@ -1359,17 +1350,6 @@ fun NafiTvMainApp(
                             playlists = playlistsList,
                             repository = repository,
                             isTvMode = isTvMode,
-                            selectedPlaylist = currentSelectedPlaylist,
-                            onSelectPlaylist = { pl ->
-                                currentSelectedPlaylist = pl
-                                if (pl == null) {
-                                    cachedPlaylistChannels = emptyList()
-                                }
-                            },
-                            cachedChannels = cachedPlaylistChannels,
-                            onChannelsLoaded = { _, channels ->
-                                cachedPlaylistChannels = channels
-                            },
                             onSelectMedia = { item, playlist ->
                                 selectedMediaItem = item
                                 activePlaybackPlaylist = playlist
@@ -2783,12 +2763,6 @@ fun EventsScreen(
 ) {
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedStatus by remember { mutableStateOf("All") }
-
-    // Intercept back press when category or status filters are active
-    BackHandler(enabled = selectedCategory != "All" || selectedStatus != "All") {
-        selectedCategory = "All"
-        selectedStatus = "All"
-    }
 
     // Dynamic categories extracted from all sports matches
     val categories = remember(sports) {

@@ -1,6 +1,5 @@
 package com.example.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -94,15 +93,6 @@ fun MoviesTabScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
-
-    // Intercept back press when searching or viewing a filtered category (keeps user in Movies option)
-    BackHandler(enabled = searchQuery.isNotBlank() || (selectedCategory != "All" && selectedCategory.isNotBlank())) {
-        if (searchQuery.isNotBlank()) {
-            searchQuery = ""
-        } else {
-            selectedCategory = "All"
-        }
-    }
 
     val categories = remember(movies) {
         val unique = movies.map { it.category.trim() }

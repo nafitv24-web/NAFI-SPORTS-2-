@@ -1,6 +1,5 @@
 package com.example.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -87,18 +86,13 @@ fun PlaylistTabScreen(
     playlists: List<PlaylistInfo>,
     repository: MediaRepository,
     isTvMode: Boolean = false,
-    selectedPlaylist: PlaylistInfo? = null,
-    onSelectPlaylist: (PlaylistInfo?) -> Unit = {},
-    cachedChannels: List<MediaItem> = emptyList(),
-    onChannelsLoaded: (PlaylistInfo, List<MediaItem>) -> Unit = { _, _ -> },
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
     onPlaylistsChanged: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var selectedPlaylist by remember { mutableStateOf<PlaylistInfo?>(null) }
+    var playlistChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var channelSearchQuery by remember { mutableStateOf("") }
-    var playlistChannels by remember(selectedPlaylist?.id) {
-        mutableStateOf(if (selectedPlaylist != null && cachedChannels.isNotEmpty()) cachedChannels else emptyList<MediaItem>())
-    }
     var isLoadingChannels by remember { mutableStateOf(false) }
     var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
 
@@ -109,42 +103,22 @@ fun PlaylistTabScreen(
 
     val scope = rememberCoroutineScope()
 
-    // BackHandler to handle inner navigation:
-    // 1. If searching channel inside playlist -> clear channel search
-    // 2. If inside playlist -> go back to playlist list (stays on Playlist tab)
-    // 3. If searching playlist -> clear playlist search
-    BackHandler(enabled = selectedPlaylist != null || channelSearchQuery.isNotBlank() || searchQuery.isNotBlank()) {
-        if (channelSearchQuery.isNotBlank()) {
-            channelSearchQuery = ""
-        } else if (selectedPlaylist != null) {
-            onSelectPlaylist(null)
-        } else if (searchQuery.isNotBlank()) {
-            searchQuery = ""
-        }
-    }
-
     LaunchedEffect(showOnlyActive) {
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    LaunchedEffect(selectedPlaylist?.id) {
+    LaunchedEffect(selectedPlaylist) {
         val pl = selectedPlaylist
         if (pl != null) {
-            if (playlistChannels.isEmpty()) {
-                isLoadingChannels = true
-                channelSearchQuery = ""
-                try {
-                    val channels = repository.fetchPlaylistChannels(pl)
-                    playlistChannels = channels
-                    onChannelsLoaded(pl, channels)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    isLoadingChannels = false
-                }
+            isLoadingChannels = true
+            channelSearchQuery = ""
+            try {
+                playlistChannels = repository.fetchPlaylistChannels(pl)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoadingChannels = false
             }
-        } else {
-            playlistChannels = emptyList()
         }
     }
 
@@ -373,7 +347,7 @@ fun PlaylistTabScreen(
                             playlist = pl,
                             index = index,
                             isTvMode = isTvMode,
-                            onClick = { onSelectPlaylist(pl) }
+                            onClick = { selectedPlaylist = pl }
                         )
                     }
                 }
@@ -389,7 +363,7 @@ fun PlaylistTabScreen(
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { onSelectPlaylist(null) }) {
+                IconButton(onClick = { selectedPlaylist = null }) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Back",
