@@ -12,8 +12,8 @@ android {
   defaultConfig {
     applicationId = "com.aistudio.nafitv.ifmvfb"
     minSdk = 24
-    targetSdk = 37
-    versionCode = 23
+    targetSdk = 36
+    versionCode = 24
     versionName = "2.6.6"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
