@@ -607,8 +607,9 @@ fun VideoPlayerScreen(
         val loadErrorHandlingPolicy = androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(5)
 
         // TS Extractor Flags for IPTV streams (MP2, AC3, AAC in MPEG-TS with PES packet size variations)
+        // Note: Do NOT use FLAG_DETECT_ACCESS_UNITS as it fragments H.264 NAL units (AUD/SEI) into separate samples,
+        // preventing MediaCodec from detecting keyframes and causing video to stay blank while audio plays.
         val tsPayloadReaderFlags = androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
 
@@ -692,18 +693,18 @@ fun VideoPlayerScreen(
                 allowedVideoJoiningTimeMs: Long,
                 out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
             ) {
-                // Hardware/Platform MediaCodec Video Renderer with decoder fallback (MPEG-2, H.264, HEVC, VP9, AV1)
-                // allowedVideoJoiningTimeMs = 10000L allows up to 10s for the live MPEG-TS video stream keyframe to join without dropping video
-                out.add(
-                    androidx.media3.exoplayer.video.MediaCodecVideoRenderer(
-                        context,
-                        mediaCodecSelector,
-                        10000L.coerceAtLeast(allowedVideoJoiningTimeMs),
-                        enableDecoderFallback,
-                        eventHandler,
-                        eventListener,
-                        50
-                    )
+                // Delegate to super to ensure DefaultMediaCodecAdapterFactory (asynchronous MediaCodec)
+                // is properly configured and software extension renderers are registered,
+                // while guaranteeing 15 seconds video joining tolerance and enabling decoder fallback.
+                super.buildVideoRenderers(
+                    context,
+                    extensionRendererMode,
+                    mediaCodecSelector,
+                    true, // enableDecoderFallback
+                    eventHandler,
+                    eventListener,
+                    15000L.coerceAtLeast(allowedVideoJoiningTimeMs),
+                    out
                 )
             }
         }.apply {
@@ -711,6 +712,7 @@ fun VideoPlayerScreen(
             setEnableDecoderFallback(true)
             setEnableAudioFloatOutput(false)
             setEnableAudioTrackPlaybackParams(true)
+            setAllowedVideoJoiningTimeMs(15000L)
         }
 
         // High-responsiveness Adaptive Bitrate Track Selection:
