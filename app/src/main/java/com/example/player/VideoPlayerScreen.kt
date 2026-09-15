@@ -556,7 +556,14 @@ fun VideoPlayerScreen(
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://hakunaymatata.com"
         }
 
-        val finalUserAgent = extractedUa ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        val isTsStream = finalCleanUrl.contains(".ts", ignoreCase = true) ||
+                finalCleanUrl.contains("/live/", ignoreCase = true)
+
+        val finalUserAgent = extractedUa ?: if (isTsStream) {
+            "VLC/3.0.18 LibVLC/3.0.18"
+        } else {
+            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
@@ -584,8 +591,8 @@ fun VideoPlayerScreen(
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20000)
-            .setReadTimeoutMs(30000)
+            .setConnectTimeoutMs(25000)
+            .setReadTimeoutMs(35000)
             .setUserAgent(finalUserAgent)
             .setTransferListener(bandwidthMeter)
             .setDefaultRequestProperties(requestHeaders)
@@ -606,8 +613,10 @@ fun VideoPlayerScreen(
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
 
         val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-            .setConstantBitrateSeekingEnabled(true)
+            .setConstantBitrateSeekingEnabled(false) // Never force CBR seeking on live continuous streams
             .setTsExtractorFlags(tsPayloadReaderFlags)
+            .setTsExtractorMode(androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT)
+            .setTsExtractorTimestampSearchBytes(1024 * 1024 * 4) // 4MB search bytes: guarantees finding PCR/PTS and video keyframes on live broadcast MPEG-TS streams
 
         val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -672,6 +681,31 @@ fun VideoPlayerScreen(
                     android.util.Log.w("VideoPlayer", "FFmpeg audio renderer init fallback", t)
                 }
             }
+
+            override fun buildVideoRenderers(
+                context: android.content.Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                eventHandler: android.os.Handler,
+                eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
+                allowedVideoJoiningTimeMs: Long,
+                out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
+            ) {
+                // Hardware/Platform MediaCodec Video Renderer with decoder fallback (MPEG-2, H.264, HEVC, VP9, AV1)
+                // allowedVideoJoiningTimeMs = 10000L allows up to 10s for the live MPEG-TS video stream keyframe to join without dropping video
+                out.add(
+                    androidx.media3.exoplayer.video.MediaCodecVideoRenderer(
+                        context,
+                        mediaCodecSelector,
+                        10000L.coerceAtLeast(allowedVideoJoiningTimeMs),
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        50
+                    )
+                )
+            }
         }.apply {
             setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             setEnableDecoderFallback(true)
@@ -693,8 +727,8 @@ fun VideoPlayerScreen(
             setParameters(
                 buildUponParameters()
                     .setExceedRendererCapabilitiesIfNecessary(true)
-                    .setMaxVideoSize(1920, 1080)
-                    .setMaxVideoFrameRate(60)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedAudioConstraintsIfNecessary(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedChannelCountAdaptiveness(true)
                     .setAllowAudioMixedSampleRateAdaptiveness(true)
@@ -707,20 +741,24 @@ fun VideoPlayerScreen(
             )
         }
 
-        val isLiveStream = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
+        val isLiveStream = currentMedia.isLive ||
+                currentMedia.type == MediaType.LIVE_TV ||
+                currentMedia.type == MediaType.LIVE_EVENT ||
+                isTsStream ||
+                finalCleanUrl.contains(".m3u8", ignoreCase = true)
 
         // Memory-safe, high-speed LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, androidx.media3.common.C.DEFAULT_BUFFER_SEGMENT_SIZE))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isLiveStream) 5000 else 10000,
-                /* maxBufferMs = */ if (isLiveStream) 15000 else 30000,
-                /* bufferForPlaybackMs = */ if (isLiveStream) 500 else 800,
-                /* bufferForPlaybackAfterRebufferMs = */ if (isLiveStream) 1000 else 1800
+                /* minBufferMs = */ if (isLiveStream) 8000 else 10000,
+                /* maxBufferMs = */ if (isLiveStream) 20000 else 30000,
+                /* bufferForPlaybackMs = */ if (isLiveStream) 1500 else 800,
+                /* bufferForPlaybackAfterRebufferMs = */ if (isLiveStream) 2500 else 1800
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(0, false)
-            .setTargetBufferBytes(if (isLiveStream) 8 * 1024 * 1024 else 16 * 1024 * 1024)
+            .setTargetBufferBytes(if (isLiveStream) 12 * 1024 * 1024 else 16 * 1024 * 1024)
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
@@ -752,9 +790,9 @@ fun VideoPlayerScreen(
                 if (isLiveStream) {
                     mediaItemBuilder.setLiveConfiguration(
                         androidx.media3.common.MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(5000L) // 5s low latency start
+                            .setTargetOffsetMs(if (isTsStream) 8000L else 5000L)
                             .setMinOffsetMs(2000L)
-                            .setMaxOffsetMs(30000L)
+                            .setMaxOffsetMs(60000L)
                             .setMinPlaybackSpeed(0.97f)
                             .setMaxPlaybackSpeed(1.03f)
                             .build()
@@ -1457,10 +1495,16 @@ fun VideoPlayerScreen(
                             player = exoPlayer
                             useController = false
                             this.resizeMode = resizeMode
-                            setShutterBackgroundColor(android.graphics.Color.BLACK)
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             setKeepContentOnPlayerReset(true)
                             keepScreenOn = true
+                            try {
+                                setEnableComposeSurfaceSyncWorkaround(true)
+                            } catch (_: Throwable) {}
+                            try {
+                                (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
+                            } catch (_: Throwable) {}
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -1570,10 +1614,16 @@ fun VideoPlayerScreen(
                             player = exoPlayer
                             useController = false
                             this.resizeMode = resizeMode
-                            setShutterBackgroundColor(android.graphics.Color.BLACK)
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             setKeepContentOnPlayerReset(true)
                             keepScreenOn = true
+                            try {
+                                setEnableComposeSurfaceSyncWorkaround(true)
+                            } catch (_: Throwable) {}
+                            try {
+                                (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
+                            } catch (_: Throwable) {}
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -2140,10 +2190,16 @@ fun VideoPlayerScreen(
                                 player = exoPlayer
                                 useController = false
                                 this.resizeMode = resizeMode
-                                setShutterBackgroundColor(android.graphics.Color.BLACK)
+                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                                 setKeepContentOnPlayerReset(true)
                                 keepScreenOn = true
+                                try {
+                                    setEnableComposeSurfaceSyncWorkaround(true)
+                                } catch (_: Throwable) {}
+                                try {
+                                    (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
+                                } catch (_: Throwable) {}
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
