@@ -1209,6 +1209,24 @@ class MediaRepository(private val context: Context) {
                     if (currentOrigin.isNullOrBlank()) currentOrigin = "https://toffeelive.com"
                 }
 
+                // Automatic intelligent headers for Tapmad & Akamai live broadcast streams
+                val isTapmad = streamUrl.contains("tapmad", ignoreCase = true) ||
+                        streamUrl.contains("akamaized.net", ignoreCase = true) ||
+                        currentGroup.contains("tapmad", ignoreCase = true)
+
+                if (isTapmad) {
+                    if (currentUserAgent.isNullOrBlank()) currentUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    if (currentReferrer.isNullOrBlank()) currentReferrer = "https://www.tapmad.com/"
+                    if (currentOrigin.isNullOrBlank()) currentOrigin = "https://www.tapmad.com"
+                }
+
+                // Sanitize duplicate slashes in URL path (e.g. //master.m3u8 -> /master.m3u8)
+                if (streamUrl.startsWith("http://", ignoreCase = true)) {
+                    streamUrl = "http://" + streamUrl.substring(7).replace(Regex("/+"), "/")
+                } else if (streamUrl.startsWith("https://", ignoreCase = true)) {
+                    streamUrl = "https://" + streamUrl.substring(8).replace(Regex("/+"), "/")
+                }
+
                 // Normalize Pixeldrain URLs in M3U playlists
                 val isPixeldrain = streamUrl.contains("pixeldrain", ignoreCase = true) || streamUrl.contains("pixeldra.in", ignoreCase = true)
                 if (isPixeldrain) {
@@ -2908,7 +2926,10 @@ class MediaRepository(private val context: Context) {
                         team2Logo = thumbTv,
                         matchTimeFormatted = formattedTime ?: eventStartDate,
                         countdownTargetSeconds = countdownEpoch,
-                        quality = "HD"
+                        quality = "HD",
+                        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        referrer = "https://www.tapmad.com/",
+                        origin = "https://www.tapmad.com"
                     )
                 )
             }
