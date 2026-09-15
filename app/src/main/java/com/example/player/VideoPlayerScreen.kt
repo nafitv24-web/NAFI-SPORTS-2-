@@ -175,7 +175,6 @@ fun VideoPlayerScreen(
     var hasStartedPlaying by remember(currentMedia.id, currentUrl) { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var currentVideoResolution by remember { mutableStateOf<String?>(null) }
-    var playerRetryKey by remember(currentUrl) { mutableIntStateOf(0) }
 
     // MX Player Gestures: Volume & Brightness & Seeking State
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
@@ -505,7 +504,7 @@ fun VideoPlayerScreen(
     }
 
     // Setup ExoPlayer instance with custom http data source, headers and dynamic pipe parsing
-    val exoPlayer = remember(currentUrl, currentMedia, playerRetryKey) {
+    val exoPlayer = remember(currentUrl, currentMedia) {
         val streamInfo = com.example.util.DrmHelper.extractStreamInfo(
             rawUrl = currentUrl,
             itemScheme = currentMedia.drmScheme,
@@ -514,14 +513,7 @@ fun VideoPlayerScreen(
             itemHeaders = currentMedia.drmHeaders,
             itemManifestType = currentMedia.manifestType
         )
-        // Clean URL: normalize duplicate slashes in path (e.g. //master.m3u8 -> /master.m3u8)
-        val finalCleanUrl = when {
-            streamInfo.cleanUrl.startsWith("http://", ignoreCase = true) ->
-                "http://" + streamInfo.cleanUrl.substring(7).replace(Regex("/+"), "/")
-            streamInfo.cleanUrl.startsWith("https://", ignoreCase = true) ->
-                "https://" + streamInfo.cleanUrl.substring(8).replace(Regex("/+"), "/")
-            else -> streamInfo.cleanUrl
-        }
+        val finalCleanUrl = streamInfo.cleanUrl
         val drmConfig = streamInfo.drmConfig
 
         var extractedUa: String? = currentMedia.userAgent
@@ -544,7 +536,7 @@ fun VideoPlayerScreen(
         // Apply custom headers from MediaItem
         currentMedia.customHeaders?.let { dynamicHeaders.putAll(it) }
 
-        // Domain-specific smart headers (Toffee, Bioscope, TSports, Tapmad, Hakuna, etc.)
+        // Domain-specific smart headers (Toffee, Bioscope, TSports, etc.)
         val isToffee = finalCleanUrl.contains("toffeelive.com", ignoreCase = true) ||
                 finalCleanUrl.contains("toffee", ignoreCase = true) ||
                 finalCleanUrl.contains("bldcmprod-cdn", ignoreCase = true) ||
@@ -564,44 +556,22 @@ fun VideoPlayerScreen(
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://hakunaymatata.com"
         }
 
-        // Tapmad / Akamai smart headers
-        val isTapmad = finalCleanUrl.contains("tapmad", ignoreCase = true) ||
-                finalCleanUrl.contains("akamaized.net", ignoreCase = true) ||
-                currentMedia.category.contains("tapmad", ignoreCase = true)
-
-        if (isTapmad) {
-            if (extractedUa.isNullOrBlank()) extractedUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            if (extractedReferer.isNullOrBlank()) extractedReferer = "https://www.tapmad.com/"
-            if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://www.tapmad.com"
-        }
-
         val isTsStream = finalCleanUrl.contains(".ts", ignoreCase = true) ||
                 finalCleanUrl.contains("/live/", ignoreCase = true)
 
-        // Multi-Agent fallback list for maximum online stream compatibility
-        val fallbackUserAgents = listOf(
-            extractedUa ?: if (isTsStream) "VLC/3.0.18 LibVLC/3.0.18" else "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "VLC/3.0.18 LibVLC/3.0.18",
-            "TiviMate/4.7.0 (Android TV)",
-            "IPTVSmartersPro/3.1.5.1"
-        )
-        val finalUserAgent = fallbackUserAgents[playerRetryKey.coerceAtLeast(0) % fallbackUserAgents.size]
-
-        val uriHost = try { android.net.Uri.parse(finalCleanUrl).host } catch (_: Exception) { null }
-        val streamHostReferer = if (!uriHost.isNullOrBlank()) "https://$uriHost/" else null
-        val streamHostOrigin = if (!uriHost.isNullOrBlank()) "https://$uriHost" else null
+        val finalUserAgent = extractedUa ?: if (isTsStream) {
+            "VLC/3.0.18 LibVLC/3.0.18"
+        } else {
+            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
-        val finalReferer = extractedReferer ?: if (isTapmad) "https://www.tapmad.com/" else streamHostReferer
-        val finalOrigin = extractedOrigin ?: if (isTapmad) "https://www.tapmad.com" else streamHostOrigin
-
-        if (!finalReferer.isNullOrBlank()) {
-            requestHeaders["Referer"] = finalReferer
+        if (!extractedReferer.isNullOrBlank()) {
+            requestHeaders["Referer"] = extractedReferer
         }
-        if (!finalOrigin.isNullOrBlank()) {
-            requestHeaders["Origin"] = finalOrigin
+        if (!extractedOrigin.isNullOrBlank()) {
+            requestHeaders["Origin"] = extractedOrigin
         }
         if (!extractedCookie.isNullOrBlank()) {
             requestHeaders["Cookie"] = extractedCookie
@@ -637,9 +607,8 @@ fun VideoPlayerScreen(
         val loadErrorHandlingPolicy = androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(5)
 
         // TS Extractor Flags for IPTV streams (MP2, AC3, AAC in MPEG-TS with PES packet size variations)
-        // Note: Do NOT use FLAG_DETECT_ACCESS_UNITS as it fragments H.264 NAL units (AUD/SEI) into separate samples,
-        // preventing MediaCodec from detecting keyframes and causing video to stay blank while audio plays.
         val tsPayloadReaderFlags = androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
 
@@ -723,18 +692,18 @@ fun VideoPlayerScreen(
                 allowedVideoJoiningTimeMs: Long,
                 out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
             ) {
-                // Delegate to super to ensure DefaultMediaCodecAdapterFactory (asynchronous MediaCodec)
-                // is properly configured and software extension renderers are registered,
-                // while guaranteeing 15 seconds video joining tolerance and enabling decoder fallback.
-                super.buildVideoRenderers(
-                    context,
-                    extensionRendererMode,
-                    mediaCodecSelector,
-                    true, // enableDecoderFallback
-                    eventHandler,
-                    eventListener,
-                    15000L.coerceAtLeast(allowedVideoJoiningTimeMs),
-                    out
+                // Hardware/Platform MediaCodec Video Renderer with decoder fallback (MPEG-2, H.264, HEVC, VP9, AV1)
+                // allowedVideoJoiningTimeMs = 10000L allows up to 10s for the live MPEG-TS video stream keyframe to join without dropping video
+                out.add(
+                    androidx.media3.exoplayer.video.MediaCodecVideoRenderer(
+                        context,
+                        mediaCodecSelector,
+                        10000L.coerceAtLeast(allowedVideoJoiningTimeMs),
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        50
+                    )
                 )
             }
         }.apply {
@@ -742,7 +711,6 @@ fun VideoPlayerScreen(
             setEnableDecoderFallback(true)
             setEnableAudioFloatOutput(false)
             setEnableAudioTrackPlaybackParams(true)
-            setAllowedVideoJoiningTimeMs(15000L)
         }
 
         // High-responsiveness Adaptive Bitrate Track Selection:
@@ -1026,16 +994,7 @@ fun VideoPlayerScreen(
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
                         val currentServers = currentMedia.getAllServers()
-                        val httpEx = error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
-                        val is403Or401 = httpEx?.responseCode == 403 || httpEx?.responseCode == 401
-                        val isIoError = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
-
-                        if (playerRetryKey < 2 && (is403Or401 || isIoError)) {
-                            // Automatically attempt next User-Agent / Referer fallback profile
-                            playerRetryKey++
-                            errorMessage = "বিকল্প সংযোগ কনফিগারেশন পরীক্ষা করা হচ্ছে (${playerRetryKey + 1}/3)..."
-                        } else if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
+                        if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
                             selectedServerIndex++
                             val targetServer = currentServers[selectedServerIndex]
                             currentUrl = targetServer.url
@@ -1045,11 +1004,7 @@ fun VideoPlayerScreen(
                             forceWebEngine = true
                             errorMessage = null
                         } else {
-                            errorMessage = if (httpEx?.responseCode == 403) {
-                                "এই লাইভ স্ট্রিমটির সম্প্রচার সমাপ্ত অথবা লিঙ্কটি মেয়াদোত্তীর্ণ (403 Forbidden)। লাইভ খেলা চলাকালীন নতুন লিঙ্ক স্বয়ংক্রিয়ভাবে সক্রিয় হবে।"
-                            } else {
-                                "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
-                            }
+                            errorMessage = "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                         }
                     }
                 })
@@ -1741,7 +1696,6 @@ fun VideoPlayerScreen(
                     message = errorMessage ?: "",
                     onRetry = {
                         errorMessage = null
-                        playerRetryKey++
                         exoPlayer.seekTo(0)
                         exoPlayer.prepare()
                         exoPlayer.play()
@@ -2449,7 +2403,6 @@ fun VideoPlayerScreen(
                                     Button(
                                         onClick = {
                                             errorMessage = null
-                                            playerRetryKey++
                                             exoPlayer.seekTo(0)
                                             exoPlayer.prepare()
                                             exoPlayer.play()
