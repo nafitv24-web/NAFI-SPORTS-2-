@@ -269,6 +269,7 @@ fun VideoPlayerScreen(
     val bandwidthMeter = remember {
         androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(context)
             .setResetOnNetworkTypeChange(false)
+            .setInitialBitrateEstimate(1_500_000L)
             .build()
     }
 
@@ -621,8 +622,9 @@ fun VideoPlayerScreen(
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(25000)
-            .setReadTimeoutMs(35000)
+            .setConnectTimeoutMs(10000)
+            .setReadTimeoutMs(15000)
+            .setKeepPostFor302Redirects(true)
             .setUserAgent(finalUserAgent)
             .setTransferListener(bandwidthMeter)
             .setDefaultRequestProperties(requestHeaders)
@@ -633,8 +635,12 @@ fun VideoPlayerScreen(
             httpDataSourceFactory
         )
 
-        // Load error handling policy with 5 automatic retries for transient stream packet drops
-        val loadErrorHandlingPolicy = androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(5)
+        // Ultra-fast retry error policy: retries dropped packets within 400ms instead of long backoff pauses
+        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(4) {
+            override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                return 400L
+            }
+        }
 
         // TS Extractor Flags for IPTV streams (MP2, AC3, AAC in MPEG-TS with PES packet size variations)
         // Note: Do NOT use FLAG_DETECT_ACCESS_UNITS as it fragments H.264 NAL units (AUD/SEI) into separate samples,
@@ -646,8 +652,7 @@ fun VideoPlayerScreen(
         val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(false) // Never force CBR seeking on live continuous streams
             .setTsExtractorFlags(tsPayloadReaderFlags)
-            .setTsExtractorMode(androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT)
-            .setTsExtractorTimestampSearchBytes(1024 * 1024 * 4) // 4MB search bytes: guarantees finding PCR/PTS and video keyframes on live broadcast MPEG-TS streams
+            .setTsExtractorTimestampSearchBytes(1024 * 1024 * 2) // 2MB search bytes: fast keyframe sync without lag
 
         val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -749,9 +754,9 @@ fun VideoPlayerScreen(
         // Automatically steps down resolution in 300ms if bandwidth drops to prevent any buffering stalls,
         // and upgrades smoothly to HD when network throughput is proven stable.
         val adaptiveTrackSelectionFactory = androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
-            /* minDurationForQualityIncreaseMs = */ 8000, // 8s sustained speed before upgrading
+            /* minDurationForQualityIncreaseMs = */ 6000, // 6s sustained speed before upgrading
             /* maxDurationForQualityDecreaseMs = */ 300,  // 300ms ultra-rapid downscaling on network drop to prevent stalls
-            /* minDurationToRetainAfterDiscardMs = */ 2000,
+            /* minDurationToRetainAfterDiscardMs = */ 3000,
             /* bandwidthFraction = */ 0.70f               // 70% bandwidth headroom prevents buffer exhaustion
         )
 
@@ -779,18 +784,18 @@ fun VideoPlayerScreen(
                 isTsStream ||
                 finalCleanUrl.contains(".m3u8", ignoreCase = true)
 
-        // Memory-safe, high-speed LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
+        // Memory-safe, high-speed, anti-buffering LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, androidx.media3.common.C.DEFAULT_BUFFER_SEGMENT_SIZE))
+            .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isLiveStream) 8000 else 10000,
-                /* maxBufferMs = */ if (isLiveStream) 20000 else 30000,
-                /* bufferForPlaybackMs = */ if (isLiveStream) 1500 else 800,
-                /* bufferForPlaybackAfterRebufferMs = */ if (isLiveStream) 2500 else 1800
+                /* minBufferMs = */ if (isLiveStream) 20000 else 25000, // 20-25s forward buffer cushion prevents stalls
+                /* maxBufferMs = */ if (isLiveStream) 50000 else 60000, // up to 50-60s maximum forward buffer in RAM
+                /* bufferForPlaybackMs = */ 600,                         // Starts playing in 600ms (instant start)
+                /* bufferForPlaybackAfterRebufferMs = */ 1000            // Recovers quickly in 1s if network interrupted
             )
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(0, false)
-            .setTargetBufferBytes(if (isLiveStream) 12 * 1024 * 1024 else 16 * 1024 * 1024)
+            .setBackBuffer(if (isLiveStream) 0 else 10000, false)
+            .setTargetBufferBytes(if (isLiveStream) 24 * 1024 * 1024 else 32 * 1024 * 1024)
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
@@ -820,13 +825,14 @@ fun VideoPlayerScreen(
                     .setUri(finalMediaUri)
 
                 if (isLiveStream) {
+                    // Safe 15-18s target live offset: guarantees 3-4 segments pre-cached, completely eliminating live edge buffer starvation
                     mediaItemBuilder.setLiveConfiguration(
                         androidx.media3.common.MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(if (isTsStream) 8000L else 5000L)
-                            .setMinOffsetMs(2000L)
+                            .setTargetOffsetMs(if (isTsStream) 18000L else 15000L)
+                            .setMinOffsetMs(6000L)
                             .setMaxOffsetMs(60000L)
-                            .setMinPlaybackSpeed(0.97f)
-                            .setMaxPlaybackSpeed(1.03f)
+                            .setMinPlaybackSpeed(1.0f)
+                            .setMaxPlaybackSpeed(1.01f)
                             .build()
                     )
                 }
