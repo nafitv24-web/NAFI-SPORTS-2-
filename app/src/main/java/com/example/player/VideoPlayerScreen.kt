@@ -576,12 +576,20 @@ fun VideoPlayerScreen(
             if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://www.tapmad.com"
         }
 
+        // akr4m / bdtv IPTV restream server smart headers & compatibility
+        val isAkr4m = finalCleanUrl.contains("akr4m.com", ignoreCase = true) ||
+                finalCleanUrl.contains("/bdtv/", ignoreCase = true)
+
+        if (isAkr4m) {
+            if (extractedUa.isNullOrBlank()) extractedUa = "VLC/3.0.18 LibVLC/3.0.18"
+        }
+
         val isTsStream = finalCleanUrl.contains(".ts", ignoreCase = true) ||
                 finalCleanUrl.contains("/live/", ignoreCase = true)
 
         // Multi-Agent fallback list for maximum online stream compatibility
         val fallbackUserAgents = listOf(
-            extractedUa ?: if (isTsStream) "VLC/3.0.18 LibVLC/3.0.18" else "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+            extractedUa ?: if (isTsStream || isAkr4m) "VLC/3.0.18 LibVLC/3.0.18" else "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "VLC/3.0.18 LibVLC/3.0.18",
             "TiviMate/4.7.0 (Android TV)",
@@ -622,8 +630,8 @@ fun VideoPlayerScreen(
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(15000)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(25000)
             .setKeepPostFor302Redirects(true)
             .setUserAgent(finalUserAgent)
             .setTransferListener(bandwidthMeter)
@@ -785,17 +793,18 @@ fun VideoPlayerScreen(
                 finalCleanUrl.contains(".m3u8", ignoreCase = true)
 
         // Memory-safe, high-speed, anti-buffering LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
+        // For streams like akr4m with 10s segment sizes (4MB+ each), allocate ample buffer bytes and forward cushion
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isLiveStream) 20000 else 25000, // 20-25s forward buffer cushion prevents stalls
-                /* maxBufferMs = */ if (isLiveStream) 50000 else 60000, // up to 50-60s maximum forward buffer in RAM
+                /* minBufferMs = */ if (isAkr4m) 25000 else if (isLiveStream) 20000 else 25000, // 20-25s forward buffer cushion prevents stalls
+                /* maxBufferMs = */ if (isAkr4m) 60000 else if (isLiveStream) 50000 else 60000, // up to 50-60s maximum forward buffer in RAM
                 /* bufferForPlaybackMs = */ 600,                         // Starts playing in 600ms (instant start)
                 /* bufferForPlaybackAfterRebufferMs = */ 1000            // Recovers quickly in 1s if network interrupted
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(if (isLiveStream) 0 else 10000, false)
-            .setTargetBufferBytes(if (isLiveStream) 24 * 1024 * 1024 else 32 * 1024 * 1024)
+            .setTargetBufferBytes(if (isAkr4m) 36 * 1024 * 1024 else if (isLiveStream) 24 * 1024 * 1024 else 32 * 1024 * 1024)
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
@@ -825,11 +834,12 @@ fun VideoPlayerScreen(
                     .setUri(finalMediaUri)
 
                 if (isLiveStream) {
-                    // Safe 15-18s target live offset: guarantees 3-4 segments pre-cached, completely eliminating live edge buffer starvation
+                    // Safe target live offset: akr4m restream uses 10s segments and ~60s sliding window, so 20s offset guarantees 2+ full 4MB segments are buffered
+                    val targetLiveOffset = if (isAkr4m) 22000L else if (isTsStream) 18000L else 15000L
                     mediaItemBuilder.setLiveConfiguration(
                         androidx.media3.common.MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(if (isTsStream) 18000L else 15000L)
-                            .setMinOffsetMs(6000L)
+                            .setTargetOffsetMs(targetLiveOffset)
+                            .setMinOffsetMs(if (isAkr4m) 10000L else 6000L)
                             .setMaxOffsetMs(60000L)
                             .setMinPlaybackSpeed(1.0f)
                             .setMaxPlaybackSpeed(1.01f)
