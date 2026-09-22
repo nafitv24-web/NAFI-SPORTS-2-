@@ -105,7 +105,7 @@ jobs:
 
       - name: Build Windows Executable (.exe)
         run: |
-          ./gradlew :desktop:packageExe --stacktrace
+          ./gradlew -p desktop packageExe --stacktrace
 
       - name: Upload Windows .exe as Artifact
         uses: actions/upload-artifact@v4

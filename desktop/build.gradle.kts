@@ -1,7 +1,7 @@
 plugins {
-    kotlin("multiplatform")
-    id("org.jetbrains.compose")
-    id("org.jetbrains.kotlin.plugin.compose")
+    kotlin("multiplatform") version "2.1.10"
+    id("org.jetbrains.compose") version "1.7.3"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.1.10"
 }
 
 kotlin {
@@ -46,7 +46,6 @@ compose.desktop {
             windows {
                 menuGroup = "NAFI TV 24"
                 upgradeUuid = "d7c865f1-394e-4f71-a08b-4b13a5e8c109"
-                iconFile.set(project.file("src/jvmMain/resources/icon.ico"))
             }
         }
     }
