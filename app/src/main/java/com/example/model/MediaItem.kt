@@ -208,4 +208,11 @@ data class AppUserAnalytics(
     val lastUpdated: Long = System.currentTimeMillis()
 )
 
+data class AppConfigData(
+    val liveTvM3uUrl: String = "",
+    val sportsM3uUrl: String = "",
+    val moviesM3uUrl: String = "",
+    val tapmadJsonUrl: String = ""
+)
+
 

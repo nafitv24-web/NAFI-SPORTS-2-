@@ -33,6 +33,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.BuildConfig
 import com.example.data.MediaRepository
+import com.example.model.AppConfigData
 import com.example.model.*
 import com.example.util.NotificationHelper
 import kotlinx.coroutines.delay
@@ -229,9 +230,10 @@ fun AdminControlAppScreen(
         try {
             val remoteConfig = repository.fetchAppConfigFromFirebase()
             if (remoteConfig != null) {
-                if (remoteConfig.first.isNotBlank()) liveTvM3uInput = remoteConfig.first
-                if (remoteConfig.second.isNotBlank()) sportsM3uInput = remoteConfig.second
-                if (remoteConfig.third.isNotBlank()) moviesM3uInput = remoteConfig.third
+                if (remoteConfig.liveTvM3uUrl.isNotBlank()) liveTvM3uInput = remoteConfig.liveTvM3uUrl
+                if (remoteConfig.sportsM3uUrl.isNotBlank()) sportsM3uInput = remoteConfig.sportsM3uUrl
+                if (remoteConfig.moviesM3uUrl.isNotBlank()) moviesM3uInput = remoteConfig.moviesM3uUrl
+                if (remoteConfig.tapmadJsonUrl.isNotBlank()) tapmadJsonInput = remoteConfig.tapmadJsonUrl
             }
         } catch (_: Exception) {}
     }
@@ -1543,23 +1545,23 @@ fun AdminControlAppScreen(
                                 Text("⚡ লাইভ ইভেন্ট ও স্পোর্টস JSON API (Live Events JSON)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                             Text(
-                                text = "লাইভ ইভেন্ট (Live Events) সেকশনে সরাসরি ম্যাচ ও স্ট্রিমিং লোড করার জন্য Tapmad BD বা স্পোর্টস JSON API URL দিন। যেমন Gist/GitHub Raw JSON লিংক।",
+                                text = "লাইভ ইভেন্ট (Live Events) সেকশনে সরাসরি ম্যাচ ও স্ট্রিমিং লোড করার জন্য একাধিক Tapmad BD বা স্পোর্টস JSON API URL দিন। একাধিক JSON লিংক থাকলে নতুন লাইনে (প্রতি লাইনে একটি করে) লিখুন। এটি স্বয়ংক্রিয়ভাবে ক্লাউড ও ফায়ারবেসে সিঙ্ক হবে।",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.sp
                             )
 
-                            // Tapmad JSON URL Input
-                            Text("লাইভ স্পোর্টস JSON API লিংক (যেমন gist / raw github json):", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            // Tapmad JSON URL Input (Supports multiple JSONs)
+                            Text("লাইভ স্পোর্টস JSON API লিংক (একাধিক লিংক দিতে নতুন লাইন বা কমা ব্যবহার করুন):", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             OutlinedTextField(
                                 value = tapmadJsonInput,
                                 onValueChange = { tapmadJsonInput = it },
-                                placeholder = { Text("https://gist.githubusercontent.com/.../tapmad_bd.json", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                placeholder = { Text("https://gist.githubusercontent.com/.../tapmad_bd.json\nhttps://example.com/sports2.json", color = Color(0xFF64748B), fontSize = 12.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = customFieldColors(),
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = false,
-                                minLines = 2,
-                                maxLines = 4
+                                minLines = 3,
+                                maxLines = 6
                             )
 
                             // Tapmad M3U Stream Fallback Input
@@ -1585,8 +1587,11 @@ fun AdminControlAppScreen(
                                             val m3uUrl = tapmadM3uInput.trim()
                                             repository.saveTapmadJsonUrl(jsonUrl)
                                             repository.saveTapmadM3uUrl(m3uUrl)
+                                            coroutineScope.launch {
+                                                repository.pushAppConfigToFirebase(tapmadJson = jsonUrl)
+                                            }
                                             onDataChanged()
-                                            Toast.makeText(context, "✅ লাইভ ইভেন্ট JSON API সফলভাবে সেভ হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "✅ JSON API লিংক সফলভাবে সেভ ও ফায়ারবেসে সিঙ্ক হয়েছে!", Toast.LENGTH_SHORT).show()
                                         } else {
                                             Toast.makeText(context, "সঠিক JSON API লিংক দিন", Toast.LENGTH_SHORT).show()
                                         }
@@ -1595,9 +1600,9 @@ fun AdminControlAppScreen(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8), contentColor = Color.Black),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Rounded.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Rounded.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("JSON সেভ ও লোড করুন", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("JSON সেভ ও ফায়ারবেস সিঙ্ক", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                                 OutlinedButton(
                                     onClick = {
@@ -1605,8 +1610,11 @@ fun AdminControlAppScreen(
                                         tapmadM3uInput = MediaRepository.DEFAULT_TAPMAD_M3U_URL
                                         repository.saveTapmadJsonUrl(MediaRepository.DEFAULT_TAPMAD_JSON_URL)
                                         repository.saveTapmadM3uUrl(MediaRepository.DEFAULT_TAPMAD_M3U_URL)
+                                        coroutineScope.launch {
+                                            repository.pushAppConfigToFirebase(tapmadJson = MediaRepository.DEFAULT_TAPMAD_JSON_URL)
+                                        }
                                         onDataChanged()
-                                        Toast.makeText(context, "ডিফল্ট JSON API লিংক রিসেট করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "ডিফল্ট JSON API লিংক রিসেট ও সিঙ্ক করা হয়েছে", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.weight(1f).height(44.dp),
                                     shape = RoundedCornerShape(10.dp),
@@ -3183,17 +3191,17 @@ fun AdminControlAppScreen(
                             )
 
                             // 4. Tapmad Live Events JSON URL
-                            Text("4. লাইভ স্পোর্টস / Tapmad JSON API URL:", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("4. লাইভ স্পোর্টস / Tapmad JSON API URL (একাধিক লিংক প্রতি লাইনে একটি করে):", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             OutlinedTextField(
                                 value = tapmadJsonInput,
                                 onValueChange = { tapmadJsonInput = it },
-                                placeholder = { Text("https://gist.githubusercontent.com/.../tapmad_bd.json", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                placeholder = { Text("https://gist.githubusercontent.com/.../tapmad_bd.json\nhttps://example.com/sports2.json", color = Color(0xFF64748B), fontSize = 12.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = customFieldColors(),
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = false,
                                 minLines = 2,
-                                maxLines = 4
+                                maxLines = 5
                             )
 
                             Row(
@@ -3213,7 +3221,12 @@ fun AdminControlAppScreen(
                                             repository.saveTapmadJsonUrl(tapmadUrl)
                                         }
                                         coroutineScope.launch {
-                                            repository.pushAppConfigToFirebase(liveTvM3u = liveUrl, sportsM3u = sportsUrl, moviesM3u = movUrl)
+                                            repository.pushAppConfigToFirebase(
+                                                liveTvM3u = liveUrl,
+                                                sportsM3u = sportsUrl,
+                                                moviesM3u = movUrl,
+                                                tapmadJson = tapmadUrl
+                                            )
                                         }
                                         onDataChanged()
                                         Toast.makeText(context, "✅ সকল প্লেলিস্ট ও JSON লিংক সেভ এবং সিঙ্ক সম্পন্ন হয়েছে!", Toast.LENGTH_SHORT).show()
@@ -3240,7 +3253,8 @@ fun AdminControlAppScreen(
                                             repository.pushAppConfigToFirebase(
                                                 liveTvM3u = MediaRepository.DEFAULT_LIVE_TV_M3U_URL,
                                                 sportsM3u = MediaRepository.DEFAULT_SPORTS_M3U_URL,
-                                                moviesM3u = MediaRepository.DEFAULT_MOVIES_M3U_URL
+                                                moviesM3u = MediaRepository.DEFAULT_MOVIES_M3U_URL,
+                                                tapmadJson = MediaRepository.DEFAULT_TAPMAD_JSON_URL
                                             )
                                         }
                                         onDataChanged()

@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import com.example.model.ActiveUserInfo
+import com.example.model.AppConfigData
 import com.example.model.AppNotification
 import com.example.model.AppUpdateInfo
 import com.example.model.AppUserAnalytics
@@ -2733,6 +2734,11 @@ class MediaRepository(private val context: Context) {
         return prefs.getString("saved_tapmad_json_url", DEFAULT_TAPMAD_JSON_URL) ?: DEFAULT_TAPMAD_JSON_URL
     }
 
+    fun getSavedTapmadJsonUrls(): List<String> {
+        val raw = getSavedTapmadJsonUrl()
+        return raw.split("\n", ",").map { it.trim() }.filter { it.isNotBlank() }
+    }
+
     fun saveTapmadM3uUrl(url: String) {
         prefs.edit().putString("saved_tapmad_m3u_url", url).apply()
     }
@@ -2747,7 +2753,11 @@ class MediaRepository(private val context: Context) {
     ): List<MediaItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<MediaItem>()
         try {
-            // 1. Fetch tapmad_bd.m3u and tapmad_bd.json concurrently
+            // Split incoming jsonUrl to support multiple JSON URLs (new-line or comma separated)
+            val jsonUrlsList = jsonUrl.split("\n", ",").map { it.trim() }.filter { it.isNotBlank() }
+            val activeJsonUrls = if (jsonUrlsList.isEmpty()) listOf(DEFAULT_TAPMAD_JSON_URL) else jsonUrlsList
+
+            // 1. Fetch tapmad_bd.m3u
             val m3uDeferred = async {
                 if (m3uUrl.isNotBlank()) {
                     try {
@@ -2766,172 +2776,211 @@ class MediaRepository(private val context: Context) {
                 } else emptyList()
             }
 
-            val jsonDeferred = async {
-                try {
-                    val jsonReq = Request.Builder()
-                        .url(jsonUrl.trim())
-                        .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
-                        .build()
-                    val jsonResp = client.newCall(jsonReq).execute()
-                    if (jsonResp.isSuccessful) {
-                        jsonResp.body?.string()?.trim()
-                    } else null
-                } catch (e: Exception) {
-                    null
+            // 2. Fetch all JSON endpoints concurrently
+            val jsonContentsDeferred = activeJsonUrls.map { u ->
+                async {
+                    try {
+                        val jsonReq = Request.Builder()
+                            .url(u)
+                            .header("User-Agent", "NAFITV24/2.5.0 (Android ExoPlayer)")
+                            .build()
+                        val jsonResp = client.newCall(jsonReq).execute()
+                        if (jsonResp.isSuccessful) {
+                            jsonResp.body?.string()?.trim()
+                        } else null
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
             }
 
             val m3uChannels = m3uDeferred.await()
-            val jsonContent = jsonDeferred.await()
-            if (jsonContent.isNullOrBlank()) {
+            val jsonContents = jsonContentsDeferred.awaitAll().filterNotNull().filter { it.isNotBlank() }
+
+            if (jsonContents.isEmpty()) {
                 return@withContext m3uChannels.map { it.copy(type = MediaType.LIVE_EVENT) }
             }
-            val rootObj = JSONObject(jsonContent)
-            val matchesArr = rootObj.optJSONArray("Matches") ?: JSONArray()
 
             val sdfIn = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
             sdfIn.timeZone = java.util.TimeZone.getTimeZone("GMT+6") // Tapmad BD timezone
             val sdfOut = java.text.SimpleDateFormat("hh:mm a, dd MMM", java.util.Locale.US)
             val nowMillis = System.currentTimeMillis()
 
-            val rawParsedList = mutableListOf<MediaItem>()
+            for (jsonIdx in jsonContents.indices) {
+                val jsonContent = jsonContents[jsonIdx]
+                val matchesArr = try {
+                    if (jsonContent.startsWith("[")) {
+                        JSONArray(jsonContent)
+                    } else {
+                        val rootObj = JSONObject(jsonContent)
+                        rootObj.optJSONArray("Matches") 
+                            ?: rootObj.optJSONArray("matches") 
+                            ?: rootObj.optJSONArray("events") 
+                            ?: rootObj.optJSONArray("data") 
+                            ?: JSONArray()
+                    }
+                } catch (e: Exception) {
+                    JSONArray()
+                }
 
-            for (i in 0 until matchesArr.length()) {
-                val mObj = matchesArr.optJSONObject(i) ?: continue
-                val entityId = mObj.optString("EntityId", "$i")
-                val videoName = mObj.optString("VideoName", "").trim()
-                val categoryName = mObj.optString("CategoryName", "").trim()
-                val stageName = mObj.optString("StageName", "").trim()
-                val eventStartDate = mObj.optString("EventStartDate", "").trim()
-                val desc = mObj.optString("Description", "").trim()
-                val thumbStd = mObj.optString("ThumbnailStandard", "").trim().takeIf { it.isNotBlank() }
-                val thumbTv = mObj.optString("ThumbnailTV", "").trim().takeIf { it.isNotBlank() }
-                val statusStr = mObj.optString("Status", "Upcoming").trim()
-                val streamUrl = mObj.optString("stream_url", "").trim()
-                val isFree = mObj.optBoolean("IsFreeToWatch", false)
+                for (i in 0 until matchesArr.length()) {
+                    val mObj = matchesArr.optJSONObject(i) ?: continue
+                    val entityId = mObj.optString("EntityId", "").ifBlank { 
+                        mObj.optString("id", "${jsonIdx}_$i") 
+                    }
+                    val videoName = mObj.optString("VideoName", "").ifBlank { 
+                        mObj.optString("title", mObj.optString("name", "")) 
+                    }.trim()
+                    val categoryName = mObj.optString("CategoryName", "").ifBlank { 
+                        mObj.optString("category", "") 
+                    }.trim()
+                    val stageName = mObj.optString("StageName", "").ifBlank { 
+                        mObj.optString("stage", "") 
+                    }.trim()
+                    val eventStartDate = mObj.optString("EventStartDate", "").ifBlank { 
+                        mObj.optString("start_time", mObj.optString("date", "")) 
+                    }.trim()
+                    val desc = mObj.optString("Description", "").ifBlank { 
+                        mObj.optString("description", "") 
+                    }.trim()
+                    val thumbStd = (mObj.optString("ThumbnailStandard", "").ifBlank { 
+                        mObj.optString("thumbnail", mObj.optString("logo", "")) 
+                    }).trim().takeIf { it.isNotBlank() }
+                    val thumbTv = (mObj.optString("ThumbnailTV", "").ifBlank { 
+                        mObj.optString("poster", "") 
+                    }).trim().takeIf { it.isNotBlank() }
+                    val statusStr = mObj.optString("Status", "Upcoming").trim()
+                    val streamUrl = mObj.optString("stream_url", "").ifBlank { 
+                        mObj.optString("url", mObj.optString("link", "")) 
+                    }.trim()
+                    val isFree = mObj.optBoolean("IsFreeToWatch", false)
 
-                var countdownEpoch: Long? = null
-                var formattedTime: String? = null
-                var isLiveNow = statusStr.equals("Live", ignoreCase = true)
+                    var countdownEpoch: Long? = null
+                    var formattedTime: String? = null
+                    var isLiveNow = statusStr.equals("Live", ignoreCase = true)
 
-                if (eventStartDate.isNotBlank()) {
-                    try {
-                        val date = sdfIn.parse(eventStartDate)
-                        if (date != null) {
-                            countdownEpoch = date.time
-                            formattedTime = sdfOut.format(date)
-                            if (date.time <= nowMillis) {
-                                isLiveNow = true
+                    if (eventStartDate.isNotBlank()) {
+                        try {
+                            val date = sdfIn.parse(eventStartDate)
+                            if (date != null) {
+                                countdownEpoch = date.time
+                                formattedTime = sdfOut.format(date)
+                                if (date.time <= nowMillis) {
+                                    isLiveNow = true
+                                }
                             }
+                        } catch (_: Exception) {}
+                    }
+
+                    // Extract teams from videoName
+                    var cleanName = videoName
+                        .replace(Regex("(?i)^Watch Free\\s*-\\s*"), "")
+                        .replace(Regex("(?i)\\s*\\|.*$"), "")
+                        .trim()
+
+                    var team1: String? = null
+                    var team2: String? = null
+                    if (cleanName.contains(" vs ", ignoreCase = true)) {
+                        val parts = cleanName.split(Regex("(?i)\\s+vs\\s+"))
+                        if (parts.size >= 2) {
+                            team1 = parts[0].trim()
+                            team2 = parts[1].replace(Regex("(?i)\\s*-\\s*W$"), "")
+                                .replace(Regex("(?i)\\s+Test Series.*$"), "")
+                                .replace(Regex("(?i)\\s+T20.*$"), "")
+                                .replace(Regex("(?i)\\s+ODI.*$"), "")
+                                .trim()
                         }
-                    } catch (_: Exception) {}
-                }
+                    }
 
-                // Extract teams from videoName
-                var cleanName = videoName
-                    .replace(Regex("(?i)^Watch Free\\s*-\\s*"), "")
-                    .replace(Regex("(?i)\\s*\\|.*$"), "")
-                    .trim()
+                    // Categorize Sport
+                    val sportCategory = when {
+                        categoryName.contains("Cricket", ignoreCase = true) || 
+                        categoryName.contains("Tour of", ignoreCase = true) || 
+                        videoName.contains("Cricket", ignoreCase = true) ||
+                        stageName.contains("Test", ignoreCase = true) ||
+                        categoryName.contains("IPL", ignoreCase = true) ||
+                        categoryName.contains("BPL", ignoreCase = true) ||
+                        categoryName.contains("PSL", ignoreCase = true) -> "Cricket"
+                        
+                        categoryName.contains("Football", ignoreCase = true) || 
+                        categoryName.contains("Soccer", ignoreCase = true) ||
+                        categoryName.contains("League", ignoreCase = true) ||
+                        (categoryName.contains("Cup", ignoreCase = true) && !categoryName.contains("Hockey", ignoreCase = true)) -> "Football"
+                        
+                        categoryName.contains("Hockey", ignoreCase = true) || 
+                        categoryName.contains("FIH", ignoreCase = true) -> "Hockey"
+                        
+                        categoryName.contains("Kabaddi", ignoreCase = true) -> "Kabaddi"
+                        
+                        categoryName.isNotBlank() -> categoryName
+                        else -> "Sports"
+                    }
 
-                var team1: String? = null
-                var team2: String? = null
-                if (cleanName.contains(" vs ", ignoreCase = true)) {
-                    val parts = cleanName.split(Regex("(?i)\\s+vs\\s+"))
-                    if (parts.size >= 2) {
-                        team1 = parts[0].trim()
-                        team2 = parts[1].replace(Regex("(?i)\\s*-\\s*W$"), "")
-                            .replace(Regex("(?i)\\s+Test Series.*$"), "")
-                            .replace(Regex("(?i)\\s+T20.*$"), "")
-                            .replace(Regex("(?i)\\s+ODI.*$"), "")
-                            .trim()
+                    val serversList = mutableListOf<StreamServer>()
+                    val primaryServerName = if (isFree) "Watch Free" else "Live HD"
+                    if (streamUrl.isNotBlank()) {
+                        serversList.add(StreamServer(primaryServerName, streamUrl))
+                    }
+
+                    // Match with m3uChannels
+                    val matchingM3u = m3uChannels.filter { 
+                        it.id.contains(entityId) || 
+                        (team1 != null && team2 != null && it.title.contains(team1, ignoreCase = true) && it.title.contains(team2, ignoreCase = true))
+                    }
+                    for (m in matchingM3u) {
+                        if (m.streamUrl.isNotBlank() && serversList.none { it.url.trim().equals(m.streamUrl.trim(), ignoreCase = true) }) {
+                            val srvName = if (m.title.contains("Watch Free", ignoreCase = true)) {
+                                "Watch Free"
+                            } else {
+                                "HD Server ${serversList.size + 1}"
+                            }
+                            serversList.add(StreamServer(srvName, m.streamUrl))
+                        }
+                    }
+
+                    val primaryStream = serversList.firstOrNull()?.url ?: streamUrl
+
+                    val cleanCat = categoryName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
+                    val cleanVidName = videoName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
+
+                    val displayTitle = if (cleanCat.isNotBlank() && !cleanVidName.contains(cleanCat, ignoreCase = true)) {
+                        "$cleanVidName | $cleanCat"
+                    } else {
+                        cleanVidName
+                    }
+
+                    val stageHeader = if (stageName.isNotBlank()) stageName.uppercase() else "GROUP STAGE"
+                    val tournamentBadge = if (cleanCat.isNotBlank()) cleanCat else "$sportCategory 2026"
+
+                    val uniqueItemId = "tapmad_${entityId}_${jsonIdx}_$i"
+                    if (items.none { it.id == uniqueItemId || (it.streamUrl.isNotBlank() && it.streamUrl == primaryStream) }) {
+                        items.add(
+                            MediaItem(
+                                id = uniqueItemId,
+                                title = displayTitle.ifBlank { videoName },
+                                category = sportCategory,
+                                type = MediaType.LIVE_EVENT,
+                                streamUrl = primaryStream,
+                                servers = serversList,
+                                logoUrl = thumbStd ?: thumbTv,
+                                description = desc.takeIf { it.isNotBlank() },
+                                isLive = isLiveNow,
+                                status = stageHeader,
+                                tournament = tournamentBadge,
+                                team1 = team1 ?: videoName,
+                                team2 = team2 ?: stageHeader,
+                                team1Logo = thumbStd,
+                                team2Logo = thumbTv,
+                                matchTimeFormatted = formattedTime ?: eventStartDate,
+                                countdownTargetSeconds = countdownEpoch,
+                                quality = "HD",
+                                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                                referrer = "https://www.tapmad.com/",
+                                origin = "https://www.tapmad.com"
+                            )
+                        )
                     }
                 }
-
-                // Categorize Sport
-                val sportCategory = when {
-                    categoryName.contains("Cricket", ignoreCase = true) || 
-                    categoryName.contains("Tour of", ignoreCase = true) || 
-                    videoName.contains("Cricket", ignoreCase = true) ||
-                    stageName.contains("Test", ignoreCase = true) ||
-                    categoryName.contains("IPL", ignoreCase = true) ||
-                    categoryName.contains("BPL", ignoreCase = true) ||
-                    categoryName.contains("PSL", ignoreCase = true) -> "Cricket"
-                    
-                    categoryName.contains("Football", ignoreCase = true) || 
-                    categoryName.contains("Soccer", ignoreCase = true) ||
-                    categoryName.contains("League", ignoreCase = true) ||
-                    (categoryName.contains("Cup", ignoreCase = true) && !categoryName.contains("Hockey", ignoreCase = true)) -> "Football"
-                    
-                    categoryName.contains("Hockey", ignoreCase = true) || 
-                    categoryName.contains("FIH", ignoreCase = true) -> "Hockey"
-                    
-                    categoryName.contains("Kabaddi", ignoreCase = true) -> "Kabaddi"
-                    
-                    categoryName.isNotBlank() -> categoryName
-                    else -> "Sports"
-                }
-
-                val serversList = mutableListOf<StreamServer>()
-                val primaryServerName = if (isFree) "Watch Free" else "Live HD"
-                if (streamUrl.isNotBlank()) {
-                    serversList.add(StreamServer(primaryServerName, streamUrl))
-                }
-
-                // Match with m3uChannels
-                val matchingM3u = m3uChannels.filter { 
-                    it.id.contains(entityId) || 
-                    (team1 != null && team2 != null && it.title.contains(team1, ignoreCase = true) && it.title.contains(team2, ignoreCase = true))
-                }
-                for (m in matchingM3u) {
-                    if (m.streamUrl.isNotBlank() && serversList.none { it.url.trim().equals(m.streamUrl.trim(), ignoreCase = true) }) {
-                        val srvName = if (m.title.contains("Watch Free", ignoreCase = true)) {
-                            "Watch Free"
-                        } else {
-                            "HD Server ${serversList.size + 1}"
-                        }
-                        serversList.add(StreamServer(srvName, m.streamUrl))
-                    }
-                }
-
-                val primaryStream = serversList.firstOrNull()?.url ?: streamUrl
-
-                val cleanCat = categoryName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
-                val cleanVidName = videoName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
-
-                val displayTitle = if (cleanCat.isNotBlank() && !cleanVidName.contains(cleanCat, ignoreCase = true)) {
-                    "$cleanVidName | $cleanCat"
-                } else {
-                    cleanVidName
-                }
-
-                val stageHeader = if (stageName.isNotBlank()) stageName.uppercase() else "GROUP STAGE"
-                val tournamentBadge = if (cleanCat.isNotBlank()) cleanCat else "$sportCategory 2026"
-
-                items.add(
-                    MediaItem(
-                        id = "tapmad_${entityId}_$i",
-                        title = displayTitle.ifBlank { videoName },
-                        category = sportCategory,
-                        type = MediaType.LIVE_EVENT,
-                        streamUrl = primaryStream,
-                        servers = serversList,
-                        logoUrl = thumbStd ?: thumbTv,
-                        description = desc.takeIf { it.isNotBlank() },
-                        isLive = isLiveNow,
-                        status = stageHeader,
-                        tournament = tournamentBadge,
-                        team1 = team1 ?: videoName,
-                        team2 = team2 ?: stageHeader,
-                        team1Logo = thumbStd,
-                        team2Logo = thumbTv,
-                        matchTimeFormatted = formattedTime ?: eventStartDate,
-                        countdownTargetSeconds = countdownEpoch,
-                        quality = "HD",
-                        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                        referrer = "https://www.tapmad.com/",
-                        origin = "https://www.tapmad.com"
-                    )
-                )
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -2951,11 +3000,12 @@ class MediaRepository(private val context: Context) {
         return stored
     }
 
-    // Push remote configuration (Live TV M3U, Sports M3U, Movies M3U) to Firebase RTDB and Firestore
+    // Push remote configuration (Live TV M3U, Sports M3U, Movies M3U, Sports/Tapmad JSON API) to Firebase RTDB and Firestore
     suspend fun pushAppConfigToFirebase(
         liveTvM3u: String = getSavedLiveTvM3uUrl(),
         sportsM3u: String = getSavedSportsM3uUrl(),
         moviesM3u: String = getSavedMoviesM3uUrl(),
+        tapmadJson: String = getSavedTapmadJsonUrl(),
         url: String = getSavedFirebaseUrl()
     ): Boolean = withContext(Dispatchers.IO) {
         var success = false
@@ -2967,6 +3017,7 @@ class MediaRepository(private val context: Context) {
                 obj.put("liveTvM3uUrl", liveTvM3u)
                 obj.put("sportsM3uUrl", sportsM3u)
                 obj.put("moviesM3uUrl", moviesM3u)
+                obj.put("tapmadJsonUrl", tapmadJson)
                 val body = obj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                 val targetUrl = appendRtdbAuth("$cleanUrl/app_config.json")
                 val req = Request.Builder().url(targetUrl).put(body).build()
@@ -2983,6 +3034,7 @@ class MediaRepository(private val context: Context) {
             fields.put("liveTvM3uUrl", JSONObject().put("stringValue", liveTvM3u))
             fields.put("sportsM3uUrl", JSONObject().put("stringValue", sportsM3u))
             fields.put("moviesM3uUrl", JSONObject().put("stringValue", moviesM3u))
+            fields.put("tapmadJsonUrl", JSONObject().put("stringValue", tapmadJson))
             firestoreObj.put("fields", fields)
             val fsBody = firestoreObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
             val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
@@ -2998,11 +3050,12 @@ class MediaRepository(private val context: Context) {
         success
     }
 
-    // Fetch remote configuration (Live TV M3U, Sports M3U, Movies M3U) from Firebase RTDB and Firestore
-    suspend fun fetchAppConfigFromFirebase(url: String = getSavedFirebaseUrl()): Triple<String, String, String>? = withContext(Dispatchers.IO) {
+    // Fetch remote configuration (Live TV M3U, Sports M3U, Movies M3U, Sports/Tapmad JSON API) from Firebase RTDB and Firestore
+    suspend fun fetchAppConfigFromFirebase(url: String = getSavedFirebaseUrl()): AppConfigData? = withContext(Dispatchers.IO) {
         var remoteLiveTv: String? = null
         var remoteSports: String? = null
         var remoteMovies: String? = null
+        var remoteTapmadJson: String? = null
 
         coroutineScope {
             // 1. Fetch from Firestore
@@ -3012,6 +3065,7 @@ class MediaRepository(private val context: Context) {
                     var fsLiveTv: String? = null
                     var fsSports: String? = null
                     var fsMovies: String? = null
+                    var fsTapmad: String? = null
                     try {
                         val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/settings/app_config?key=$FIREBASE_API_KEY"
                         val req = Request.Builder().url(fsUrl).header("User-Agent", "NAFITV24-Android/2.5.0").build()
@@ -3025,13 +3079,14 @@ class MediaRepository(private val context: Context) {
                                     fsLiveTv = fields.optJSONObject("liveTvM3uUrl")?.optString("stringValue")
                                     fsSports = fields.optJSONObject("sportsM3uUrl")?.optString("stringValue")
                                     fsMovies = fields.optJSONObject("moviesM3uUrl")?.optString("stringValue")
+                                    fsTapmad = fields.optJSONObject("tapmadJsonUrl")?.optString("stringValue")
                                 }
                             }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
-                    Triple(fsLiveTv, fsSports, fsMovies)
+                    listOf(fsLiveTv, fsSports, fsMovies, fsTapmad)
                 }
             }
 
@@ -3040,6 +3095,7 @@ class MediaRepository(private val context: Context) {
                 var rtdbLiveTv: String? = null
                 var rtdbSports: String? = null
                 var rtdbMovies: String? = null
+                var rtdbTapmad: String? = null
                 if (url.isNotBlank()) {
                     try {
                         val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
@@ -3053,37 +3109,42 @@ class MediaRepository(private val context: Context) {
                                 if (obj.has("liveTvM3uUrl")) rtdbLiveTv = obj.optString("liveTvM3uUrl")
                                 if (obj.has("sportsM3uUrl")) rtdbSports = obj.optString("sportsM3uUrl")
                                 if (obj.has("moviesM3uUrl")) rtdbMovies = obj.optString("moviesM3uUrl")
+                                if (obj.has("tapmadJsonUrl")) rtdbTapmad = obj.optString("tapmadJsonUrl")
                             }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
                 }
-                Triple(rtdbLiveTv, rtdbSports, rtdbMovies)
+                listOf(rtdbLiveTv, rtdbSports, rtdbMovies, rtdbTapmad)
             }
 
             val fsResults = fsJobs.awaitAll()
             val rtdbResult = rtdbJob.await()
 
             for (res in fsResults) {
-                if (!res.first.isNullOrBlank()) remoteLiveTv = res.first
-                if (!res.second.isNullOrBlank()) remoteSports = res.second
-                if (!res.third.isNullOrBlank()) remoteMovies = res.third
+                if (!res[0].isNullOrBlank()) remoteLiveTv = res[0]
+                if (!res[1].isNullOrBlank()) remoteSports = res[1]
+                if (!res[2].isNullOrBlank()) remoteMovies = res[2]
+                if (!res[3].isNullOrBlank()) remoteTapmadJson = res[3]
             }
-            if (!rtdbResult.first.isNullOrBlank()) remoteLiveTv = rtdbResult.first
-            if (!rtdbResult.second.isNullOrBlank()) remoteSports = rtdbResult.second
-            if (!rtdbResult.third.isNullOrBlank()) remoteMovies = rtdbResult.third
+            if (!rtdbResult[0].isNullOrBlank()) remoteLiveTv = rtdbResult[0]
+            if (!rtdbResult[1].isNullOrBlank()) remoteSports = rtdbResult[1]
+            if (!rtdbResult[2].isNullOrBlank()) remoteMovies = rtdbResult[2]
+            if (!rtdbResult[3].isNullOrBlank()) remoteTapmadJson = rtdbResult[3]
         }
 
-        if (remoteLiveTv != null || remoteSports != null || remoteMovies != null) {
+        if (remoteLiveTv != null || remoteSports != null || remoteMovies != null || remoteTapmadJson != null) {
             val finalLiveTv = if (!remoteLiveTv.isNullOrBlank()) remoteLiveTv!! else getSavedLiveTvM3uUrl()
             val finalSports = if (!remoteSports.isNullOrBlank()) remoteSports!! else getSavedSportsM3uUrl()
             val finalMovies = if (!remoteMovies.isNullOrBlank()) remoteMovies!! else getSavedMoviesM3uUrl()
+            val finalTapmad = if (!remoteTapmadJson.isNullOrBlank()) remoteTapmadJson!! else getSavedTapmadJsonUrl()
             // Cache locally so offline access uses the latest remote config
             if (remoteLiveTv?.isNotBlank() == true) saveLiveTvM3uUrl(finalLiveTv)
             if (remoteSports?.isNotBlank() == true) saveSportsM3uUrl(finalSports)
             if (remoteMovies?.isNotBlank() == true) saveMoviesM3uUrl(finalMovies)
-            Triple(finalLiveTv, finalSports, finalMovies)
+            if (remoteTapmadJson?.isNotBlank() == true) saveTapmadJsonUrl(finalTapmad)
+            AppConfigData(finalLiveTv, finalSports, finalMovies, finalTapmad)
         } else {
             null
         }
