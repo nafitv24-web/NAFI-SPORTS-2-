@@ -140,8 +140,10 @@ fun AdminControlAppScreen(
     val sportOptions = listOf("CRICKET", "FOOTBALL", "WWE", "TENNIS", "OTHERS")
     val statusOptions = listOf("UPCOMING", "LIVE", "FINISHED")
 
-    // Sports M3U
+    // Sports M3U & Tapmad Live Events
     var sportsM3uInput by remember { mutableStateOf(repository.getSavedSportsM3uUrl()) }
+    var tapmadJsonInput by remember { mutableStateOf(repository.getSavedTapmadJsonUrl()) }
+    var tapmadM3uInput by remember { mutableStateOf(repository.getSavedTapmadM3uUrl()) }
 
     // Edit/Update/Delete Match State
     var editingMatchItem by remember { mutableStateOf<MediaItem?>(null) }
@@ -1520,6 +1522,98 @@ fun AdminControlAppScreen(
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
                                 ) {
                                     Text("ডিফল্ট লিংক", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Live Events & Tapmad Sports JSON API Manager
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.LiveTv, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("⚡ লাইভ ইভেন্ট ও স্পোর্টস JSON API (Live Events JSON)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Text(
+                                text = "লাইভ ইভেন্ট (Live Events) সেকশনে সরাসরি ম্যাচ ও স্ট্রিমিং লোড করার জন্য Tapmad BD বা স্পোর্টস JSON API URL দিন। যেমন Gist/GitHub Raw JSON লিংক।",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp
+                            )
+
+                            // Tapmad JSON URL Input
+                            Text("লাইভ স্পোর্টস JSON API লিংক (যেমন gist / raw github json):", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            OutlinedTextField(
+                                value = tapmadJsonInput,
+                                onValueChange = { tapmadJsonInput = it },
+                                placeholder = { Text("https://gist.githubusercontent.com/.../tapmad_bd.json", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = false,
+                                minLines = 2,
+                                maxLines = 4
+                            )
+
+                            // Tapmad M3U Stream Fallback Input
+                            Text("লাইভ স্পোর্টস M3U ব্যাকআপ লিংক (ঐচ্ছিক):", color = Color(0xFF94A3B8), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = tapmadM3uInput,
+                                onValueChange = { tapmadM3uInput = it },
+                                placeholder = { Text("https://raw.githubusercontent.com/.../tapmad_bd.m3u", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (tapmadJsonInput.isNotBlank()) {
+                                            val jsonUrl = tapmadJsonInput.trim()
+                                            val m3uUrl = tapmadM3uInput.trim()
+                                            repository.saveTapmadJsonUrl(jsonUrl)
+                                            repository.saveTapmadM3uUrl(m3uUrl)
+                                            onDataChanged()
+                                            Toast.makeText(context, "✅ লাইভ ইভেন্ট JSON API সফলভাবে সেভ হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "সঠিক JSON API লিংক দিন", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1.3f).height(44.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8), contentColor = Color.Black),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Rounded.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("JSON সেভ ও লোড করুন", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        tapmadJsonInput = MediaRepository.DEFAULT_TAPMAD_JSON_URL
+                                        tapmadM3uInput = MediaRepository.DEFAULT_TAPMAD_M3U_URL
+                                        repository.saveTapmadJsonUrl(MediaRepository.DEFAULT_TAPMAD_JSON_URL)
+                                        repository.saveTapmadM3uUrl(MediaRepository.DEFAULT_TAPMAD_M3U_URL)
+                                        onDataChanged()
+                                        Toast.makeText(context, "ডিফল্ট JSON API লিংক রিসেট করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f).height(44.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
+                                ) {
+                                    Text("ডিফল্ট JSON", fontSize = 11.sp)
                                 }
                             }
                         }
@@ -3088,6 +3182,20 @@ fun AdminControlAppScreen(
                                 maxLines = 5
                             )
 
+                            // 4. Tapmad Live Events JSON URL
+                            Text("4. লাইভ স্পোর্টস / Tapmad JSON API URL:", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            OutlinedTextField(
+                                value = tapmadJsonInput,
+                                onValueChange = { tapmadJsonInput = it },
+                                placeholder = { Text("https://gist.githubusercontent.com/.../tapmad_bd.json", color = Color(0xFF64748B), fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = false,
+                                minLines = 2,
+                                maxLines = 4
+                            )
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -3097,14 +3205,18 @@ fun AdminControlAppScreen(
                                         val liveUrl = liveTvM3uInput.trim()
                                         val sportsUrl = sportsM3uInput.trim()
                                         val movUrl = moviesM3uInput.trim()
+                                        val tapmadUrl = tapmadJsonInput.trim()
                                         repository.saveLiveTvM3uUrl(liveUrl)
                                         repository.saveSportsM3uUrl(sportsUrl)
                                         repository.saveMoviesM3uUrl(movUrl)
+                                        if (tapmadUrl.isNotBlank()) {
+                                            repository.saveTapmadJsonUrl(tapmadUrl)
+                                        }
                                         coroutineScope.launch {
                                             repository.pushAppConfigToFirebase(liveTvM3u = liveUrl, sportsM3u = sportsUrl, moviesM3u = movUrl)
                                         }
                                         onDataChanged()
-                                        Toast.makeText(context, "✅ সকল M3U লিংক সেভ ও ক্লাউডে সিঙ্ক সম্পন্ন হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "✅ সকল প্লেলিস্ট ও JSON লিংক সেভ এবং সিঙ্ক সম্পন্ন হয়েছে!", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.weight(1.3f).height(46.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
@@ -3112,16 +3224,18 @@ fun AdminControlAppScreen(
                                 ) {
                                     Icon(Icons.Rounded.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("সব M3U সেভ ও সিঙ্ক", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("সব সেভ ও সিঙ্ক", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                                 OutlinedButton(
                                     onClick = {
                                         liveTvM3uInput = MediaRepository.DEFAULT_LIVE_TV_M3U_URL
                                         sportsM3uInput = MediaRepository.DEFAULT_SPORTS_M3U_URL
                                         moviesM3uInput = MediaRepository.DEFAULT_MOVIES_M3U_URL
+                                        tapmadJsonInput = MediaRepository.DEFAULT_TAPMAD_JSON_URL
                                         repository.saveLiveTvM3uUrl(MediaRepository.DEFAULT_LIVE_TV_M3U_URL)
                                         repository.saveSportsM3uUrl(MediaRepository.DEFAULT_SPORTS_M3U_URL)
                                         repository.saveMoviesM3uUrl(MediaRepository.DEFAULT_MOVIES_M3U_URL)
+                                        repository.saveTapmadJsonUrl(MediaRepository.DEFAULT_TAPMAD_JSON_URL)
                                         coroutineScope.launch {
                                             repository.pushAppConfigToFirebase(
                                                 liveTvM3u = MediaRepository.DEFAULT_LIVE_TV_M3U_URL,
@@ -3130,7 +3244,7 @@ fun AdminControlAppScreen(
                                             )
                                         }
                                         onDataChanged()
-                                        Toast.makeText(context, "সকল ডিফল্ট M3U লিংক রিসেট ও সিঙ্ক হয়েছে", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "সকল ডিফল্ট M3U ও JSON লিংক রিসেট করা হয়েছে", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.weight(1f).height(46.dp),
                                     shape = RoundedCornerShape(10.dp),
