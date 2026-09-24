@@ -226,6 +226,22 @@ fun AdminControlAppScreen(
     var moviesAdminSearchQuery by remember { mutableStateOf("") }
     var moviesFilterType by remember { mutableStateOf("ALL") } // "ALL", "CUSTOM"
 
+    // Xtream Codes API Admin State
+    var xtreamAccountsList by remember { mutableStateOf(repository.getXtreamAccounts()) }
+    var xtreamServerName by remember { mutableStateOf("Starshare Xtream Server") }
+    var xtreamServerUrl by remember { mutableStateOf("http://rgkkw.live:80") }
+    var xtreamUsernameInput by remember { mutableStateOf("4dfoydR2gZ") }
+    var xtreamPasswordInput by remember { mutableStateOf("clever3still") }
+    var xtreamIncludeLive by remember { mutableStateOf(true) }
+    var xtreamIncludeVod by remember { mutableStateOf(true) }
+    var xtreamIncludeSeries by remember { mutableStateOf(true) }
+    var xtreamTesting by remember { mutableStateOf(false) }
+    var xtreamSyncing by remember { mutableStateOf(false) }
+    var xtreamTestResult by remember { mutableStateOf<String?>(null) }
+    var xtreamIsTestSuccess by remember { mutableStateOf(false) }
+    var xtreamEditingId by remember { mutableStateOf<String?>(null) }
+    var xtreamPasswordVisible by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         try {
             val remoteConfig = repository.fetchAppConfigFromFirebase()
@@ -234,6 +250,9 @@ fun AdminControlAppScreen(
                 if (remoteConfig.sportsM3uUrl.isNotBlank()) sportsM3uInput = remoteConfig.sportsM3uUrl
                 if (remoteConfig.moviesM3uUrl.isNotBlank()) moviesM3uInput = remoteConfig.moviesM3uUrl
                 if (remoteConfig.tapmadJsonUrl.isNotBlank()) tapmadJsonInput = remoteConfig.tapmadJsonUrl
+                if (remoteConfig.xtreamServerUrl.isNotBlank()) xtreamServerUrl = remoteConfig.xtreamServerUrl
+                if (remoteConfig.xtreamUsername.isNotBlank()) xtreamUsernameInput = remoteConfig.xtreamUsername
+                if (remoteConfig.xtreamPassword.isNotBlank()) xtreamPasswordInput = remoteConfig.xtreamPassword
             }
         } catch (_: Exception) {}
     }
@@ -520,6 +539,7 @@ fun AdminControlAppScreen(
                             AdminTab.CHANNELS -> Color(0xFF2563EB)
                             AdminTab.MOVIES -> Color(0xFF8B5CF6)
                             AdminTab.PLAYLISTS -> Color(0xFF10B981)
+                            AdminTab.XTREAM -> Color(0xFF06B6D4)
                             AdminTab.SPORTS -> Color(0xFFF59E0B)
                             AdminTab.BROADCAST -> Color(0xFFEF4444)
                             AdminTab.REPOSITORIES -> Color(0xFF6366F1)
@@ -3547,8 +3567,426 @@ fun AdminControlAppScreen(
             }
 
             // -------------------------------------------------------------
-            // TAB 5 CONTENT: IN-APP UPDATE & VERSION MANAGEMENT
+            // TAB: XTREAM CODES API ADMIN & SYNC CONTROL
             // -------------------------------------------------------------
+            if (selectedAdminTab == AdminTab.XTREAM) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = BorderStroke(1.dp, Color(0xFF06B6D4).copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("📡 Xtream Codes API কন্ট্রোল প্যানেল", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text("STAR Jalsha, Hum TV, Pakistani Drama, বাংলা নাটক, লাইভ টিভি ও মুভি-সিরিজ সিঙ্ক করুন", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+                                }
+                            }
+
+                            HorizontalDivider(color = Color(0xFF334155))
+
+                            Text(
+                                text = if (xtreamEditingId != null) "✏️ Xtream সার্ভার এডিট করুন" else "➕ Xtream Codes সার্ভার যোগ / কনফিগার করুন",
+                                color = Color(0xFF38BDF8),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp
+                            )
+
+                            // 1. Server Name
+                            OutlinedTextField(
+                                value = xtreamServerName,
+                                onValueChange = { xtreamServerName = it },
+                                label = { Text("সার্ভারের নাম (যেমন: Starshare Xtream)", color = Color(0xFF94A3B8)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true
+                            )
+
+                            // 2. Server Host URL
+                            OutlinedTextField(
+                                value = xtreamServerUrl,
+                                onValueChange = { xtreamServerUrl = it },
+                                label = { Text("Host URL (যেমন: http://rgkkw.live:80)", color = Color(0xFF94A3B8)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true
+                            )
+
+                            // 3. Username
+                            OutlinedTextField(
+                                value = xtreamUsernameInput,
+                                onValueChange = { xtreamUsernameInput = it },
+                                label = { Text("👤 Username (যেমন: 4dfoydR2gZ)", color = Color(0xFF94A3B8)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true
+                            )
+
+                            // 4. Password
+                            OutlinedTextField(
+                                value = xtreamPasswordInput,
+                                onValueChange = { xtreamPasswordInput = it },
+                                label = { Text("🔐 Password (যেমন: clever3still)", color = Color(0xFF94A3B8)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                visualTransformation = if (xtreamPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { xtreamPasswordVisible = !xtreamPasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (xtreamPasswordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                            contentDescription = "Toggle password visibility",
+                                            tint = Color(0xFF94A3B8)
+                                        )
+                                    }
+                                }
+                            )
+
+                            // Content Inclusion Switches
+                            Text("অন্তর্ভুক্তির অপশনসমূহ:", color = Color(0xFFE2E8F0), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = xtreamIncludeLive,
+                                        onCheckedChange = { xtreamIncludeLive = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF06B6D4), uncheckedColor = Color(0xFF64748B))
+                                    )
+                                    Text("🔴 Live TV চ্যানেল (STAR Jalsha, Hum TV ইত্যাদি)", color = Color.White, fontSize = 11.5.sp)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = xtreamIncludeSeries,
+                                        onCheckedChange = { xtreamIncludeSeries = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF06B6D4), uncheckedColor = Color(0xFF64748B))
+                                    )
+                                    Text("🎭 সিরিয়াল ও নাটক (STAR Jalsha, Hum TV, Pak Drama ইত্যাদি)", color = Color.White, fontSize = 11.5.sp)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = xtreamIncludeVod,
+                                        onCheckedChange = { xtreamIncludeVod = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF06B6D4), uncheckedColor = Color(0xFF64748B))
+                                    )
+                                    Text("🎬 VOD মুভিজ (Bangla, Hindi Dubbed, Netflix)", color = Color.White, fontSize = 11.5.sp)
+                                }
+                            }
+
+                            // Test Result Banner
+                            if (xtreamTestResult != null) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (xtreamIsTestSuccess) Color(0xFF064E3B) else Color(0xFF450A0A)
+                                    ),
+                                    border = BorderStroke(1.dp, if (xtreamIsTestSuccess) Color(0xFF10B981) else Color(0xFFEF4444))
+                                ) {
+                                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            if (xtreamIsTestSuccess) Icons.Rounded.CheckCircle else Icons.Rounded.Error,
+                                            contentDescription = null,
+                                            tint = if (xtreamIsTestSuccess) Color(0xFF34D399) else Color(0xFFF87171),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = xtreamTestResult ?: "",
+                                            color = Color.White,
+                                            fontSize = 11.5.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Action Buttons
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (xtreamServerUrl.isNotBlank() && xtreamUsernameInput.isNotBlank() && xtreamPasswordInput.isNotBlank()) {
+                                            xtreamTesting = true
+                                            xtreamTestResult = null
+                                            coroutineScope.launch {
+                                                val (ok, msg) = repository.testXtreamCodes(xtreamServerUrl, xtreamUsernameInput, xtreamPasswordInput)
+                                                xtreamTesting = false
+                                                xtreamIsTestSuccess = ok
+                                                xtreamTestResult = msg
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "Host URL, Username এবং Password প্রদান করুন", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF06B6D4)),
+                                    enabled = !xtreamTesting && !xtreamSyncing
+                                ) {
+                                    if (xtreamTesting) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF06B6D4), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Rounded.Bolt, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("টেস্ট করুন", color = Color(0xFF06B6D4), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (xtreamServerUrl.isNotBlank() && xtreamUsernameInput.isNotBlank() && xtreamPasswordInput.isNotBlank()) {
+                                            val accountId = xtreamEditingId ?: "xtream_${System.currentTimeMillis()}"
+                                            val account = com.example.model.XtreamAccount(
+                                                id = accountId,
+                                                name = if (xtreamServerName.isNotBlank()) xtreamServerName.trim() else "Xtream Server",
+                                                serverUrl = xtreamServerUrl.trim(),
+                                                username = xtreamUsernameInput.trim(),
+                                                password = xtreamPasswordInput.trim(),
+                                                isEnabled = true,
+                                                includeLive = xtreamIncludeLive,
+                                                includeVod = xtreamIncludeVod,
+                                                includeSeries = xtreamIncludeSeries,
+                                                lastSyncTime = System.currentTimeMillis(),
+                                                statusMessage = "সক্রিয় (Active)"
+                                            )
+                                            repository.saveXtreamAccount(account)
+                                            xtreamAccountsList = repository.getXtreamAccounts()
+                                            xtreamEditingId = null
+
+                                            // Sync live channels and movies/series immediately
+                                            xtreamSyncing = true
+                                            coroutineScope.launch {
+                                                try {
+                                                    val movAndSeries = repository.fetchAllXtreamMoviesAndSeries()
+                                                    if (movAndSeries.isNotEmpty()) {
+                                                        repository.saveCachedMoviesList((moviesList + movAndSeries).distinctBy { it.id })
+                                                    }
+                                                    val liveChans = repository.fetchAllXtreamLiveChannels()
+                                                    if (liveChans.isNotEmpty()) {
+                                                        repository.saveCachedLiveTvChannels((liveTvList + liveChans).distinctBy { it.id })
+                                                    }
+                                                    onDataChanged()
+                                                    Toast.makeText(context, "✅ Xtream ডাটা সফলভাবে সিঙ্ক হয়েছে! (${movAndSeries.size} টি মুভি/সিরিজ ও ${liveChans.size} টি লাইভ চ্যানেল)", Toast.LENGTH_LONG).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "সংরক্ষিত হয়েছে! ব্যাকগ্রাউন্ড সিঙ্ক চালু আছে।", Toast.LENGTH_SHORT).show()
+                                                } finally {
+                                                    xtreamSyncing = false
+                                                }
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "সব তথ্য সঠিকভাবে দিন", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1.3f).height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0891B2)),
+                                    enabled = !xtreamTesting && !xtreamSyncing
+                                ) {
+                                    if (xtreamSyncing) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("সিঙ্ক হচ্ছে...", color = Color.White, fontSize = 12.sp)
+                                    } else {
+                                        Icon(Icons.Rounded.Save, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("সেভ ও সিঙ্ক করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Configured Xtream Servers List
+                item {
+                    Text(
+                        text = "📋 কনফিগার করা Xtream সার্ভারসমূহ (${xtreamAccountsList.size} টি)",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+
+                items(xtreamAccountsList) { account ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = BorderStroke(1.dp, if (account.isEnabled) Color(0xFF06B6D4).copy(alpha = 0.4f) else Color(0xFF334155))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(if (account.isEnabled) Color(0xFF10B981) else Color(0xFF64748B))
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = account.name,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                Switch(
+                                    checked = account.isEnabled,
+                                    onCheckedChange = { enabled ->
+                                        val updated = account.copy(isEnabled = enabled)
+                                        repository.saveXtreamAccount(updated)
+                                        xtreamAccountsList = repository.getXtreamAccounts()
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF06B6D4), checkedTrackColor = Color(0xFF0891B2).copy(alpha = 0.5f))
+                                )
+                            }
+
+                            // Host & Credentials Preview
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("🌐 Host: ${account.serverUrl}", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("👤 User: ${account.username}", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                                    Text("🔐 Pass: ••••••••", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (account.includeLive) Text("🔴 Live TV", color = Color(0xFF34D399), fontSize = 10.5.sp)
+                                    if (account.includeSeries) Text("🎭 Series/Drama", color = Color(0xFF38BDF8), fontSize = 10.5.sp)
+                                    if (account.includeVod) Text("🎬 Movies", color = Color(0xFFFBBF24), fontSize = 10.5.sp)
+                                }
+                            }
+
+                            // Action Buttons: Test, Edit, Delete, Full Sync
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        xtreamTesting = true
+                                        xtreamTestResult = null
+                                        coroutineScope.launch {
+                                            val (ok, msg) = repository.testXtreamCodes(account.serverUrl, account.username, account.password)
+                                            xtreamTesting = false
+                                            xtreamIsTestSuccess = ok
+                                            xtreamTestResult = "[${account.name}] $msg"
+                                        }
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF06B6D4))
+                                ) {
+                                    Icon(Icons.Rounded.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("টেস্ট", fontSize = 11.sp)
+                                }
+
+                                TextButton(
+                                    onClick = {
+                                        xtreamEditingId = account.id
+                                        xtreamServerName = account.name
+                                        xtreamServerUrl = account.serverUrl
+                                        xtreamUsernameInput = account.username
+                                        xtreamPasswordInput = account.password
+                                        xtreamIncludeLive = account.includeLive
+                                        xtreamIncludeVod = account.includeVod
+                                        xtreamIncludeSeries = account.includeSeries
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF38BDF8))
+                                ) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("এডিট", fontSize = 11.sp)
+                                }
+
+                                TextButton(
+                                    onClick = {
+                                        xtreamSyncing = true
+                                        coroutineScope.launch {
+                                            try {
+                                                val movAndSeries = repository.fetchAllXtreamMoviesAndSeries()
+                                                if (movAndSeries.isNotEmpty()) {
+                                                    repository.saveCachedMoviesList((moviesList + movAndSeries).distinctBy { it.id })
+                                                }
+                                                val liveChans = repository.fetchAllXtreamLiveChannels()
+                                                if (liveChans.isNotEmpty()) {
+                                                    repository.saveCachedLiveTvChannels((liveTvList + liveChans).distinctBy { it.id })
+                                                }
+                                                onDataChanged()
+                                                Toast.makeText(context, "✅ সিঙ্ক সম্পন্ন! (${movAndSeries.size} মুভি/সিরিজ ও ${liveChans.size} লাইভ টিভি চ্যানেল যুক্ত হয়েছে)", Toast.LENGTH_LONG).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "সিঙ্ক ব্যর্থ: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                            } finally {
+                                                xtreamSyncing = false
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF10B981))
+                                ) {
+                                    Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("সিঙ্ক", fontSize = 11.sp)
+                                }
+
+                                if (xtreamAccountsList.size > 1) {
+                                    TextButton(
+                                        onClick = {
+                                            repository.deleteXtreamAccount(account.id)
+                                            xtreamAccountsList = repository.getXtreamAccounts()
+                                            Toast.makeText(context, "সার্ভার মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF4444))
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("মুছুন", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Quick Series & Channels Category Overview Card
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                        border = BorderStroke(1.dp, Color(0xFF334155))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("✨ অটো-সিঙ্ক হওয়া প্রধান ক্যাটাগরি ও সিরিয়ালসমূহ:", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            Text("• 🌟 STAR JALSHA (Cat 460): অনুরাগের ছোঁয়া, রামপ্রসাদ, বাংলা মিডিয়াম ও সমস্ত সিরিয়াল", color = Color(0xFFE2E8F0), fontSize = 11.sp)
+                            Text("• 📺 HUM TV (Cat 463): মহব্বত গুমশুদা মেরি, য়ুনহি, দিল পে জখম খায়ে হ্যায় ইত্যাদি", color = Color(0xFFE2E8F0), fontSize = 11.sp)
+                            Text("• 🇵🇰 PAKISTANI DRAMA (Cat 293): হযরত ইউসুফ, আয়নক ওয়ালা জিন, উম্মীদ ইত্যাদি", color = Color(0xFFE2E8F0), fontSize = 11.sp)
+                            Text("• 🇧🇩 ZEE BANGLA, SUN BANGLA & COLORS BANGLA: ইচ্ছে পুতুল, দিদি নং ১ ও সকল নাটক", color = Color(0xFFE2E8F0), fontSize = 11.sp)
+                            Text("• 🔴 LIVE BENGALI TV (Cat 9): STAR JALSHA 4K/HD/FHD, Zee Bangla, Colors Bangla", color = Color(0xFFE2E8F0), fontSize = 11.sp)
+                            Text("• 🔴 LIVE PAKISTAN TV (Cat 4 & 350): HUM TV EUROPE/HD/FHD, 24/7 Hum TV Drama", color = Color(0xFFE2E8F0), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
             if (selectedAdminTab == AdminTab.APP_UPDATE) {
                 item {
                     Card(

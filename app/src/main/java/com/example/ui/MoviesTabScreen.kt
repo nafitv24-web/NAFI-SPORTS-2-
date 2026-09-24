@@ -117,8 +117,19 @@ fun MoviesTabScreen(
         val unique = typeFilteredMovies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
-            .sorted()
-        listOf("All", "ডাউনলোডসমূহ") + unique
+
+        val priorityList = listOf(
+            "STAR JALSHA", "HUM TV", "PAKISTANI DRAMA", "ZEE BANGLA", "SUN BANGLA",
+            "COLORS BANGLA", "HOICHOI", "Chorki/Bangla", "HINDI TV SERIES", "STAR PLUS",
+            "STAR BHARAT", "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR"
+        )
+        val highPriority = unique.filter { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }
+            .sortedBy { cat ->
+                val idx = priorityList.indexOfFirst { cat.equals(it, ignoreCase = true) }
+                if (idx != -1) idx else 999
+            }
+        val others = unique.filterNot { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }.sorted()
+        listOf("All", "ডাউনলোডসমূহ") + highPriority + others
     }
 
     // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)

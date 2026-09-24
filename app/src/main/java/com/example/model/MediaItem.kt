@@ -288,7 +288,24 @@ data class AppConfigData(
     val liveTvM3uUrl: String = "",
     val sportsM3uUrl: String = "",
     val moviesM3uUrl: String = "",
-    val tapmadJsonUrl: String = ""
+    val tapmadJsonUrl: String = "",
+    val xtreamServerUrl: String = "http://rgkkw.live:80",
+    val xtreamUsername: String = "4dfoydR2gZ",
+    val xtreamPassword: String = "clever3still"
+)
+
+data class XtreamAccount(
+    val id: String = "xtream_${System.currentTimeMillis()}",
+    val name: String = "Starshare Xtream Server",
+    val serverUrl: String = "http://rgkkw.live:80",
+    val username: String = "4dfoydR2gZ",
+    val password: String = "clever3still",
+    val isEnabled: Boolean = true,
+    val includeLive: Boolean = true,
+    val includeVod: Boolean = true,
+    val includeSeries: Boolean = true,
+    val lastSyncTime: Long = 0L,
+    val statusMessage: String? = null
 )
 
 

@@ -2603,28 +2603,69 @@ class MediaRepository(private val context: Context) {
                     }
                 }
 
-                // C. Priority Series categories: Hoichoi, Chorki/Bangla, Netflix, Amazon Prime, Hotstar, Zee5, Sony LIV
-                val prioritySeriesCatIds = listOf(
-                    "118", "335", // HOICHOI, CHORKI / BANGLA
-                    "106", "171", // NETFLIX, NETFLIX MULTI-LANG
-                    "108", "188", // AMAZON PRIME, HBO MAX
-                    "102", "104", "105", "310" // DISNEY+HOTSTAR, ZEE5, SONY LIV, JIO CINEMA
+                // C. Priority Series categories: STAR JALSHA, HUM TV, PAKISTANI DRAMA, BANGLA, HINDI, NETFLIX, HOICHOI, etc.
+                val explicitSeriesCatIds = listOf(
+                    "460", // STAR JALSHA (Anurager Chhowa, Bangla Medium, Ramprasad, etc.)
+                    "463", // HUM TV (Muhabbat Gumshuda Meri, Yunhi, Dil Pe Zakham Khaye Hain, etc.)
+                    "293", // PAKISTANI DRAMA (Hazrat Yusuf, Ainak Wala Jin, Umeed, etc.)
+                    "461", // ZEE BANGLA (Icche Putul, Didi No 1, etc.)
+                    "496", // SUN BANGLA
+                    "487", // COLORS BANGLA
+                    "485", // SONY AATH
+                    "335", // Chorki/Bangla
+                    "118", // HOICHOI
+                    "444", // STAR PLUS (Anupamaa, Ghum Hai Kisikey Pyaar Meiin, Imlie, etc.)
+                    "446", // STAR BHARAT (RadhaKrishn, Ajooni, etc.)
+                    "442", // COLORS HINDI (Naagin, Bekaaboo, etc.)
+                    "443", // SONY (SET)
+                    "445", // ZEE TV (Bhabiji Ghar Par Hai, etc.)
+                    "161", // HINDI TV SERIES
+                    "491", // MTV HINDI
+                    "596", // SUN NEO HINDI
+                    "745", // 5Star
+                    "106", // NETFLIX
+                    "171", // NETFLIX (MULTI LANGUAGE)
+                    "108", // AMAZON PRIME
+                    "102", // DISNEY+HOTSTAR
+                    "104", // ZEE5+ALT BALAJI
+                    "105", // SONY LIV
+                    "188", // HBO MAX
+                    "310"  // JIO CINEMA
                 )
+
+                // Dynamically add all categories matching keywords from server's series categories
+                val targetSeriesCatIds = explicitSeriesCatIds.toMutableList()
+                val seriesKeywords = listOf("jalsha", "jolsha", "hum", "star", "pak", "drama", "bangla", "bengali", "serial", "zee", "colors", "sony", "netflix", "prime", "hotstar", "chorki", "hoichoi", "hindi")
+                for ((catId, catName) in seriesCatMap) {
+                    val lower = catName.lowercase()
+                    if (seriesKeywords.any { lower.contains(it) } && !targetSeriesCatIds.contains(catId)) {
+                        targetSeriesCatIds.add(catId)
+                    }
+                }
+
                 val prioritySeriesJob = async {
-                    for (catId in prioritySeriesCatIds) {
-                        try {
-                            val catSeriesItems = fetchXtreamCategoryItems(
-                                serverUrl = cleanServer,
-                                username = cleanUser,
-                                pass = cleanPass,
-                                categoryId = catId,
-                                type = "series"
-                            ).map { item ->
-                                val catName = seriesCatMap[catId] ?: item.category
-                                item.copy(category = catName)
+                    // Fetch categories in parallel batches of 6 to be fast and memory-efficient
+                    targetSeriesCatIds.chunked(6).forEach { chunk ->
+                        coroutineScope {
+                            val chunkJobs = chunk.map { catId ->
+                                async {
+                                    try {
+                                        val catSeriesItems = fetchXtreamCategoryItems(
+                                            serverUrl = cleanServer,
+                                            username = cleanUser,
+                                            pass = cleanPass,
+                                            categoryId = catId,
+                                            type = "series"
+                                        ).map { item ->
+                                            val catName = seriesCatMap[catId] ?: item.category
+                                            item.copy(category = catName)
+                                        }
+                                        synchronized(items) { items.addAll(catSeriesItems) }
+                                    } catch (_: Exception) {}
+                                }
                             }
-                            synchronized(items) { items.addAll(catSeriesItems) }
-                        } catch (_: Exception) {}
+                            chunkJobs.awaitAll()
+                        }
                     }
                 }
 
@@ -2696,12 +2737,149 @@ class MediaRepository(private val context: Context) {
         items.distinctBy { it.id }
     }
 
+    // -------------------------------------------------------------
+    // XTREAM CODES ACCOUNTS MANAGEMENT (ADMIN PANEL)
+    // -------------------------------------------------------------
+    fun getXtreamAccounts(): List<com.example.model.XtreamAccount> {
+        val jsonStr = prefs.getString("admin_xtream_accounts", null)
+        val list = mutableListOf<com.example.model.XtreamAccount>()
+        if (!jsonStr.isNullOrBlank()) {
+            try {
+                val arr = JSONArray(jsonStr)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(
+                        com.example.model.XtreamAccount(
+                            id = obj.optString("id", "xtream_$i"),
+                            name = obj.optString("name", "Xtream Server"),
+                            serverUrl = obj.optString("serverUrl", "http://rgkkw.live:80"),
+                            username = obj.optString("username", "4dfoydR2gZ"),
+                            password = obj.optString("password", "clever3still"),
+                            isEnabled = obj.optBoolean("isEnabled", true),
+                            includeLive = obj.optBoolean("includeLive", true),
+                            includeVod = obj.optBoolean("includeVod", true),
+                            includeSeries = obj.optBoolean("includeSeries", true),
+                            lastSyncTime = obj.optLong("lastSyncTime", 0L),
+                            statusMessage = obj.optString("statusMessage", null).takeIf { it?.isNotBlank() == true }
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        if (list.isEmpty()) {
+            val defaultAcc = com.example.model.XtreamAccount(
+                id = "default_rgkkw",
+                name = "Starshare Xtream Server",
+                serverUrl = prefs.getString("admin_xtream_server", "http://rgkkw.live:80") ?: "http://rgkkw.live:80",
+                username = prefs.getString("admin_xtream_user", "4dfoydR2gZ") ?: "4dfoydR2gZ",
+                password = prefs.getString("admin_xtream_pass", "clever3still") ?: "clever3still",
+                isEnabled = true,
+                includeLive = true,
+                includeVod = true,
+                includeSeries = true,
+                statusMessage = "সক্রিয় (Active)"
+            )
+            list.add(defaultAcc)
+            saveXtreamAccountsList(list)
+        }
+        return list
+    }
+
+    fun saveXtreamAccount(account: com.example.model.XtreamAccount) {
+        val current = getXtreamAccounts().toMutableList()
+        current.removeAll { it.id == account.id }
+        current.add(0, account)
+        saveXtreamAccountsList(current)
+        prefs.edit()
+            .putString("admin_xtream_server", account.serverUrl)
+            .putString("admin_xtream_user", account.username)
+            .putString("admin_xtream_pass", account.password)
+            .apply()
+    }
+
+    fun deleteXtreamAccount(id: String) {
+        val current = getXtreamAccounts().filterNot { it.id == id }
+        saveXtreamAccountsList(current)
+    }
+
+    fun saveXtreamAccountsList(list: List<com.example.model.XtreamAccount>) {
+        val arr = JSONArray()
+        list.forEach { a ->
+            val obj = JSONObject()
+            obj.put("id", a.id)
+            obj.put("name", a.name)
+            obj.put("serverUrl", a.serverUrl)
+            obj.put("username", a.username)
+            obj.put("password", a.password)
+            obj.put("isEnabled", a.isEnabled)
+            obj.put("includeLive", a.includeLive)
+            obj.put("includeVod", a.includeVod)
+            obj.put("includeSeries", a.includeSeries)
+            obj.put("lastSyncTime", a.lastSyncTime)
+            obj.put("statusMessage", a.statusMessage ?: "")
+            arr.put(obj)
+        }
+        prefs.edit().putString("admin_xtream_accounts", arr.toString()).apply()
+    }
+
+    fun getActiveXtreamAccounts(): List<com.example.model.XtreamAccount> {
+        return getXtreamAccounts().filter { it.isEnabled }
+    }
+
+    suspend fun fetchAllXtreamMoviesAndSeries(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val accounts = getActiveXtreamAccounts()
+        if (accounts.isEmpty()) {
+            return@withContext fetchXtreamCodesStreams("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
+                .filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+        }
+        val allItems = mutableListOf<MediaItem>()
+        coroutineScope {
+            val jobs = accounts.map { acc ->
+                async {
+                    try {
+                        val streams = fetchXtreamCodesStreams(acc.serverUrl, acc.username, acc.password)
+                        streams.filter { (it.type == MediaType.MOVIE && acc.includeVod) || (it.type == MediaType.SERIES && acc.includeSeries) }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        emptyList()
+                    }
+                }
+            }
+            val results = jobs.awaitAll()
+            results.forEach { allItems.addAll(it) }
+        }
+        allItems.distinctBy { it.id }
+    }
+
+    suspend fun fetchAllXtreamLiveChannels(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val accounts = getActiveXtreamAccounts().filter { it.includeLive }
+        if (accounts.isEmpty()) {
+            return@withContext fetchXtreamCodesStreams("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
+                .filter { it.type == MediaType.LIVE_TV }
+        }
+        val allItems = mutableListOf<MediaItem>()
+        coroutineScope {
+            val jobs = accounts.map { acc ->
+                async {
+                    try {
+                        val streams = fetchXtreamCodesStreams(acc.serverUrl, acc.username, acc.password)
+                        streams.filter { it.type == MediaType.LIVE_TV }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        emptyList()
+                    }
+                }
+            }
+            val results = jobs.awaitAll()
+            results.forEach { allItems.addAll(it) }
+        }
+        allItems.distinctBy { it.id }
+    }
+
     suspend fun fetchStarshareMoviesAndSeries(): List<MediaItem> = withContext(Dispatchers.IO) {
-        val serverUrl = "http://rgkkw.live:80"
-        val user = "4dfoydR2gZ"
-        val pass = "clever3still"
-        val items = fetchXtreamCodesStreams(serverUrl, user, pass)
-        items.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+        fetchAllXtreamMoviesAndSeries()
     }
 
     suspend fun testXtreamCodes(serverUrl: String, username: String, pass: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
@@ -2722,12 +2900,26 @@ class MediaRepository(private val context: Context) {
                     val obj = JSONObject(body)
                     val userInfo = obj.optJSONObject("user_info")
                     val auth = userInfo?.optInt("auth", 0) ?: 0
-                    val status = userInfo?.optString("status", "") ?: ""
-                    val expDate = userInfo?.optString("exp_date", "") ?: ""
+                    val status = userInfo?.optString("status", "Active") ?: "Active"
+                    val expDateRaw = userInfo?.optString("exp_date", "") ?: ""
+                    val maxCons = userInfo?.optString("max_connections", "1") ?: "1"
+                    val activeCons = userInfo?.optString("active_cons", "0") ?: "0"
+                    val formats = userInfo?.optJSONArray("allowed_output_formats")?.let { arr ->
+                        (0 until arr.length()).map { arr.getString(it) }.joinToString(", ")
+                    } ?: "ts"
+
+                    val expDateFormatted = if (expDateRaw.isNotBlank() && expDateRaw != "null") {
+                        try {
+                            val epoch = expDateRaw.toLong()
+                            val sdf = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
+                            sdf.format(java.util.Date(epoch * 1000L))
+                        } catch (_: Exception) { expDateRaw }
+                    } else { "আনলিমিটেড (Unlimited)" }
+
                     if (auth == 1 || status.equals("Active", ignoreCase = true)) {
-                        return@withContext Pair(true, "✅ Xtream Codes কানেক্টেড! স্ট্যাটাস: ${status.ifBlank { "Active" }} (মেয়াদ: ${expDate.ifBlank { "আনলিমিটেড" }})")
+                        return@withContext Pair(true, "✅ সফল সংযোগ! স্ট্যাটাস: $status | মেয়াদ: $expDateFormatted | এক্টিভ কানেকশন: $activeCons/$maxCons | ফরম্যাট: $formats")
                     } else if (obj.has("user_info")) {
-                        return@withContext Pair(true, "✅ Xtream Codes তথ্য পাওয়া গেছে! সংযোগ সক্রিয়।")
+                        return@withContext Pair(true, "✅ Xtream Codes তথ্য পাওয়া গেছে! স্ট্যাটাস: $status (মেয়াদ: $expDateFormatted)")
                     }
                 }
             }

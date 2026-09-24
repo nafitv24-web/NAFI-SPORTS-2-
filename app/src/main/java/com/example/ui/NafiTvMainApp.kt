@@ -109,6 +109,7 @@ enum class AdminTab(val label: String) {
     CHANNELS("Live TV Channels"),
     MOVIES("Movies"),
     PLAYLISTS("Playlists"),
+    XTREAM("Xtream Codes API"),
     SPORTS("Sports Matches"),
     BROADCAST("নোটিফিকেশন পাঠান"),
     REPOSITORIES("CloudStream Repos"),
@@ -407,6 +408,19 @@ fun NafiTvMainApp(
                         repository.fetchStarshareMoviesAndSeries()
                     } catch (e: Exception) {
                         emptyList()
+                    }
+
+                    val xtreamLiveChannels = try {
+                        repository.fetchAllXtreamLiveChannels()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
+                    if (xtreamLiveChannels.isNotEmpty()) {
+                        liveTvList = (liveTvList + xtreamLiveChannels)
+                            .filterNot { deleted.contains(it.id) }
+                            .distinctBy { it.id }
+                        repository.saveCachedLiveTvChannels(liveTvList)
                     }
 
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
