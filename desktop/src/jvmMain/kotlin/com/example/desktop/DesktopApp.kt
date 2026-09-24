@@ -15,12 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.desktop.player.DesktopVlcPlayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,62 +49,125 @@ fun DesktopNafiTvApp() {
 
     val coroutineScope = rememberCoroutineScope()
 
-    // Fetch Channels & Events from Firebase / M3U / JSON
     fun loadContent(tab: Int) {
         isLoading = true
         coroutineScope.launch(Dispatchers.IO) {
             val client = OkHttpClient()
             val items = mutableListOf<DesktopMediaItem>()
 
-            try {
-                // Fetch dynamic remote URLs from Firebase
-                val configReq = Request.Builder()
-                    .url("https://nafitv24-default-rtdb.asia-southeast1.firebasedatabase.app/app_config.json")
-                    .build()
-                val configResp = client.newCall(configReq).execute()
-                var tapmadJson = "https://gist.githubusercontent.com/albatr0ssss/3cff7a26be49b1d352c15f615067e7cd/raw/tapmad_bd.json"
-                var liveTvM3u = "https://raw.githubusercontent.com/byte-capsule/FanCode-HLS-Auto-Fetcher/main/Fancode_Live.m3u"
+            // Default fallback URLs (Matches official Android App)
+            var liveTvM3u = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
+            var sportsM3u = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
+            var moviesM3u = "https://raw.githubusercontent.com/abusaeeidx/Movie-Playlist-Auto-update/refs/heads/main/Mix_Movies.m3u"
+            var tapmadJson = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.json"
 
-                if (configResp.isSuccessful) {
-                    val body = configResp.body?.string()
-                    if (!body.isNullOrBlank() && body.startsWith("{")) {
-                        val obj = JSONObject(body)
-                        if (obj.has("tapmadJsonUrl")) tapmadJson = obj.getString("tapmadJsonUrl")
-                        if (obj.has("liveTvM3uUrl")) liveTvM3u = obj.getString("liveTvM3uUrl")
-                    }
+            try {
+                // 1. Fetch remote Firebase Realtime Database config
+                val rtdbUrls = listOf(
+                    "https://nafitv24-live-default-rtdb.firebaseio.com/app_config.json",
+                    "https://nafitv24-default-rtdb.asia-southeast1.firebasedatabase.app/app_config.json"
+                )
+
+                for (fbUrl in rtdbUrls) {
+                    try {
+                        val configReq = Request.Builder().url(fbUrl).build()
+                        val configResp = client.newCall(configReq).execute()
+                        if (configResp.isSuccessful) {
+                            val body = configResp.body?.string()
+                            if (!body.isNullOrBlank() && body.startsWith("{")) {
+                                val obj = JSONObject(body)
+                                if (obj.has("liveTvM3uUrl") && obj.getString("liveTvM3uUrl").isNotBlank()) {
+                                    liveTvM3u = obj.getString("liveTvM3uUrl")
+                                }
+                                if (obj.has("sportsM3uUrl") && obj.getString("sportsM3uUrl").isNotBlank()) {
+                                    sportsM3u = obj.getString("sportsM3uUrl")
+                                }
+                                if (obj.has("moviesM3uUrl") && obj.getString("moviesM3uUrl").isNotBlank()) {
+                                    moviesM3u = obj.getString("moviesM3uUrl")
+                                }
+                                if (obj.has("tapmadJsonUrl") && obj.getString("tapmadJsonUrl").isNotBlank()) {
+                                    tapmadJson = obj.getString("tapmadJsonUrl")
+                                }
+                                break
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
 
+                // 2. Fetch data according to the selected tab
                 if (tab == 0) {
-                    // Load Live Sports Events from JSON
-                    val jsonReq = Request.Builder().url(tapmadJson.trim()).build()
-                    val jsonResp = client.newCall(jsonReq).execute()
-                    if (jsonResp.isSuccessful) {
-                        val jsonStr = jsonResp.body?.string() ?: ""
-                        val root = JSONObject(jsonStr)
-                        val arr = root.optJSONArray("Matches") ?: JSONArray()
-                        for (i in 0 until arr.length()) {
-                            val obj = arr.getJSONObject(i)
-                            items.add(
-                                DesktopMediaItem(
-                                    id = "event_$i",
-                                    title = obj.optString("VideoName", "Match $i"),
-                                    category = obj.optString("CategoryName", "Sports"),
-                                    streamUrl = obj.optString("stream_url", ""),
-                                    logoUrl = obj.optString("ThumbnailStandard", null),
-                                    isLive = obj.optString("Status", "").equals("Live", ignoreCase = true)
-                                )
-                            )
+                    // LIVE EVENTS - Multi-JSON Support
+                    val jsonUrls = tapmadJson.split("\n", ",").map { it.trim() }.filter { it.isNotBlank() }
+                    for (jUrl in jsonUrls) {
+                        try {
+                            val jsonReq = Request.Builder()
+                                .url(jUrl)
+                                .header("User-Agent", "NAFITV24-Desktop/2.6.8")
+                                .build()
+                            val jsonResp = client.newCall(jsonReq).execute()
+                            if (jsonResp.isSuccessful) {
+                                val jsonStr = jsonResp.body?.string()?.trim() ?: ""
+                                val matchesArray = if (jsonStr.startsWith("[")) {
+                                    JSONArray(jsonStr)
+                                } else if (jsonStr.startsWith("{")) {
+                                    val root = JSONObject(jsonStr)
+                                    root.optJSONArray("Matches")
+                                        ?: root.optJSONArray("matches")
+                                        ?: root.optJSONArray("events")
+                                        ?: root.optJSONArray("data")
+                                        ?: JSONArray()
+                                } else {
+                                    JSONArray()
+                                }
+
+                                for (i in 0 until matchesArray.length()) {
+                                    val obj = matchesArray.getJSONObject(i)
+                                    val vName = obj.optString("VideoName", obj.optString("title", obj.optString("name", "Match $i")))
+                                    val sUrl = obj.optString("stream_url", obj.optString("streamUrl", obj.optString("url", "")))
+                                    val cat = obj.optString("CategoryName", obj.optString("category", "লাইভ ম্যাচ"))
+                                    val thumb = obj.optString("ThumbnailStandard", obj.optString("logo", obj.optString("image", null)))
+                                    val status = obj.optString("Status", "Live")
+
+                                    if (sUrl.isNotBlank()) {
+                                        items.add(
+                                            DesktopMediaItem(
+                                                id = "event_${items.size}_$i",
+                                                title = vName,
+                                                category = cat,
+                                                streamUrl = sUrl,
+                                                logoUrl = thumb,
+                                                isLive = status.contains("live", ignoreCase = true)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
                         }
                     }
                 } else {
-                    // Load M3U Channels
-                    val m3uReq = Request.Builder().url(liveTvM3u.trim()).build()
+                    // M3U PLAYLISTS: Live TV, Sports Channels, or Movies
+                    val targetM3u = when (tab) {
+                        1 -> liveTvM3u
+                        2 -> sportsM3u
+                        else -> moviesM3u
+                    }
+
+                    val m3uReq = Request.Builder()
+                        .url(targetM3u.trim())
+                        .header("User-Agent", "NAFITV24-Desktop/2.6.8")
+                        .build()
                     val m3uResp = client.newCall(m3uReq).execute()
                     if (m3uResp.isSuccessful) {
                         val lines = m3uResp.body?.string()?.lines() ?: emptyList()
                         var curTitle = ""
                         var curLogo: String? = null
-                        var curGroup = "General"
+                        var curGroup = when (tab) {
+                            1 -> "লাইভ টিভি"
+                            2 -> "স্পোর্টস টিভি"
+                            else -> "মুভিজ"
+                        }
 
                         for (line in lines) {
                             val trimmed = line.trim()
@@ -124,7 +187,8 @@ fun DesktopNafiTvApp() {
                                             title = curTitle,
                                             category = curGroup,
                                             streamUrl = trimmed,
-                                            logoUrl = curLogo
+                                            logoUrl = curLogo,
+                                            isLive = tab != 3
                                         )
                                     )
                                     curTitle = ""
@@ -152,7 +216,9 @@ fun DesktopNafiTvApp() {
     // Filtered by Search
     val filteredList = remember(mediaList, searchQuery) {
         if (searchQuery.isBlank()) mediaList
-        else mediaList.filter { it.title.contains(searchQuery, ignoreCase = true) || it.category.contains(searchQuery, ignoreCase = true) }
+        else mediaList.filter {
+            it.title.contains(searchQuery, ignoreCase = true) || it.category.contains(searchQuery, ignoreCase = true)
+        }
     }
 
     Surface(
@@ -160,7 +226,7 @@ fun DesktopNafiTvApp() {
         color = Color(0xFF0F172A)
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // 1. Sidebar Navigation (PC Widescreen Optimized)
+            // 1. Sidebar Navigation (PC Widescreen)
             NavigationRail(
                 modifier = Modifier.width(220.dp).fillMaxHeight(),
                 containerColor = Color(0xFF1E293B),
@@ -229,7 +295,7 @@ fun DesktopNafiTvApp() {
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight().padding(20.dp)
             ) {
-                // Top Search Bar & Stats
+                // Top Search Bar & Info
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -258,39 +324,42 @@ fun DesktopNafiTvApp() {
                 // Active Video Player Area (When an item is clicked)
                 if (currentPlayingItem != null) {
                     Card(
-                        modifier = Modifier.fillMaxWidth().height(320.dp).padding(bottom = 16.dp),
+                        modifier = Modifier.fillMaxWidth().height(420.dp).padding(bottom = 16.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.Black)
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            // Player Info & Controls
-                            Column(
-                                modifier = Modifier.align(Alignment.Center),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(64.dp))
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "চলছে: ${currentPlayingItem!!.title}",
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = currentPlayingItem!!.streamUrl,
-                                    color = Color(0xFF64748B),
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            // Actual Desktop Video Player
+                            DesktopVlcPlayer(
+                                streamUrl = currentPlayingItem!!.streamUrl,
+                                modifier = Modifier.fillMaxSize()
+                            )
 
-                            // Close Player Button
-                            IconButton(
-                                onClick = { currentPlayingItem = null },
-                                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                            // Title Overlay Top Bar
+                            Row(
+                                modifier = Modifier.fillMaxWidth().background(Color(0x99000000)).padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Close Player", tint = Color.White)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = currentPlayingItem!!.title,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { currentPlayingItem = null },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Close Player", tint = Color.White)
+                                }
                             }
                         }
                     }
