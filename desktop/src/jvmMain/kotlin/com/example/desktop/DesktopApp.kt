@@ -28,6 +28,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.awt.Desktop
+import java.net.URI
 
 data class DesktopMediaItem(
     val id: String,
@@ -324,20 +326,24 @@ fun DesktopNafiTvApp() {
                 // Active Video Player Area (When an item is clicked)
                 if (currentPlayingItem != null) {
                     Card(
-                        modifier = Modifier.fillMaxWidth().height(420.dp).padding(bottom = 16.dp),
+                        modifier = Modifier.fillMaxWidth().height(400.dp).padding(bottom = 16.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.Black)
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            // Actual Desktop Video Player
+                            // Video Player (Works standalone, without requiring VLC!)
                             DesktopVlcPlayer(
+                                title = currentPlayingItem!!.title,
                                 streamUrl = currentPlayingItem!!.streamUrl,
                                 modifier = Modifier.fillMaxSize()
                             )
 
                             // Title Overlay Top Bar
                             Row(
-                                modifier = Modifier.fillMaxWidth().background(Color(0x99000000)).padding(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xCC0F172A))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -354,11 +360,28 @@ fun DesktopNafiTvApp() {
                                     )
                                 }
 
-                                IconButton(
-                                    onClick = { currentPlayingItem = null },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Rounded.Close, contentDescription = "Close Player", tint = Color.White)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            try {
+                                                if (Desktop.isDesktopSupported()) {
+                                                    Desktop.getDesktop().browse(URI(currentPlayingItem!!.streamUrl))
+                                                }
+                                            } catch (_: Exception) {}
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.OpenInNew, contentDescription = "Open Stream", tint = Color(0xFF00E5FF))
+                                    }
+
+                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                    IconButton(
+                                        onClick = { currentPlayingItem = null },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Close, contentDescription = "Close Player", tint = Color.White)
+                                    }
                                 }
                             }
                         }
