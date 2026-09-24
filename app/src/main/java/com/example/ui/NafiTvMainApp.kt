@@ -403,8 +403,14 @@ fun NafiTvMainApp(
                         emptyList()
                     }
 
+                    val starshareMov = try {
+                        repository.fetchStarshareMoviesAndSeries()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                    val updatedMov = (customMov + moviesM3u + mixMovies + latestMovies)
+                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies)
                         .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                         .distinctBy { it.id }
 
@@ -989,6 +995,7 @@ fun NafiTvMainApp(
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
+                                repository = repository,
                                 onSelectMedia = { item ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = moviesList
@@ -1335,6 +1342,7 @@ fun NafiTvMainApp(
                             favoriteIds = favoriteIds,
                             isLoading = isRefreshing,
                             isTvMode = isTvMode,
+                            repository = repository,
                             onSelectMedia = { item ->
                                 selectedMediaItem = item
                                 activePlaybackPlaylist = moviesList

@@ -87,15 +87,34 @@ fun MoviesTabScreen(
     favoriteIds: Set<String>,
     isLoading: Boolean = false,
     isTvMode: Boolean = false,
+    repository: com.example.data.MediaRepository? = null,
     onSelectMedia: (MediaItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onOpenOfflineDownloads: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    var selectedTypeFilter by remember { mutableStateOf("ALL") }
+    var selectedSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
 
-    val categories = remember(movies) {
-        val unique = movies.map { it.category.trim() }
+    val handleItemSelect: (MediaItem) -> Unit = { item ->
+        if ((item.isSeries || item.type == com.example.model.MediaType.SERIES) && repository != null) {
+            selectedSeriesForDialog = item
+        } else {
+            onSelectMedia(item)
+        }
+    }
+
+    val typeFilteredMovies = remember(movies, selectedTypeFilter) {
+        when (selectedTypeFilter) {
+            "MOVIE" -> movies.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
+            "SERIES" -> movies.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+            else -> movies
+        }
+    }
+
+    val categories = remember(typeFilteredMovies) {
+        val unique = typeFilteredMovies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
             .sorted()
@@ -103,32 +122,34 @@ fun MoviesTabScreen(
     }
 
     // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)
-    val featuredMovies = remember(movies) {
-        val withLogos = movies.filter { !it.logoUrl.isNullOrBlank() }
-        if (withLogos.isNotEmpty()) withLogos.take(10) else movies.take(8)
+    val featuredMovies = remember(typeFilteredMovies) {
+        val withLogos = typeFilteredMovies.filter { !it.logoUrl.isNullOrBlank() }
+        if (withLogos.isNotEmpty()) withLogos.take(10) else typeFilteredMovies.take(8)
     }
 
     // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
-    val categorizedMovies = remember(movies) {
-        val uniqueCats = movies.map { it.category.trim() }
+    val categorizedMovies = remember(typeFilteredMovies) {
+        val uniqueCats = typeFilteredMovies.map { it.category.trim() }
             .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
             .distinct()
         uniqueCats.map { cat ->
-            val catMovies = movies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
+            val catMovies = typeFilteredMovies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
             cat to catMovies
         }
     }
 
     // Filtered movies when search query is active or a single category is selected
-    val filteredMovies = remember(movies, searchQuery, selectedCategory, favoriteIds) {
+    val filteredMovies = remember(typeFilteredMovies, searchQuery, selectedCategory, favoriteIds) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
         } else {
-            movies.filter { movie ->
+            typeFilteredMovies.filter { movie ->
                 val matchesSearch = if (searchQuery.isBlank()) true else {
                     movie.title.contains(searchQuery, ignoreCase = true) ||
                             movie.category.contains(searchQuery, ignoreCase = true) ||
-                            (movie.description != null && movie.description.contains(searchQuery, ignoreCase = true))
+                            (movie.description != null && movie.description.contains(searchQuery, ignoreCase = true)) ||
+                            (movie.cast != null && movie.cast.contains(searchQuery, ignoreCase = true)) ||
+                            (movie.genre != null && movie.genre.contains(searchQuery, ignoreCase = true))
                 }
                 val matchesCategory = when (selectedCategory) {
                     "All" -> true
@@ -218,6 +239,48 @@ fun MoviesTabScreen(
                 }
             }
         }
+
+        // TYPE FILTER CHIPS: ALL / MOVIES / SERIES
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val typeOptions = listOf(
+                "ALL" to "সকল কনটেন্ট",
+                "MOVIE" to "🎬 মুভি",
+                "SERIES" to "🍿 সিরিজ"
+            )
+            typeOptions.forEach { (typeKey, typeLabel) ->
+                val isSelected = selectedTypeFilter == typeKey
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) Color(0xFF0284C7) else Color(0xFF0F172A),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B)
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            selectedTypeFilter = typeKey
+                            selectedCategory = "All"
+                        }
+                ) {
+                    Text(
+                        text = typeLabel,
+                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                        fontSize = 11.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 7.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
 
         // CATEGORY FILTER CHIPS ROW (Horizontal Scroll)
         LazyRow(
@@ -371,11 +434,11 @@ fun MoviesTabScreen(
                                         .fillMaxSize()
                                         .onFocusChanged { isBannerFocused = it.isFocused }
                                         .focusable()
-                                        .clickable { onSelectMedia(currentMovie) }
+                                        .clickable { handleItemSelect(currentMovie) }
                                 } else {
                                     Modifier
                                         .fillMaxSize()
-                                        .clickable { onSelectMedia(currentMovie) }
+                                        .clickable { handleItemSelect(currentMovie) }
                                 }
 
                                 Surface(
@@ -555,7 +618,7 @@ fun MoviesTabScreen(
                                     movie = movie,
                                     isFav = favoriteIds.contains(movie.id),
                                     isTvMode = isTvMode,
-                                    onSelect = { onSelectMedia(movie) },
+                                    onSelect = { handleItemSelect(movie) },
                                     onToggleFav = { onToggleFavorite(movie.id) }
                                 )
                             }
@@ -609,12 +672,22 @@ fun MoviesTabScreen(
                             movie = movie,
                             isFav = favoriteIds.contains(movie.id),
                             isTvMode = isTvMode,
-                            onSelect = { onSelectMedia(movie) },
+                            onSelect = { handleItemSelect(movie) },
                             onToggleFav = { onToggleFavorite(movie.id) }
                         )
                     }
                 }
             }
+        }
+
+        if (selectedSeriesForDialog != null && repository != null) {
+            SeriesDetailsDialog(
+                series = selectedSeriesForDialog!!,
+                repository = repository,
+                isTvMode = isTvMode,
+                onPlayEpisode = onSelectMedia,
+                onDismiss = { selectedSeriesForDialog = null }
+            )
         }
     }
 }
@@ -767,6 +840,25 @@ fun MoviePosterCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
+                    if (movie.isSeries || movie.type == com.example.model.MediaType.SERIES) {
+                        Surface(
+                            shape = RoundedCornerShape(
+                                topStart = 12.dp,
+                                bottomEnd = 8.dp,
+                                topEnd = 4.dp,
+                                bottomStart = 4.dp
+                            ),
+                            color = Color(0xFFE11D48)
+                        ) {
+                            Text(
+                                text = "SERIES",
+                                color = Color.White,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc.)
                     Surface(
                         shape = RoundedCornerShape(

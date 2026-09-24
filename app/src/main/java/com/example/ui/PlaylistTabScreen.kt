@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -95,6 +96,9 @@ fun PlaylistTabScreen(
     var channelSearchQuery by remember { mutableStateOf("") }
     var isLoadingChannels by remember { mutableStateOf(false) }
     var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
+    var activeSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
+    var selectedPlaylistTypeFilter by remember { mutableStateOf("ALL") }
+    var selectedPlaylistCategory by remember { mutableStateOf("All") }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
 
@@ -112,6 +116,8 @@ fun PlaylistTabScreen(
         if (pl != null) {
             isLoadingChannels = true
             channelSearchQuery = ""
+            selectedPlaylistTypeFilter = "ALL"
+            selectedPlaylistCategory = "All"
             try {
                 playlistChannels = repository.fetchPlaylistChannels(pl)
             } catch (e: Exception) {
@@ -400,7 +406,7 @@ fun PlaylistTabScreen(
                     value = channelSearchQuery,
                     onValueChange = { channelSearchQuery = it },
                     placeholder = {
-                        Text("এই প্লেলিস্টে চ্যানেল খুঁজুন...", color = Color(0xFF64748B), fontSize = 12.sp)
+                        Text("এই প্লেলিস্টে খুঁজুন...", color = Color(0xFF64748B), fontSize = 12.sp)
                     },
                     leadingIcon = {
                         Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF))
@@ -449,7 +455,7 @@ fun PlaylistTabScreen(
                                 .background(if (showOnlyActive) Color(0xFF10B981) else Color(0xFF64748B))
                         )
                         Text(
-                            text = "Only Active",
+                            text = "Active",
                             color = if (showOnlyActive) Color(0xFF34D399) else Color(0xFFCBD5E1),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -469,6 +475,103 @@ fun PlaylistTabScreen(
                 }
             }
 
+            // TYPE FILTER ROW (All, Live TV, Movies, Series)
+            val liveCount = remember(playlistChannels) { playlistChannels.count { it.type == com.example.model.MediaType.LIVE_TV || it.isLive } }
+            val movieCount = remember(playlistChannels) { playlistChannels.count { it.type == com.example.model.MediaType.MOVIE && !it.isSeries } }
+            val seriesCount = remember(playlistChannels) { playlistChannels.count { it.isSeries || it.type == com.example.model.MediaType.SERIES } }
+            val hasMultipleTypes = (liveCount > 0 && (movieCount > 0 || seriesCount > 0)) || (movieCount > 0 && seriesCount > 0)
+
+            if (hasMultipleTypes) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val filterTypes = buildList {
+                        add("ALL" to "সকল (${playlistChannels.size})")
+                        if (liveCount > 0) add("LIVE" to "📺 লাইভ ($liveCount)")
+                        if (movieCount > 0) add("MOVIE" to "🎬 মুভি ($movieCount)")
+                        if (seriesCount > 0) add("SERIES" to "🍿 সিরিজ ($seriesCount)")
+                    }
+                    filterTypes.forEach { (typeKey, typeLabel) ->
+                        val isSelected = selectedPlaylistTypeFilter == typeKey
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF0284C7) else Color(0xFF0F172A),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    selectedPlaylistTypeFilter = typeKey
+                                    selectedPlaylistCategory = "All"
+                                }
+                        ) {
+                            Text(
+                                text = typeLabel,
+                                color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            val typeFilteredChannels = remember(playlistChannels, selectedPlaylistTypeFilter) {
+                when (selectedPlaylistTypeFilter) {
+                    "LIVE" -> playlistChannels.filter { it.type == com.example.model.MediaType.LIVE_TV || it.isLive }
+                    "MOVIE" -> playlistChannels.filter { it.type == com.example.model.MediaType.MOVIE && !it.isSeries }
+                    "SERIES" -> playlistChannels.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+                    else -> playlistChannels
+                }
+            }
+
+            val playlistCategories = remember(typeFilteredChannels) {
+                val unique = typeFilteredChannels.map { it.category.trim() }
+                    .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+                    .distinct()
+                    .sorted()
+                if (unique.size > 1) listOf("All") + unique else emptyList()
+            }
+
+            // CATEGORY CHIPS ROW
+            if (playlistCategories.isNotEmpty()) {
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                ) {
+                    items(playlistCategories) { cat ->
+                        val isCatSelected = selectedPlaylistCategory == cat
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isCatSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isCatSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                            ),
+                            modifier = Modifier.clickable { selectedPlaylistCategory = cat }
+                        ) {
+                            Text(
+                                text = cat,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Enqueue unverified playlist channels for safe background probing
             LaunchedEffect(playlistChannels) {
                 if (playlistChannels.isNotEmpty()) {
@@ -476,12 +579,18 @@ fun PlaylistTabScreen(
                 }
             }
 
-            val filteredChannels = remember(playlistChannels, channelSearchQuery, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
-                val list = if (channelSearchQuery.isBlank()) playlistChannels else {
-                    playlistChannels.filter {
-                        it.title.contains(channelSearchQuery, ignoreCase = true) ||
-                                it.category.contains(channelSearchQuery, ignoreCase = true)
+            val filteredChannels = remember(typeFilteredChannels, channelSearchQuery, selectedPlaylistCategory, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
+                val list = typeFilteredChannels.filter { item ->
+                    val matchesSearch = if (channelSearchQuery.isBlank()) true else {
+                        item.title.contains(channelSearchQuery, ignoreCase = true) ||
+                                item.category.contains(channelSearchQuery, ignoreCase = true) ||
+                                (item.description != null && item.description.contains(channelSearchQuery, ignoreCase = true)) ||
+                                (item.cast != null && item.cast.contains(channelSearchQuery, ignoreCase = true))
                     }
+                    val matchesCategory = if (selectedPlaylistCategory == "All") true else {
+                        item.category.trim().equals(selectedPlaylistCategory.trim(), ignoreCase = true)
+                    }
+                    matchesSearch && matchesCategory
                 }
                 if (showOnlyActive) {
                     list.filter { ChannelStatusManager.isChannelActive(it) }
@@ -521,8 +630,11 @@ fun PlaylistTabScreen(
                     )
                 }
             } else {
+                val isPosterGrid = selectedPlaylistTypeFilter == "MOVIE" || selectedPlaylistTypeFilter == "SERIES" ||
+                        filteredChannels.all { it.isSeries || it.type == com.example.model.MediaType.MOVIE }
+
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTvMode) 5 else 3),
+                    columns = GridCells.Fixed(if (isTvMode) (if (isPosterGrid) 6 else 5) else (if (isPosterGrid) 3 else 3)),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -531,114 +643,196 @@ fun PlaylistTabScreen(
                     items(filteredChannels, key = { it.id }) { item ->
                         var isCardFocused by remember { mutableStateOf(false) }
                         val isActive = ChannelStatusManager.isChannelActive(item)
+                        val isMovieOrSeriesItem = item.isSeries || item.type == com.example.model.MediaType.MOVIE || item.type == com.example.model.MediaType.SERIES
 
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
-                            border = BorderStroke(
-                                1.dp,
-                                when {
-                                    isCardFocused -> Color(0xFFFFD600)
-                                    isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
-                                    else -> Color(0xFFEF4444).copy(alpha = 0.45f)
-                                }
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(if (isTvMode) 130.dp else 115.dp)
-                                .alpha(if (!isActive) 0.72f else 1.0f)
-                                .onFocusChanged { isCardFocused = it.isFocused }
-                                .focusable()
-                                .clickable { onSelectMedia(item, playlistChannels) }
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Column(
+                        val handleItemClick = {
+                            if (item.isSeries || item.type == com.example.model.MediaType.SERIES) {
+                                activeSeriesForDialog = item
+                            } else {
+                                onSelectMedia(item, playlistChannels)
+                            }
+                        }
+
+                        if (isMovieOrSeriesItem && !item.logoUrl.isNullOrBlank()) {
+                            // Poster Card for Movies and Series
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { handleItemClick() }
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF0F172A),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isCardFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
+                                    ),
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                                        .fillMaxWidth()
+                                        .height(if (isTvMode) 160.dp else 145.dp)
+                                        .onFocusChanged { isCardFocused = it.isFocused }
+                                        .focusable()
                                 ) {
-                                    if (!item.logoUrl.isNullOrBlank()) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
                                         AsyncImage(
                                             model = item.logoUrl,
                                             contentDescription = item.title,
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(RoundedCornerShape(6.dp)),
-                                            contentScale = ContentScale.Fit
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
                                         )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Tv,
-                                            contentDescription = null,
-                                            tint = Color(0xFF00E5FF),
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = item.title,
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
 
-                                // Top-Start Corner: Active green indicator / Offline red indicator
-                                if (isActive) {
-                                    Surface(
-                                        shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
-                                        color = Color(0xFF064E3B).copy(alpha = 0.95f),
-                                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f)),
-                                        modifier = Modifier.align(Alignment.TopStart)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        // Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp),
+                                            color = if (item.isSeries) Color(0xFFE11D48) else Color(0xFF0284C7),
+                                            modifier = Modifier.align(Alignment.TopStart)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFF10B981))
-                                            )
                                             Text(
-                                                text = "সচল",
-                                                color = Color(0xFF6EE7B7),
+                                                text = if (item.isSeries) "SERIES" else "MOVIE",
+                                                color = Color.White,
                                                 fontSize = 8.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                             )
                                         }
+
+                                        if (!item.rating.isNullOrBlank()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(topEnd = 12.dp, bottomStart = 6.dp),
+                                                color = Color.Black.copy(alpha = 0.7f),
+                                                modifier = Modifier.align(Alignment.TopEnd)
+                                            ) {
+                                                Text(
+                                                    text = "★ ${item.rating}",
+                                                    color = Color(0xFFF59E0B),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
                                     }
-                                } else {
-                                    Surface(
-                                        shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
-                                        color = Color(0xFF450A0A).copy(alpha = 0.95f),
-                                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
-                                        modifier = Modifier.align(Alignment.TopStart)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.title,
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        } else {
+                            // Standard Channel Card
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isCardFocused) Color(0xFF1E293B) else Color(0xFF0F172A),
+                                border = BorderStroke(
+                                    1.dp,
+                                    when {
+                                        isCardFocused -> Color(0xFFFFD600)
+                                        isActive -> Color(0xFF10B981).copy(alpha = 0.45f)
+                                        else -> Color(0xFFEF4444).copy(alpha = 0.45f)
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(if (isTvMode) 130.dp else 115.dp)
+                                    .alpha(if (!isActive) 0.72f else 1.0f)
+                                    .onFocusChanged { isCardFocused = it.isFocused }
+                                    .focusable()
+                                    .clickable { handleItemClick() }
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                        ) {
-                                            Box(
+                                        if (!item.logoUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = item.logoUrl,
+                                                contentDescription = item.title,
                                                 modifier = Modifier
-                                                    .size(5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFFEF4444))
+                                                    .size(44.dp)
+                                                    .clip(RoundedCornerShape(6.dp)),
+                                                contentScale = ContentScale.Fit
                                             )
-                                            Text(
-                                                text = "অফলাইন",
-                                                color = Color(0xFFFCA5A5),
-                                                fontSize = 8.sp,
-                                                fontWeight = FontWeight.Bold
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Tv,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E5FF),
+                                                modifier = Modifier.size(32.dp)
                                             )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = item.title,
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+
+                                    // Top-Start Corner: Active green indicator / Offline red indicator
+                                    if (isActive) {
+                                        Surface(
+                                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                                            color = Color(0xFF064E3B).copy(alpha = 0.95f),
+                                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f)),
+                                            modifier = Modifier.align(Alignment.TopStart)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(5.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF10B981))
+                                                )
+                                                Text(
+                                                    text = "সচল",
+                                                    color = Color(0xFF6EE7B7),
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Surface(
+                                            shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                                            color = Color(0xFF450A0A).copy(alpha = 0.95f),
+                                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
+                                            modifier = Modifier.align(Alignment.TopStart)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(5.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFFEF4444))
+                                                )
+                                                Text(
+                                                    text = "অফলাইন",
+                                                    color = Color(0xFFFCA5A5),
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -647,6 +841,16 @@ fun PlaylistTabScreen(
                     }
                 }
             }
+        }
+
+        if (activeSeriesForDialog != null) {
+            SeriesDetailsDialog(
+                series = activeSeriesForDialog!!,
+                repository = repository,
+                isTvMode = isTvMode,
+                onPlayEpisode = { epMedia -> onSelectMedia(epMedia, playlistChannels) },
+                onDismiss = { activeSeriesForDialog = null }
+            )
         }
     }
 

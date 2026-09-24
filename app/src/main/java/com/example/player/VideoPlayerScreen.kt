@@ -83,6 +83,9 @@ import com.example.R
 import com.example.model.MediaItem as AppMediaItem
 import com.example.model.MediaType
 import com.example.model.StreamServer
+import com.example.model.SeasonInfo
+import com.example.model.EpisodeItem
+import com.example.ui.SeriesDetailsDialog
 import com.example.util.MovieDownloadManager
 import com.example.util.DownloadState
 import com.example.ui.components.BreakingNewsTickerBar
@@ -232,6 +235,19 @@ fun VideoPlayerScreen(
     }
     var selectedSubtitle by remember { mutableStateOf<SubtitleTrackOption?>(null) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
+    var showEpisodesSheet by remember { mutableStateOf(false) }
+
+    // Automatic season & episode metadata fetcher for Series
+    LaunchedEffect(currentMedia.id) {
+        if (currentMedia.isSeries && currentMedia.episodes.isEmpty()) {
+            try {
+                val detailed = MediaRepository(context).fetchSeriesSeasonsAndEpisodes(currentMedia)
+                if (detailed.episodes.isNotEmpty() || detailed.seasons.isNotEmpty()) {
+                    currentMedia = detailed
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     // Auto-dismiss Gesture HUD Overlays after inactivity
     LaunchedEffect(volumeGestureKey) {
@@ -1531,6 +1547,20 @@ fun VideoPlayerScreen(
         )
     }
 
+    if (showEpisodesSheet) {
+        SeriesDetailsDialog(
+            series = currentMedia,
+            repository = MediaRepository(context),
+            isTvMode = isTvMode,
+            onPlayEpisode = { epMedia ->
+                currentMedia = epMedia
+                onSelectMedia(epMedia)
+                showEpisodesSheet = false
+            },
+            onDismiss = { showEpisodesSheet = false }
+        )
+    }
+
     // Picture-in-Picture (PiP) Window Layout - Clean, clutter-free floating player
     if (isInPipMode) {
         Box(
@@ -2688,6 +2718,84 @@ fun VideoPlayerScreen(
                                         )
                                     }
                                 }
+
+                                // Previous Episode Button for Series
+                                val hasPrevEp = remember(currentMedia) {
+                                    val idx = currentMedia.episodes.indexOfFirst {
+                                        it.id == currentMedia.id || (it.seasonNum == currentMedia.currentSeasonNum && it.episodeNum == currentMedia.currentEpisodeNum)
+                                    }
+                                    idx > 0
+                                }
+                                if (hasPrevEp) {
+                                    IconButton(
+                                        onClick = {
+                                            val idx = currentMedia.episodes.indexOfFirst {
+                                                it.id == currentMedia.id || (it.seasonNum == currentMedia.currentSeasonNum && it.episodeNum == currentMedia.currentEpisodeNum)
+                                            }
+                                            if (idx > 0) {
+                                                val prevEp = currentMedia.episodes[idx - 1]
+                                                val epMedia = prevEp.toMediaItem(currentMedia)
+                                                currentMedia = epMedia
+                                                onSelectMedia(epMedia)
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.SkipPrevious,
+                                            contentDescription = "Previous Episode",
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+
+                                // Next Episode Button for Series
+                                val hasNextEp = remember(currentMedia) {
+                                    val idx = currentMedia.episodes.indexOfFirst {
+                                        it.id == currentMedia.id || (it.seasonNum == currentMedia.currentSeasonNum && it.episodeNum == currentMedia.currentEpisodeNum)
+                                    }
+                                    idx != -1 && idx + 1 < currentMedia.episodes.size
+                                }
+                                if (hasNextEp) {
+                                    IconButton(
+                                        onClick = {
+                                            val idx = currentMedia.episodes.indexOfFirst {
+                                                it.id == currentMedia.id || (it.seasonNum == currentMedia.currentSeasonNum && it.episodeNum == currentMedia.currentEpisodeNum)
+                                            }
+                                            if (idx != -1 && idx + 1 < currentMedia.episodes.size) {
+                                                val nextEp = currentMedia.episodes[idx + 1]
+                                                val epMedia = nextEp.toMediaItem(currentMedia)
+                                                currentMedia = epMedia
+                                                onSelectMedia(epMedia)
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.SkipNext,
+                                            contentDescription = "Next Episode",
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+
+                                // Episodes List Button for Series
+                                if (currentMedia.isSeries || currentMedia.episodes.isNotEmpty() || currentMedia.seasons.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { showEpisodesSheet = true },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.VideoLibrary,
+                                            contentDescription = "All Episodes",
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
                                 // Aspect Ratio (Tv/Crop)
                                 IconButton(
                                     onClick = {
@@ -2785,7 +2893,11 @@ fun VideoPlayerScreen(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = if (currentMedia.tournament == "NAFI_OTT" || (currentMedia.category ?: "").contains("OTT", ignoreCase = true)) "NAFI OTT" else "MOVIE",
+                                        text = when {
+                                            currentMedia.isSeries || currentMedia.type == MediaType.SERIES -> "SERIES • S${currentMedia.currentSeasonNum} E${currentMedia.currentEpisodeNum}"
+                                            currentMedia.tournament == "NAFI_OTT" || (currentMedia.category ?: "").contains("OTT", ignoreCase = true) -> "NAFI OTT"
+                                            else -> "MOVIE"
+                                        },
                                         color = Color.White,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Black,
@@ -3502,6 +3614,192 @@ fun VideoPlayerScreen(
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                        }
+                    }
+
+                    // Dedicated Series Seasons & Episodes Section
+                    if (currentMedia.isSeries || currentMedia.seasons.isNotEmpty() || currentMedia.episodes.isNotEmpty()) {
+                        val seriesSeasons = remember(currentMedia) {
+                            if (currentMedia.seasons.isNotEmpty()) currentMedia.seasons
+                            else {
+                                val grp = currentMedia.episodes.groupBy { it.seasonNum }
+                                grp.map { (sNum, eps) ->
+                                    SeasonInfo(seasonNumber = sNum, name = "Season $sNum", episodeCount = eps.size, episodes = eps)
+                                }.sortedBy { it.seasonNumber }
+                            }
+                        }
+                        var selectedSeasonNumber by rememberSaveable(currentMedia.id) {
+                            mutableIntStateOf(currentMedia.currentSeasonNum)
+                        }
+                        val currentSeasonEpisodes = remember(seriesSeasons, selectedSeasonNumber, currentMedia.episodes) {
+                            val sObj = seriesSeasons.firstOrNull { it.seasonNumber == selectedSeasonNumber }
+                            if (sObj != null && sObj.episodes.isNotEmpty()) sObj.episodes
+                            else currentMedia.episodes.filter { it.seasonNum == selectedSeasonNumber }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.VideoLibrary,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = "🍿 সিজন ও পর্বসমূহ (Episodes):",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                if (currentMedia.currentSeasonNum > 0 && currentMedia.currentEpisodeNum > 0) {
+                                    Text(
+                                        text = "S${currentMedia.currentSeasonNum} E${currentMedia.currentEpisodeNum}",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Season selector chips
+                            if (seriesSeasons.size > 1) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    items(seriesSeasons) { sInfo ->
+                                        val isSel = sInfo.seasonNumber == selectedSeasonNumber
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isSel) Color(0xFF0284C7) else Color(0xFF1E293B),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                if (isSel) Color(0xFF00E5FF) else Color(0xFF334155)
+                                            ),
+                                            modifier = Modifier.clickable { selectedSeasonNumber = sInfo.seasonNumber }
+                                        ) {
+                                            Text(
+                                                text = sInfo.name,
+                                                color = if (isSel) Color.White else Color(0xFF94A3B8),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            // Episodes list
+                            if (currentSeasonEpisodes.isEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF1E293B).copy(alpha = 0.5f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "এই সিজনে কোনো পর্ব পাওয়া যায়নি বা লোড হচ্ছে...",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.5.sp,
+                                        modifier = Modifier.padding(12.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(currentSeasonEpisodes) { ep ->
+                                        val isEpCurrent = ep.id == currentMedia.id || (ep.seasonNum == currentMedia.currentSeasonNum && ep.episodeNum == currentMedia.currentEpisodeNum)
+                                        Card(
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isEpCurrent) Color(0xFF0F2B48) else Color(0xFF141F38)
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                if (isEpCurrent) Color(0xFF00E5FF) else Color(0xFF223456)
+                                            ),
+                                            modifier = Modifier
+                                                .width(160.dp)
+                                                .clickable {
+                                                    val epMedia = ep.toMediaItem(currentMedia)
+                                                    currentMedia = epMedia
+                                                    onSelectMedia(epMedia)
+                                                }
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(80.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF0B132B)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (!ep.logoUrl.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = ep.logoUrl,
+                                                            contentDescription = ep.title,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(Color.Black.copy(alpha = 0.35f)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (isEpCurrent) Icons.Rounded.Equalizer else Icons.Rounded.PlayArrow,
+                                                            contentDescription = null,
+                                                            tint = if (isEpCurrent) Color(0xFF00E5FF) else Color.White,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "পর্ব ${ep.episodeNum}: ${ep.title.substringAfter(" - ").substringAfter(" -")}",
+                                                    color = if (isEpCurrent) Color(0xFF00E5FF) else Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (!ep.duration.isNullOrBlank()) {
+                                                    Text(
+                                                        text = "⏱️ ${ep.duration}",
+                                                        color = Color(0xFF94A3B8),
+                                                        fontSize = 9.5.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

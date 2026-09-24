@@ -14,6 +14,70 @@ data class StreamServer(
 
 typealias MediaServer = StreamServer
 
+data class EpisodeItem(
+    val id: String,
+    val seriesId: String = "",
+    val title: String,
+    val seasonNum: Int = 1,
+    val episodeNum: Int = 1,
+    val streamUrl: String,
+    val backupUrl: String? = null,
+    val servers: List<StreamServer> = emptyList(),
+    val logoUrl: String? = null,
+    val overview: String? = null,
+    val duration: String? = null,
+    val rating: String? = null,
+    val releaseDate: String? = null,
+    val containerExtension: String = "mp4"
+) {
+    fun toMediaItem(parentSeries: MediaItem): MediaItem {
+        val epServers = if (servers.isNotEmpty()) servers else listOf(StreamServer("সার্ভার ১ (HD)", streamUrl))
+        val cleanTitle = if (title.isNotBlank()) title else "${parentSeries.title} - S${seasonNum}E${episodeNum}"
+        return MediaItem(
+            id = "${parentSeries.id}_s${seasonNum}e${episodeNum}",
+            title = cleanTitle,
+            category = parentSeries.category,
+            type = MediaType.SERIES,
+            streamUrl = streamUrl,
+            backupUrl = backupUrl,
+            servers = epServers,
+            logoUrl = logoUrl ?: parentSeries.logoUrl,
+            description = overview?.takeIf { it.isNotBlank() } ?: parentSeries.description,
+            isLive = false,
+            rating = rating ?: parentSeries.rating,
+            year = releaseDate?.take(4) ?: parentSeries.year,
+            seriesId = parentSeries.seriesId ?: parentSeries.id,
+            currentSeasonNum = seasonNum,
+            currentEpisodeNum = episodeNum,
+            seasons = parentSeries.seasons,
+            episodes = parentSeries.episodes,
+            genre = parentSeries.genre,
+            cast = parentSeries.cast,
+            director = parentSeries.director,
+            xtreamServerUrl = parentSeries.xtreamServerUrl,
+            xtreamUsername = parentSeries.xtreamUsername,
+            xtreamPassword = parentSeries.xtreamPassword,
+            userAgent = parentSeries.userAgent ?: "IPTVSmartersPro"
+        )
+    }
+}
+
+data class SeasonInfo(
+    val seasonNumber: Int,
+    val name: String,
+    val episodeCount: Int = 0,
+    val cover: String? = null,
+    val overview: String? = null,
+    val airDate: String? = null,
+    val episodes: List<EpisodeItem> = emptyList()
+)
+
+data class XtreamCategory(
+    val id: String,
+    val name: String,
+    val type: String = "live" // "live", "movie", "series"
+)
+
 data class MediaItem(
     val id: String,
     val title: String,
@@ -49,8 +113,20 @@ data class MediaItem(
     val drmLicenseUrl: String? = null,
     val drmLicenseKey: String? = null,
     val drmHeaders: Map<String, String>? = null,
-    val manifestType: String? = null
+    val manifestType: String? = null,
+    val seriesId: String? = null,
+    val seasons: List<SeasonInfo> = emptyList(),
+    val episodes: List<EpisodeItem> = emptyList(),
+    val currentSeasonNum: Int = 1,
+    val currentEpisodeNum: Int = 1,
+    val genre: String? = null,
+    val cast: String? = null,
+    val director: String? = null,
+    val xtreamServerUrl: String? = null,
+    val xtreamUsername: String? = null,
+    val xtreamPassword: String? = null
 ) {
+    val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty()
     val headers: Map<String, String>? get() = customHeaders
     // Helper to get all available server URLs
     fun getAllServers(): List<StreamServer> {
