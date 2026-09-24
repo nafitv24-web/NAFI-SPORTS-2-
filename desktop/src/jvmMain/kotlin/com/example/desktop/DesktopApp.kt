@@ -331,10 +331,13 @@ fun DesktopNafiTvApp() {
                         colors = CardDefaults.cardColors(containerColor = Color.Black)
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            // Video Player (Works standalone, without requiring VLC!)
+                            // Video Player with full controller controls
                             DesktopVlcPlayer(
                                 title = currentPlayingItem!!.title,
                                 streamUrl = currentPlayingItem!!.streamUrl,
+                                isLive = currentPlayingItem!!.isLive,
+                                category = currentPlayingItem!!.category,
+                                onClose = { currentPlayingItem = null },
                                 modifier = Modifier.fillMaxSize()
                             )
 
