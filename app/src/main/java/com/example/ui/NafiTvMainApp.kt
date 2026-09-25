@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -3092,16 +3093,26 @@ fun LiveEventMatchCard(
     val hasPlayableLink = (sport.streamUrl.isNotBlank() && !sport.streamUrl.equals("null", ignoreCase = true)) ||
             servers.any { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }
 
+    var showServerSelectDialog by remember { mutableStateOf(false) }
+
     val handlePlayClick: (String?) -> Unit = { targetUrl ->
         val linkToPlay = targetUrl?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-            ?: sport.streamUrl.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-            ?: servers.firstOrNull { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }?.url
-
         if (!linkToPlay.isNullOrBlank()) {
+            // Direct playback of explicitly chosen server/channel
             onSelectMedia(sport.copy(streamUrl = linkToPlay))
+        } else if (servers.size > 1) {
+            // Multiple channels available: open channel/server selector dialog
+            showServerSelectDialog = true
         } else {
-            showNoLinkDialog = true
-            Toast.makeText(context, "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ", Toast.LENGTH_SHORT).show()
+            val fallbackLink = sport.streamUrl.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                ?: servers.firstOrNull { it.url.isNotBlank() && !it.url.equals("null", ignoreCase = true) }?.url
+
+            if (!fallbackLink.isNullOrBlank()) {
+                onSelectMedia(sport.copy(streamUrl = fallbackLink))
+            } else {
+                showNoLinkDialog = true
+                Toast.makeText(context, "ম্যাচ শুরু হওয়ার সাথে সাথে চ্যানেল আসবে অপেক্ষা করুন ধন্যবাদ", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -3442,26 +3453,72 @@ fun LiveEventMatchCard(
                     }
                 }
 
-                // Multiple Servers Chips (if available)
+                // Multiple Servers Chips (if available) - Smoothly scrollable horizontally without breaking card height
                 if (servers.size > 1) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(vertical = 1.dp)
                     ) {
-                        servers.take(3).forEach { srv ->
+                        Surface(
+                            shape = RoundedCornerShape(5.dp),
+                            color = Color(0xFF0369A1).copy(alpha = 0.25f),
+                            border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFF0284C7)),
+                            modifier = Modifier.clickable { showServerSelectDialog = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Dns,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "${servers.size}টি চ্যানেল",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+
+                        servers.forEachIndexed { idx, srv ->
+                            val cleanName = srv.name.ifBlank { "সার্ভার ${idx + 1}" }
                             Surface(
                                 shape = RoundedCornerShape(5.dp),
                                 color = Color(0xFF1E293B),
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
                                 modifier = Modifier.clickable { handlePlayClick(srv.url) }
                             ) {
-                                Text(
-                                    text = srv.name,
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
-                                )
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = cleanName,
+                                        color = Color(0xFFF1F5F9),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
                             }
                         }
                     }
@@ -3469,6 +3526,7 @@ fun LiveEventMatchCard(
 
                 // Action Button
                 if (isLiveNow || hasPlayableLink) {
+                    val playButtonText = if (servers.size > 1) "লাইভ দেখুন (${servers.size}টি চ্যানেল)" else "লাইভ দেখুন"
                     Button(
                         onClick = { handlePlayClick(null) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
@@ -3490,7 +3548,7 @@ fun LiveEventMatchCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "লাইভ দেখুন",
+                                text = playButtonText,
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -3530,6 +3588,150 @@ fun LiveEventMatchCard(
                 }
             }
         }
+    }
+
+    if (showServerSelectDialog && servers.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showServerSelectDialog = false },
+            icon = {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.LiveTv,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            },
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "📺 লাইভ চ্যানেল নির্বাচন করুন",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = displayTitle,
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 340.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    servers.forEachIndexed { index, srv ->
+                        val cleanName = srv.name.ifBlank { "সার্ভার ${index + 1}" }
+                        val isLinkValid = srv.url.isNotBlank() && !srv.url.equals("null", ignoreCase = true)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF1E293B),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isLinkValid) Color(0xFF0284C7).copy(alpha = 0.7f) else Color(0xFF334155)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = isLinkValid) {
+                                    showServerSelectDialog = false
+                                    onSelectMedia(sport.copy(streamUrl = srv.url))
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF0284C7).copy(alpha = 0.25f),
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "${index + 1}",
+                                                color = Color(0xFF38BDF8),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.5.sp
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = cleanName,
+                                            color = Color.White,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (isLinkValid) "🟢 সচল লাইভ স্ট্রিম" else "🔴 প্রস্তুত হচ্ছে",
+                                            color = if (isLinkValid) Color(0xFF34D399) else Color(0xFFF87171),
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isLinkValid) Color(0xFFDC2626) else Color(0xFF334155)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        Text(
+                                            text = "চালান",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showServerSelectDialog = false }) {
+                    Text("বন্ধ করুন", color = Color(0xFF94A3B8))
+                }
+            },
+            containerColor = Color(0xFF0F172A),
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 
     if (showNoLinkDialog) {

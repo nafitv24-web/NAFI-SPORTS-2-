@@ -1962,51 +1962,80 @@ fun AdminControlAppScreen(
 
                             // Dynamic list of server inputs
                             sportsServers.forEachIndexed { index, server ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    OutlinedTextField(
-                                        value = server.name,
-                                        onValueChange = { newName ->
-                                            sportsServers = sportsServers.toMutableList().also {
-                                                it[index] = it[index].copy(name = newName)
-                                            }
-                                        },
-                                        placeholder = { Text("Server ${index + 1} Name", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                        modifier = Modifier.weight(1f),
-                                        colors = customFieldColors(),
-                                        shape = RoundedCornerShape(12.dp),
-                                        singleLine = true
-                                    )
-                                    OutlinedTextField(
-                                        value = server.url,
-                                        onValueChange = { newUrl ->
-                                            sportsServers = sportsServers.toMutableList().also {
-                                                it[index] = it[index].copy(url = newUrl)
-                                            }
-                                        },
-                                        placeholder = { Text("Stream URL (.m3u8 / mp4)", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                        modifier = Modifier.weight(2f),
-                                        colors = customFieldColors(),
-                                        shape = RoundedCornerShape(12.dp),
-                                        singleLine = true
-                                    )
-                                    if (sportsServers.size > 1) {
-                                        IconButton(
-                                            onClick = {
-                                                sportsServers = sportsServers.toMutableList().also { it.removeAt(index) }
-                                            },
-                                            modifier = Modifier.size(36.dp)
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                Icons.Rounded.DeleteOutline,
-                                                contentDescription = "সার্ভার সরান",
-                                                tint = Color(0xFFEF4444),
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Rounded.Dns,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF00E5FF),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "চ্যানেল/সার্ভার #${index + 1}",
+                                                    color = Color(0xFF00E5FF),
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            if (sportsServers.size > 1) {
+                                                IconButton(
+                                                    onClick = {
+                                                        sportsServers = sportsServers.toMutableList().also { it.removeAt(index) }
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Rounded.DeleteOutline,
+                                                        contentDescription = "সার্ভার সরান",
+                                                        tint = Color(0xFFEF4444),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
                                         }
+                                        OutlinedTextField(
+                                            value = server.name,
+                                            onValueChange = { newName ->
+                                                sportsServers = sportsServers.toMutableList().also {
+                                                    it[index] = it[index].copy(name = newName)
+                                                }
+                                            },
+                                            label = { Text("চ্যানেল/সার্ভার নাম (যেমন: T Sports, TT)", fontSize = 11.sp) },
+                                            placeholder = { Text("Server ${index + 1} Name", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = customFieldColors(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            singleLine = true
+                                        )
+                                        OutlinedTextField(
+                                            value = server.url,
+                                            onValueChange = { newUrl ->
+                                                sportsServers = sportsServers.toMutableList().also {
+                                                    it[index] = it[index].copy(url = newUrl)
+                                                }
+                                            },
+                                            label = { Text("স্ট্রিম URL (.m3u8 / .mpd / mp4)", fontSize = 11.sp) },
+                                            placeholder = { Text("https://example.com/live.m3u8", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = customFieldColors(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            singleLine = true
+                                        )
                                     }
                                 }
                             }
@@ -5621,51 +5650,80 @@ fun AdminControlAppScreen(
                         // Dynamic Server Inputs for Edit
                         items(editServers.size) { index ->
                             val server = editServers[index]
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
                             ) {
-                                OutlinedTextField(
-                                    value = server.name,
-                                    onValueChange = { newName ->
-                                        editServers = editServers.toMutableList().also {
-                                            it[index] = it[index].copy(name = newName)
-                                        }
-                                    },
-                                    placeholder = { Text("সার্ভার নাম", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f),
-                                    colors = customFieldColors(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                                OutlinedTextField(
-                                    value = server.url,
-                                    onValueChange = { newUrl ->
-                                        editServers = editServers.toMutableList().also {
-                                            it[index] = it[index].copy(url = newUrl)
-                                        }
-                                    },
-                                    placeholder = { Text("Stream URL (.m3u8 / mp4)", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(2f),
-                                    colors = customFieldColors(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                                if (editServers.size > 1) {
-                                    IconButton(
-                                        onClick = {
-                                            editServers = editServers.toMutableList().also { it.removeAt(index) }
-                                        },
-                                        modifier = Modifier.size(36.dp)
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            Icons.Rounded.DeleteOutline,
-                                            contentDescription = "Remove Server",
-                                            tint = Color(0xFFEF4444),
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Rounded.Dns,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E5FF),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "চ্যানেল/সার্ভার #${index + 1}",
+                                                color = Color(0xFF00E5FF),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (editServers.size > 1) {
+                                            IconButton(
+                                                onClick = {
+                                                    editServers = editServers.toMutableList().also { it.removeAt(index) }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.DeleteOutline,
+                                                    contentDescription = "Remove Server",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                     }
+                                    OutlinedTextField(
+                                        value = server.name,
+                                        onValueChange = { newName ->
+                                            editServers = editServers.toMutableList().also {
+                                                it[index] = it[index].copy(name = newName)
+                                            }
+                                        },
+                                        label = { Text("সার্ভার নাম (Name)", fontSize = 11.sp) },
+                                        placeholder = { Text("সার্ভার নাম", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = server.url,
+                                        onValueChange = { newUrl ->
+                                            editServers = editServers.toMutableList().also {
+                                                it[index] = it[index].copy(url = newUrl)
+                                            }
+                                        },
+                                        label = { Text("স্ট্রিম URL (.m3u8 / mp4)", fontSize = 11.sp) },
+                                        placeholder = { Text("Stream URL (.m3u8 / mp4)", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true
+                                    )
                                 }
                             }
                         }
@@ -5947,51 +6005,80 @@ fun AdminControlAppScreen(
 
                         // Dynamic Server Inputs
                         itemsIndexed(editChannelServers) { idx, srv ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
                             ) {
-                                OutlinedTextField(
-                                    value = srv.name,
-                                    onValueChange = { newName ->
-                                        editChannelServers = editChannelServers.toMutableList().also {
-                                            it[idx] = it[idx].copy(name = newName)
-                                        }
-                                    },
-                                    placeholder = { Text("Server ${idx + 1} Name", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f),
-                                    colors = customFieldColors(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                                OutlinedTextField(
-                                    value = srv.url,
-                                    onValueChange = { newUrl ->
-                                        editChannelServers = editChannelServers.toMutableList().also {
-                                            it[idx] = it[idx].copy(url = newUrl)
-                                        }
-                                    },
-                                    placeholder = { Text("Stream URL (.m3u8 / .mpd)", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(2f),
-                                    colors = customFieldColors(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                                if (editChannelServers.size > 1) {
-                                    IconButton(
-                                        onClick = {
-                                            editChannelServers = editChannelServers.toMutableList().also { it.removeAt(idx) }
-                                        },
-                                        modifier = Modifier.size(36.dp)
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            Icons.Rounded.DeleteOutline,
-                                            contentDescription = "সার্ভার সরান",
-                                            tint = Color(0xFFEF4444),
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Rounded.Dns,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E5FF),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "চ্যানেল/সার্ভার #${idx + 1}",
+                                                color = Color(0xFF00E5FF),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (editChannelServers.size > 1) {
+                                            IconButton(
+                                                onClick = {
+                                                    editChannelServers = editChannelServers.toMutableList().also { it.removeAt(idx) }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.DeleteOutline,
+                                                    contentDescription = "সার্ভার সরান",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                     }
+                                    OutlinedTextField(
+                                        value = srv.name,
+                                        onValueChange = { newName ->
+                                            editChannelServers = editChannelServers.toMutableList().also {
+                                                it[idx] = it[idx].copy(name = newName)
+                                            }
+                                        },
+                                        label = { Text("সার্ভার নাম (যেমন: Server ${idx + 1})", fontSize = 11.sp) },
+                                        placeholder = { Text("Server ${idx + 1} Name", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = srv.url,
+                                        onValueChange = { newUrl ->
+                                            editChannelServers = editChannelServers.toMutableList().also {
+                                                it[idx] = it[idx].copy(url = newUrl)
+                                            }
+                                        },
+                                        label = { Text("স্ট্রিম URL (.m3u8 / .mpd)", fontSize = 11.sp) },
+                                        placeholder = { Text("Stream URL (.m3u8 / .mpd)", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true
+                                    )
                                 }
                             }
                         }
@@ -6416,51 +6503,80 @@ fun AdminControlAppScreen(
 
                         // Dynamic Server Inputs
                         itemsIndexed(editMovieServers) { idx, srv ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
                             ) {
-                                OutlinedTextField(
-                                    value = srv.name,
-                                    onValueChange = { newName ->
-                                        editMovieServers = editMovieServers.toMutableList().also {
-                                            it[idx] = it[idx].copy(name = newName)
-                                        }
-                                    },
-                                    placeholder = { Text("Server ${idx + 1} Name", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f),
-                                    colors = customFieldColors(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                                OutlinedTextField(
-                                    value = srv.url,
-                                    onValueChange = { newUrl ->
-                                        editMovieServers = editMovieServers.toMutableList().also {
-                                            it[idx] = it[idx].copy(url = newUrl)
-                                        }
-                                    },
-                                    placeholder = { Text("Movie Stream URL (mp4 / m3u8)", color = Color(0xFF64748B), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(2f),
-                                    colors = customFieldColors(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                                if (editMovieServers.size > 1) {
-                                    IconButton(
-                                        onClick = {
-                                            editMovieServers = editMovieServers.toMutableList().also { it.removeAt(idx) }
-                                        },
-                                        modifier = Modifier.size(36.dp)
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            Icons.Rounded.DeleteOutline,
-                                            contentDescription = "সার্ভার সরান",
-                                            tint = Color(0xFFEF4444),
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Rounded.Dns,
+                                                contentDescription = null,
+                                                tint = Color(0xFFF59E0B),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "মুভি সার্ভার #${idx + 1}",
+                                                color = Color(0xFFF59E0B),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (editMovieServers.size > 1) {
+                                            IconButton(
+                                                onClick = {
+                                                    editMovieServers = editMovieServers.toMutableList().also { it.removeAt(idx) }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.DeleteOutline,
+                                                    contentDescription = "সার্ভার সরান",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                     }
+                                    OutlinedTextField(
+                                        value = srv.name,
+                                        onValueChange = { newName ->
+                                            editMovieServers = editMovieServers.toMutableList().also {
+                                                it[idx] = it[idx].copy(name = newName)
+                                            }
+                                        },
+                                        label = { Text("সার্ভার নাম (যেমন: Server ${idx + 1} HD)", fontSize = 11.sp) },
+                                        placeholder = { Text("Server ${idx + 1} Name", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = srv.url,
+                                        onValueChange = { newUrl ->
+                                            editMovieServers = editMovieServers.toMutableList().also {
+                                                it[idx] = it[idx].copy(url = newUrl)
+                                            }
+                                        },
+                                        label = { Text("মুভি স্ট্রিম URL (mp4 / m3u8)", fontSize = 11.sp) },
+                                        placeholder = { Text("Movie Stream URL (mp4 / m3u8)", color = Color(0xFF64748B), fontSize = 11.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true
+                                    )
                                 }
                             }
                         }
