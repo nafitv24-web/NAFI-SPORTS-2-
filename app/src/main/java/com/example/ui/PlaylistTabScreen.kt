@@ -572,9 +572,9 @@ fun PlaylistTabScreen(
                 }
             }
 
-            // Enqueue unverified playlist channels for safe background probing
-            LaunchedEffect(playlistChannels) {
-                if (playlistChannels.isNotEmpty()) {
+            // Enqueue unverified playlist channels for background probing only if user enabled Only Active filter
+            LaunchedEffect(playlistChannels, showOnlyActive) {
+                if (showOnlyActive && playlistChannels.isNotEmpty()) {
                     ChannelStatusManager.enqueueChannelsForProbing(playlistChannels)
                 }
             }

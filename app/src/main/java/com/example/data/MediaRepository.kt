@@ -411,14 +411,61 @@ class MediaRepository(private val context: Context) {
                 title = "T Sports HD",
                 category = "Sports",
                 type = MediaType.LIVE_TV,
-                streamUrl = "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8",
+                streamUrl = "http://103.151.60.162:2122/play/a030/index.m3u8?hls",
                 servers = listOf(
-                    StreamServer("সার্ভার ১ (T Sports Main)", "https://live-tsports.akamaized.net/live/live-tsports/playlist.m3u8"),
-                    StreamServer("সার্ভার ২ (Backup Live)", "https://stream.crichd.vip/live/tsports.m3u8")
+                    StreamServer("সার্ভার ১ (T Sports Main)", "http://103.151.60.162:2122/play/a030/index.m3u8?hls"),
+                    StreamServer("সার্ভার ২ (T Sports Live)", "https://tvsen5.aynaott.com/TnMn5kZz8aLm/index.m3u8"),
+                    StreamServer("সার্ভার ৩ (Robi TV BD)", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/2.m3u8"),
+                    StreamServer("সার্ভার ৪ (Direct CDN)", "https://d3bq19vx8xhpwy.cloudfront.net/live/myStream/playlist.m3u8")
                 ),
-                logoUrl = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=300&fit=crop",
+                logoUrl = "https://i.postimg.cc/Qx3GZn6T/20240823_024117.png",
                 isLive = true,
                 quality = "1080p HD"
+            ),
+            MediaItem(
+                id = "tv_tsports_nf",
+                title = "T Sports NF",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "http://103.151.60.162:2122/play/a030/index.m3u8?hls",
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "http://103.151.60.162:2122/play/a030/index.m3u8?hls"),
+                    StreamServer("সার্ভার ২", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/2.m3u8"),
+                    StreamServer("সার্ভার ৩", "https://playztv-apps.pages.dev/ptv-sports/index.m3u8"),
+                    StreamServer("সার্ভার ৪", "https://tvsen5.aynaott.com/TnMn5kZz8aLm/index.m3u8")
+                ),
+                logoUrl = "https://i.postimg.cc/Qx3GZn6T/20240823_024117.png",
+                isLive = true,
+                quality = "HD"
+            ),
+            MediaItem(
+                id = "tv_asports_hd",
+                title = "A Sports HD",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (A Sports HD)", "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২ (BDIX Server)", "http://103.151.60.162:2122/play/a02z/index.m3u8?hls"),
+                    StreamServer("সার্ভার ৩ (Live CDN)", "https://cdn5.zohanayaan.com:1686/hls/asportshd.m3u8")
+                ),
+                logoUrl = "https://i.postimg.cc/W1z5BGPZ/20240823_024712.png",
+                isLive = true,
+                quality = "1080p HD"
+            ),
+            MediaItem(
+                id = "tv_asports",
+                title = "A Sports",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (Main HD)", "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২ (Backup)", "http://103.151.60.162:2122/play/a02z/index.m3u8?hls")
+                ),
+                logoUrl = "https://i.postimg.cc/W1z5BGPZ/20240823_024712.png",
+                isLive = true,
+                quality = "HD"
             ),
             MediaItem(
                 id = "tv_gtv_hd",
@@ -762,8 +809,15 @@ class MediaRepository(private val context: Context) {
         val deferredList = urls.map { singleUrl ->
             async { fetchSingleM3uUrl(singleUrl) }
         }
-        deferredList.awaitAll().flatten().distinctBy {
-            if (it.streamUrl.isNotBlank()) it.streamUrl else it.id
+        val allParsed = deferredList.awaitAll().flatten()
+        val seen = HashSet<String>()
+        allParsed.mapIndexed { idx, item ->
+            var uid = item.id.ifBlank { "m3u_${idx}_${Math.abs(item.title.hashCode())}" }
+            if (seen.contains(uid)) {
+                uid = "${uid}_$idx"
+            }
+            seen.add(uid)
+            item.copy(id = uid)
         }
     }
 
@@ -1086,7 +1140,13 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
-            val response = client.newCall(reqBuilder.build()).execute()
+            val fastClient = client.newBuilder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .callTimeout(10, TimeUnit.SECONDS)
+                .build()
+
+            val response = fastClient.newCall(reqBuilder.build()).execute()
             if (!response.isSuccessful) return@withContext emptyList()
 
             var content = response.body?.string()?.trim() ?: return@withContext emptyList()
@@ -3563,7 +3623,15 @@ class MediaRepository(private val context: Context) {
         if (current.isBlank() || current.contains("Nafitv24.m3u")) {
             return DEFAULT_LIVE_TV_M3U_URL
         }
-        return current
+        val sportsNfUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
+        var result = current
+        if (!result.contains("Update%20Channel.m3u") && !result.contains("Update Channel.m3u")) {
+            result = "$DEFAULT_LIVE_TV_M3U_URL\n$result"
+        }
+        if (!result.contains("Sports%20Channel%20NF.m3u") && !result.contains("Sports Channel NF.m3u")) {
+            result = "$result\n$sportsNfUrl"
+        }
+        return result
     }
 
     fun saveSportsM3uUrl(url: String) {

@@ -39,37 +39,20 @@ private val SERVER_CLEAN_REGEX = Regex("^(?i)(server|সার্ভার)\\s*\
 
 fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     if (channels.isEmpty()) return emptyList()
-    val grouped = linkedMapOf<String, MutableList<MediaItem>>()
-    for (item in channels) {
-        val cat = item.category?.trim()?.lowercase() ?: ""
-        val title = item.title.trim().lowercase()
-        val key = if (cat.isNotBlank()) "${cat}_${title}" else title
-        if (key.isNotEmpty()) {
-            grouped.getOrPut(key) { mutableListOf() }.add(item)
+    // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
+    // Keep all channels intact even with identical names, guaranteeing unique IDs for Compose rendering
+    val seenIds = HashSet<String>()
+    return channels.mapIndexed { index, item ->
+        val safeServers = item.getAllServers()
+        var uniqueId = item.id.ifBlank { "ch_${index}_${Math.abs(item.title.hashCode())}" }
+        if (seenIds.contains(uniqueId)) {
+            uniqueId = "${uniqueId}_${index}"
         }
-    }
-    return grouped.values.map { list ->
-        val first = list.first()
-        if (list.size == 1) {
-            val allServers = first.getAllServers()
-            first.copy(servers = allServers)
-        } else {
-            val combinedServers = list.flatMap { it.getAllServers() }.distinctBy { it.url.trim() }
-            val mergedServers = combinedServers.mapIndexed { idx, s ->
-                val num = idx + 1
-                val rawName = s.name.trim()
-                val cleanName = if (rawName.isBlank() || rawName.equals(first.title.trim(), ignoreCase = true) || rawName.matches(SERVER_CLEAN_REGEX)) {
-                    "সার্ভার $num"
-                } else {
-                    "সার্ভার $num ($rawName)"
-                }
-                StreamServer(cleanName, s.url.trim())
-            }
-            first.copy(
-                servers = mergedServers,
-                streamUrl = mergedServers.firstOrNull()?.url ?: first.streamUrl
-            )
-        }
+        seenIds.add(uniqueId)
+        item.copy(
+            id = uniqueId,
+            servers = safeServers
+        )
     }
 }
 
@@ -106,7 +89,7 @@ fun LiveTvTabScreen(
     }
 
     val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
-        val list = channels.filter { channel ->
+        channels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true
@@ -115,9 +98,7 @@ fun LiveTvTabScreen(
             }
             val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
             matchesSearch && matchesCategory && matchesActive
-        }.distinctBy { it.id }
-
-        list
+        }
     }
 
     Column(

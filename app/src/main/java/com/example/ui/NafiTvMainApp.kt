@@ -310,24 +310,28 @@ fun NafiTvMainApp(
 
                     val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                     val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
+                        kotlinx.coroutines.withTimeoutOrNull(4000) {
+                            try {
+                                repository.parseM3uFromUrl(sportsM3uUrl).map {
+                                    it.copy(
+                                        type = MediaType.LIVE_EVENT,
+                                        isLive = true,
+                                        status = if (it.status.isBlank()) "LIVE" else it.status
+                                    )
+                                }.filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } ?: emptyList()
+                    } else emptyList()
+
+                    val tapmad = kotlinx.coroutines.withTimeoutOrNull(3000) {
                         try {
-                            repository.parseM3uFromUrl(sportsM3uUrl).map {
-                                it.copy(
-                                    type = MediaType.LIVE_EVENT,
-                                    isLive = true,
-                                    status = if (it.status.isBlank()) "LIVE" else it.status
-                                )
-                            }.filterNot { deleted.contains(it.id) }
+                            repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
                             emptyList()
                         }
-                    } else emptyList()
-
-                    val tapmad = try {
-                        repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
+                    } ?: emptyList()
 
                     val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }
 
@@ -368,7 +372,22 @@ fun NafiTvMainApp(
                     }
 
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
-                    val updatedTv = (customTv + tvM3u + xtreamLiveChannels).distinctBy { it.id }
+                    val combinedTv = mutableListOf<MediaItem>()
+                    combinedTv.addAll(customTv)
+                    combinedTv.addAll(tvM3u)
+                    combinedTv.addAll(xtreamLiveChannels)
+
+                    // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
+                    // Preserve every single channel even with duplicate names, ensuring unique IDs for Compose
+                    val seenTvIds = HashSet<String>()
+                    val updatedTv = combinedTv.mapIndexed { idx, ch ->
+                        var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
+                        if (seenTvIds.contains(uid)) {
+                            uid = "${uid}_$idx"
+                        }
+                        seenTvIds.add(uid)
+                        ch.copy(id = uid)
+                    }
 
                     if (updatedTv.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
