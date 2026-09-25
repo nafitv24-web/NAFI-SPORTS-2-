@@ -1014,6 +1014,10 @@ fun NafiTvMainApp(
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = moviesList
                                 },
+                                onSelectMediaWithPlaylist = { item, epPlaylist ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = epPlaylist
+                                },
                                 onToggleFavorite = { id ->
                                     repository.toggleFavorite(id)
                                     favoriteIds = repository.getFavoriteIds()
@@ -1360,6 +1364,10 @@ fun NafiTvMainApp(
                             onSelectMedia = { item ->
                                 selectedMediaItem = item
                                 activePlaybackPlaylist = moviesList
+                            },
+                            onSelectMediaWithPlaylist = { item, epPlaylist ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = epPlaylist
                             },
                             onToggleFavorite = { id ->
                                 repository.toggleFavorite(id)

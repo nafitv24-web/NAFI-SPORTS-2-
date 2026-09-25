@@ -17,6 +17,7 @@ import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -243,7 +244,10 @@ fun VideoPlayerScreen(
             try {
                 val detailed = MediaRepository(context).fetchSeriesSeasonsAndEpisodes(currentMedia)
                 if (detailed.episodes.isNotEmpty() || detailed.seasons.isNotEmpty()) {
-                    currentMedia = detailed
+                    currentMedia = currentMedia.copy(
+                        episodes = detailed.episodes,
+                        seasons = detailed.seasons
+                    )
                 }
             } catch (_: Exception) {}
         }
@@ -519,6 +523,67 @@ fun VideoPlayerScreen(
             delay(6000)
             showControls = false
         }
+    }
+
+    fun getCurrentEpisodeIndex(): Int {
+        val eps = currentMedia.episodes
+        if (eps.isEmpty()) return -1
+        var idx = eps.indexOfFirst {
+            it.id.isNotBlank() && (it.id == currentMedia.id || "xtream_ep_${it.id}" == currentMedia.id)
+        }
+        if (idx == -1 && currentMedia.currentSeasonNum > 0 && currentMedia.currentEpisodeNum > 0) {
+            idx = eps.indexOfFirst {
+                it.seasonNum == currentMedia.currentSeasonNum && it.episodeNum == currentMedia.currentEpisodeNum
+            }
+        }
+        if (idx == -1 && currentMedia.streamUrl.isNotBlank()) {
+            idx = eps.indexOfFirst { it.streamUrl.trim().equals(currentMedia.streamUrl.trim(), ignoreCase = true) }
+        }
+        return idx
+    }
+
+    fun playNextEpisode(): Boolean {
+        val eps = currentMedia.episodes
+        if (eps.isEmpty()) return false
+        val currentIdx = getCurrentEpisodeIndex()
+        val nextIdx = if (currentIdx != -1) currentIdx + 1 else 0
+        if (nextIdx < eps.size) {
+            val nextEp = eps[nextIdx]
+            val epMedia = nextEp.toMediaItem(currentMedia)
+            isBuffering = true
+            currentMedia = epMedia
+            selectedServerIndex = 0
+            currentUrl = epMedia.streamUrl
+            errorMessage = null
+            onSelectMedia(epMedia)
+            channelOsdKey = System.currentTimeMillis()
+            android.widget.Toast.makeText(context, "পরবর্তী পর্ব: ${epMedia.title}", android.widget.Toast.LENGTH_SHORT).show()
+            return true
+        } else {
+            android.widget.Toast.makeText(context, "এই সিরিজের সব পর্ব শেষ হয়েছে", android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
+    }
+
+    fun playPrevEpisode(): Boolean {
+        val eps = currentMedia.episodes
+        if (eps.isEmpty()) return false
+        val currentIdx = getCurrentEpisodeIndex()
+        val prevIdx = if (currentIdx > 0) currentIdx - 1 else 0
+        if (prevIdx != currentIdx && prevIdx >= 0) {
+            val prevEp = eps[prevIdx]
+            val epMedia = prevEp.toMediaItem(currentMedia)
+            isBuffering = true
+            currentMedia = epMedia
+            selectedServerIndex = 0
+            currentUrl = epMedia.streamUrl
+            errorMessage = null
+            onSelectMedia(epMedia)
+            channelOsdKey = System.currentTimeMillis()
+            android.widget.Toast.makeText(context, "পূর্ববর্তী পর্ব: ${epMedia.title}", android.widget.Toast.LENGTH_SHORT).show()
+            return true
+        }
+        return false
     }
 
     // Setup ExoPlayer instance with custom http data source, headers and dynamic pipe parsing
@@ -936,6 +1001,9 @@ fun VideoPlayerScreen(
                             Player.STATE_ENDED -> {
                                 isBuffering = false
                                 isPlaying = false
+                                if (currentMedia.isSeries || currentMedia.episodes.isNotEmpty()) {
+                                    playNextEpisode()
+                                }
                             }
                             Player.STATE_IDLE -> {
                                 isBuffering = false
@@ -1175,6 +1243,11 @@ fun VideoPlayerScreen(
 
     // Switch to Next / Previous Channel cleanly and reliably without trapping inside multi-server loops
     fun switchChannel(delta: Int) {
+        if ((currentMedia.isSeries || currentMedia.episodes.isNotEmpty()) && currentMedia.episodes.size > 1) {
+            val didSwitch = if (delta > 0) playNextEpisode() else playPrevEpisode()
+            if (didSwitch) return
+        }
+
         val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
         if (list.isEmpty()) return
 
@@ -1872,6 +1945,8 @@ fun VideoPlayerScreen(
                     },
                     onPrevChannel = { switchChannel(-1) },
                     onNextChannel = { switchChannel(1) },
+                    onOpenEpisodes = { showEpisodesSheet = true },
+                    onNextEpisode = if (currentMedia.isSeries && currentMedia.episodes.isNotEmpty()) { { playNextEpisode() } } else null,
                     onToggleAspect = {
                         resizeMode = when (resizeMode) {
                             AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
@@ -1886,10 +1961,17 @@ fun VideoPlayerScreen(
                 )
             }
 
-            // Quick Channel Drawer in Fullscreen / TV Mode
-            if (showQuickChannelDrawer && playlist.isNotEmpty()) {
+            // Quick Channel / Episode Drawer in Fullscreen / TV Mode
+            val hasSeriesEpisodes = (currentMedia.isSeries || currentMedia.episodes.isNotEmpty()) && currentMedia.episodes.isNotEmpty()
+            if (showQuickChannelDrawer && (playlist.isNotEmpty() || hasSeriesEpisodes)) {
                 var drawerSearchQuery by remember { mutableStateOf("") }
                 var drawerSelectedCategory by remember { mutableStateOf("All") }
+                var drawerTab by remember(currentMedia.id) {
+                    mutableStateOf(if (hasSeriesEpisodes) "EPISODES" else "CHANNELS")
+                }
+                var drawerSeasonNum by remember(currentMedia.id) {
+                    mutableIntStateOf(if (currentMedia.currentSeasonNum > 0) currentMedia.currentSeasonNum else 1)
+                }
 
                 val drawerCategories = remember(playlist) {
                     val cats = playlist.map { it.category.trim() }
@@ -1912,12 +1994,25 @@ fun VideoPlayerScreen(
                     }
                 }
 
+                // Filtered Series Episodes for Current Season
+                val filteredEpisodes = remember(currentMedia.episodes, drawerSeasonNum, drawerSearchQuery) {
+                    currentMedia.episodes.filter { ep ->
+                        val matchesSeason = ep.seasonNum == drawerSeasonNum || currentMedia.seasons.isEmpty()
+                        val matchesSearch = if (drawerSearchQuery.isBlank()) true else {
+                            ep.title.contains(drawerSearchQuery, ignoreCase = true) ||
+                            "পর্ব ${ep.episodeNum}".contains(drawerSearchQuery, ignoreCase = true) ||
+                            "${ep.episodeNum}".contains(drawerSearchQuery)
+                        }
+                        matchesSeason && matchesSearch
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(280.dp)
+                        .width(320.dp)
                         .align(Alignment.CenterEnd)
-                        .background(Color(0xFF0F172A).copy(alpha = 0.96f))
+                        .background(Color(0xFF0F172A).copy(alpha = 0.98f))
                         .padding(10.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -1928,7 +2023,7 @@ fun VideoPlayerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "📺 চ্যানেল তালিকা (${filteredDrawerPlaylist.size})",
+                                text = if (drawerTab == "EPISODES") "📺 পর্বসমূহ (${currentMedia.episodes.size})" else "📺 চ্যানেল তালিকা (${filteredDrawerPlaylist.size})",
                                 color = Color(0xFF00E5FF),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.5.sp
@@ -1941,11 +2036,57 @@ fun VideoPlayerScreen(
                             }
                         }
 
+                        // Tab Switch if both Series Episodes and Playlist are available
+                        if (hasSeriesEpisodes && playlist.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (drawerTab == "EPISODES") Color(0xFF0284C7) else Color(0xFF1E293B),
+                                    border = BorderStroke(1.dp, if (drawerTab == "EPISODES") Color(0xFF00E5FF) else Color(0xFF334155)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { drawerTab = "EPISODES" }
+                                ) {
+                                    Text(
+                                        text = "📺 পর্বসমূহ",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (drawerTab == "CHANNELS") Color(0xFF0284C7) else Color(0xFF1E293B),
+                                    border = BorderStroke(1.dp, if (drawerTab == "CHANNELS") Color(0xFF00E5FF) else Color(0xFF334155)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { drawerTab = "CHANNELS" }
+                                ) {
+                                    Text(
+                                        text = "📡 চ্যানেল/মুভি",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+
                         // Search Box inside Drawer
                         OutlinedTextField(
                             value = drawerSearchQuery,
                             onValueChange = { drawerSearchQuery = it },
-                            placeholder = { Text("চ্যানেল খুঁজুন...", color = Color(0xFF94A3B8), fontSize = 11.sp) },
+                            placeholder = { Text(if (drawerTab == "EPISODES") "পর্ব খুঁজুন (যেমন: ১, ২)..." else "চ্যানেল খুঁজুন...", color = Color(0xFF94A3B8), fontSize = 11.sp) },
                             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp)) },
                             trailingIcon = {
                                 if (drawerSearchQuery.isNotEmpty()) {
@@ -1973,137 +2114,281 @@ fun VideoPlayerScreen(
                             singleLine = true
                         )
 
-                        // Categories Horizontal Scroll inside Drawer
-                        if (drawerCategories.size > 1) {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                            ) {
-                                items(drawerCategories) { cat ->
-                                    val isSelected = drawerSelectedCategory == cat
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
-                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
-                                        modifier = Modifier.clickable { drawerSelectedCategory = cat }
-                                    ) {
-                                        Text(
-                                            text = cat,
-                                            color = if (isSelected) Color.White else Color(0xFFCBD5E1),
-                                            fontSize = 10.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                        )
+                        if (drawerTab == "EPISODES") {
+                            // Season Chips for Series
+                            if (currentMedia.seasons.size > 1) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    items(currentMedia.seasons) { season ->
+                                        val isSelected = drawerSeasonNum == season.seasonNumber
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isSelected) Color(0xFF0284C7) else Color(0xFF1E293B),
+                                            border = BorderStroke(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF334155)),
+                                            modifier = Modifier.clickable { drawerSeasonNum = season.seasonNumber }
+                                        ) {
+                                            Text(
+                                                text = season.name.ifBlank { "সিজন ${season.seasonNumber}" },
+                                                color = Color.White,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        // Channels List
-                        if (filteredDrawerPlaylist.isEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "কোনো চ্যানেল পাওয়া যায়নি",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 11.5.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        } else {
-                            LazyColumn(
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(filteredDrawerPlaylist) { item ->
-                                    val isCurrent = item.id == currentMedia.id
-                                    var isFocused by remember { mutableStateOf(false) }
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .onFocusChanged { focusState ->
-                                                isFocused = focusState.isFocused
-                                            }
-                                            .focusable()
-                                            .clickable {
-                                                isBuffering = true
-                                                currentMedia = item
-                                                selectedServerIndex = 0
-                                                val newServers = item.getAllServers()
-                                                val oldUrl = currentUrl
-                                                val nextUrl = newServers.firstOrNull()?.url ?: item.streamUrl
-                                                currentUrl = nextUrl
-                                                errorMessage = null
-                                                onSelectMedia(item)
-                                                if (oldUrl == nextUrl) {
-                                                    try {
-                                                        exoPlayer.seekTo(0)
-                                                        exoPlayer.prepare()
-                                                        exoPlayer.play()
-                                                    } catch (_: Exception) {}
-                                                }
-                                            },
-                                        shape = RoundedCornerShape(8.dp),
-                                        border = when {
-                                            isFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
-                                            isCurrent -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8))
-                                            else -> null
-                                        },
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = when {
-                                                isFocused -> Color(0xFF2563EB).copy(alpha = 0.85f)
-                                                isCurrent -> Color(0xFF00E5FF).copy(alpha = 0.25f)
-                                                else -> Color(0xFF1E293B)
-                                            }
-                                        )
-                                    ) {
-                                        Row(
+                            // Episode List in Drawer
+                            if (filteredEpisodes.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "কোনো পর্ব পাওয়া যায়নি",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.5.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    items(filteredEpisodes, key = { it.id }) { ep ->
+                                        val isCurrent = ep.id == currentMedia.id || (ep.seasonNum == currentMedia.currentSeasonNum && ep.episodeNum == currentMedia.currentEpisodeNum)
+                                        var isFocused by remember { mutableStateOf(false) }
+
+                                        Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            AsyncImage(
-                                                model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
-                                                contentDescription = item.title,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier
-                                                    .size(30.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.White)
+                                                .scale(if (isFocused) 1.02f else 1.0f)
+                                                .onFocusChanged { isFocused = it.isFocused }
+                                                .focusable()
+                                                .clickable {
+                                                    val epMedia = ep.toMediaItem(currentMedia)
+                                                    isBuffering = true
+                                                    currentMedia = epMedia
+                                                    selectedServerIndex = 0
+                                                    currentUrl = epMedia.streamUrl
+                                                    errorMessage = null
+                                                    onSelectMedia(epMedia)
+                                                    channelOsdKey = System.currentTimeMillis()
+                                                    showQuickChannelDrawer = false
+                                                    android.widget.Toast.makeText(context, "পর্ব ${ep.episodeNum} শুরু হয়েছে", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = when {
+                                                isFocused -> BorderStroke(2.dp, Color(0xFFFFD600))
+                                                isCurrent -> BorderStroke(1.5.dp, Color(0xFF00E5FF))
+                                                else -> BorderStroke(1.dp, Color(0xFF223456))
+                                            },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = when {
+                                                    isFocused -> Color(0xFF1E3A8A)
+                                                    isCurrent -> Color(0xFF0284C7).copy(alpha = 0.35f)
+                                                    else -> Color(0xFF141F38)
+                                                }
                                             )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        text = item.title,
-                                                        color = if (isFocused || isCurrent) Color(0xFF00E5FF) else Color.White,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 11.5.sp,
-                                                        maxLines = 1,
-                                                        modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(width = 50.dp, height = 34.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF0F172A)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isCurrent) Icons.Rounded.PlayArrow else Icons.Rounded.PlayCircle,
+                                                        contentDescription = null,
+                                                        tint = if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                                        modifier = Modifier.size(18.dp)
                                                     )
-                                                    if (isCurrent) {
-                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                }
+
+                                                Spacer(modifier = Modifier.width(8.dp))
+
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                                         Text(
-                                                            text = "▶ PLAYING",
-                                                            color = Color(0xFF00E5FF),
-                                                            fontWeight = FontWeight.ExtraBold,
-                                                            fontSize = 8.5.sp
+                                                            text = "পর্ব ${ep.episodeNum}: ${ep.title.ifBlank { "Episode ${ep.episodeNum}" }}",
+                                                            color = if (isFocused) Color(0xFFFFD600) else if (isCurrent) Color(0xFF00E5FF) else Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 11.5.sp,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f, fill = false)
+                                                        )
+                                                        if (isCurrent) {
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "▶ চলছে",
+                                                                color = Color(0xFF00E5FF),
+                                                                fontWeight = FontWeight.ExtraBold,
+                                                                fontSize = 9.sp
+                                                            )
+                                                        }
+                                                    }
+                                                    if (!ep.duration.isNullOrBlank()) {
+                                                        Text(
+                                                            text = "সময়: ${ep.duration}",
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 9.5.sp
                                                         )
                                                     }
                                                 }
-                                                Text(
-                                                    text = item.category,
-                                                    color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color(0xFF94A3B8),
-                                                    fontSize = 9.5.sp
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Categories Horizontal Scroll inside Drawer for Channels
+                            if (drawerCategories.size > 1) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    items(drawerCategories) { cat ->
+                                        val isSelected = drawerSelectedCategory == cat
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                            modifier = Modifier.clickable { drawerSelectedCategory = cat }
+                                        ) {
+                                            Text(
+                                                text = cat,
+                                                color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Channels List
+                            if (filteredDrawerPlaylist.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "কোনো চ্যানেল পাওয়া যায়নি",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.5.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    items(filteredDrawerPlaylist) { item ->
+                                        val isCurrent = item.id == currentMedia.id
+                                        var isFocused by remember { mutableStateOf(false) }
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .onFocusChanged { focusState ->
+                                                    isFocused = focusState.isFocused
+                                                }
+                                                .focusable()
+                                                .clickable {
+                                                    isBuffering = true
+                                                    currentMedia = item
+                                                    selectedServerIndex = 0
+                                                    val newServers = item.getAllServers()
+                                                    val oldUrl = currentUrl
+                                                    val nextUrl = newServers.firstOrNull()?.url ?: item.streamUrl
+                                                    currentUrl = nextUrl
+                                                    errorMessage = null
+                                                    onSelectMedia(item)
+                                                    if (oldUrl == nextUrl) {
+                                                        try {
+                                                            exoPlayer.seekTo(0)
+                                                            exoPlayer.prepare()
+                                                            exoPlayer.play()
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                },
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = when {
+                                                isFocused -> androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00E5FF))
+                                                isCurrent -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8))
+                                                else -> null
+                                            },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = when {
+                                                    isFocused -> Color(0xFF2563EB).copy(alpha = 0.85f)
+                                                    isCurrent -> Color(0xFF00E5FF).copy(alpha = 0.25f)
+                                                    else -> Color(0xFF1E293B)
+                                                }
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                AsyncImage(
+                                                    model = item.logoUrl ?: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=100",
+                                                    contentDescription = item.title,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .size(30.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color.White)
                                                 )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = item.title,
+                                                            color = if (isFocused || isCurrent) Color(0xFF00E5FF) else Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 11.5.sp,
+                                                            maxLines = 1,
+                                                            modifier = Modifier.weight(1f, fill = false)
+                                                        )
+                                                        if (isCurrent) {
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "▶ PLAYING",
+                                                                color = Color(0xFF00E5FF),
+                                                                fontWeight = FontWeight.ExtraBold,
+                                                                fontSize = 8.5.sp
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = item.category,
+                                                        color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color(0xFF94A3B8),
+                                                        fontSize = 9.5.sp
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -4699,6 +4984,8 @@ private fun FullscreenControlsOverlay(
     onToggleSpeed: () -> Unit,
     onPrevChannel: () -> Unit,
     onNextChannel: () -> Unit,
+    onOpenEpisodes: () -> Unit = {},
+    onNextEpisode: (() -> Unit)? = null,
     onToggleAspect: () -> Unit,
     onEnterPip: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
@@ -4750,6 +5037,26 @@ private fun FullscreenControlsOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Episodes Selector Button for Series
+                if (media.isSeries || media.episodes.isNotEmpty() || media.seasons.isNotEmpty()) {
+                    TvPlayerActionChip(
+                        icon = Icons.Rounded.VideoLibrary,
+                        label = "সকল পর্ব (${if (media.episodes.isNotEmpty()) "${media.episodes.size}" else "Episodes"})",
+                        accentColor = Color(0xFFFFD600),
+                        onClick = onOpenEpisodes
+                    )
+                }
+
+                // Next Episode Button for Series
+                if (onNextEpisode != null) {
+                    TvPlayerActionChip(
+                        icon = Icons.Rounded.SkipNext,
+                        label = "পরবর্তী পর্ব",
+                        accentColor = Color(0xFF00E5FF),
+                        onClick = onNextEpisode
+                    )
+                }
+
                 // Quality Selector Button
                 TvPlayerActionChip(
                     icon = Icons.Rounded.HighQuality,

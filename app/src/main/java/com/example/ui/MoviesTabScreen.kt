@@ -89,6 +89,7 @@ fun MoviesTabScreen(
     isTvMode: Boolean = false,
     repository: com.example.data.MediaRepository? = null,
     onSelectMedia: (MediaItem) -> Unit,
+    onSelectMediaWithPlaylist: ((MediaItem, List<MediaItem>) -> Unit)? = null,
     onToggleFavorite: (String) -> Unit,
     onOpenOfflineDownloads: () -> Unit
 ) {
@@ -696,7 +697,21 @@ fun MoviesTabScreen(
                 series = selectedSeriesForDialog!!,
                 repository = repository,
                 isTvMode = isTvMode,
-                onPlayEpisode = onSelectMedia,
+                onPlayEpisode = { epMedia ->
+                    val epPlaylist = if (epMedia.episodes.isNotEmpty()) {
+                        epMedia.episodes.map { it.toMediaItem(epMedia) }
+                    } else if (selectedSeriesForDialog?.episodes?.isNotEmpty() == true) {
+                        selectedSeriesForDialog!!.episodes.map { it.toMediaItem(selectedSeriesForDialog!!) }
+                    } else {
+                        listOf(epMedia)
+                    }
+                    if (onSelectMediaWithPlaylist != null) {
+                        onSelectMediaWithPlaylist(epMedia, epPlaylist)
+                    } else {
+                        onSelectMedia(epMedia)
+                    }
+                    selectedSeriesForDialog = null
+                },
                 onDismiss = { selectedSeriesForDialog = null }
             )
         }

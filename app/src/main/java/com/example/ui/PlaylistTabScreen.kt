@@ -848,7 +848,17 @@ fun PlaylistTabScreen(
                 series = activeSeriesForDialog!!,
                 repository = repository,
                 isTvMode = isTvMode,
-                onPlayEpisode = { epMedia -> onSelectMedia(epMedia, playlistChannels) },
+                onPlayEpisode = { epMedia ->
+                    val epList = if (epMedia.episodes.isNotEmpty()) {
+                        epMedia.episodes.map { it.toMediaItem(epMedia) }
+                    } else if (activeSeriesForDialog?.episodes?.isNotEmpty() == true) {
+                        activeSeriesForDialog!!.episodes.map { it.toMediaItem(activeSeriesForDialog!!) }
+                    } else {
+                        playlistChannels
+                    }
+                    onSelectMedia(epMedia, epList)
+                    activeSeriesForDialog = null
+                },
                 onDismiss = { activeSeriesForDialog = null }
             )
         }

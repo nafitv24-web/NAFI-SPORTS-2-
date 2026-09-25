@@ -2087,7 +2087,8 @@ class MediaRepository(private val context: Context) {
     }
 
     suspend fun fetchSeriesSeasonsAndEpisodes(mediaItem: MediaItem): MediaItem = withContext(Dispatchers.IO) {
-        val seriesId = mediaItem.seriesId?.takeIf { it.isNotBlank() } ?: mediaItem.id.substringAfter("xtream_series_")
+        val rawSeriesId = mediaItem.seriesId?.takeIf { it.isNotBlank() } ?: mediaItem.id
+        val seriesId = rawSeriesId.removePrefix("xtream_series_").removePrefix("xtream_ep_").trim()
         if (seriesId.isBlank()) return@withContext mediaItem
 
         // Check in-memory cache
@@ -2158,10 +2159,18 @@ class MediaRepository(private val context: Context) {
                     val seasonList = seasonEpisodesMap.getOrPut(sNum) { mutableListOf() }
                     for (i in 0 until epArr.length()) {
                         val epObj = epArr.optJSONObject(i) ?: continue
-                        val epId = epObj.optString("id", "")
-                        if (epId.isBlank()) continue
-                        val epNum = epObj.optInt("episode_num", epObj.optString("episode_num", "${i + 1}").toIntOrNull() ?: (i + 1))
-                        val title = epObj.optString("title", "Episode $epNum")
+                        val epId = epObj.optString("id", "").ifBlank { "${seriesId}_s${sNum}e${i + 1}" }
+                        val rawTitle = epObj.optString("title", "").trim()
+                        val regexMatch = Regex("""(?:[_\s\-]E|Episode\s*|S\d+E)(\d+)""", RegexOption.IGNORE_CASE).find(rawTitle)
+                        val titleEpNum = regexMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+                        val rawEpNum = epObj.optInt("episode_num", 0)
+                        val epNum = when {
+                            titleEpNum != null && titleEpNum > 0 -> titleEpNum
+                            rawEpNum > 1 -> rawEpNum
+                            else -> i + 1
+                        }
+
+                        val title = if (rawTitle.isNotBlank()) rawTitle else "Episode $epNum"
                         val ext = epObj.optString("container_extension", "mkv").ifBlank { "mp4" }
                         val epInfo = epObj.optJSONObject("info")
 
@@ -2193,15 +2202,24 @@ class MediaRepository(private val context: Context) {
                         seasonList.add(episode)
                         allEpisodes.add(episode)
                     }
+                    seasonList.sortBy { it.episodeNum }
                 }
             } else if (episodesArr != null) {
                 for (i in 0 until episodesArr.length()) {
                     val epObj = episodesArr.optJSONObject(i) ?: continue
-                    val epId = epObj.optString("id", "")
-                    if (epId.isBlank()) continue
+                    val epId = epObj.optString("id", "").ifBlank { "${seriesId}_ep_${i + 1}" }
                     val sNum = epObj.optInt("season", epObj.optString("season", "1").toIntOrNull() ?: 1)
-                    val epNum = epObj.optInt("episode_num", epObj.optString("episode_num", "${i + 1}").toIntOrNull() ?: (i + 1))
-                    val title = epObj.optString("title", "Episode $epNum")
+                    val rawTitle = epObj.optString("title", "").trim()
+                    val regexMatch = Regex("""(?:[_\s\-]E|Episode\s*|S\d+E)(\d+)""", RegexOption.IGNORE_CASE).find(rawTitle)
+                    val titleEpNum = regexMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    val rawEpNum = epObj.optInt("episode_num", 0)
+                    val epNum = when {
+                        titleEpNum != null && titleEpNum > 0 -> titleEpNum
+                        rawEpNum > 1 -> rawEpNum
+                        else -> i + 1
+                    }
+
+                    val title = if (rawTitle.isNotBlank()) rawTitle else "Episode $epNum"
                     val ext = epObj.optString("container_extension", "mkv").ifBlank { "mp4" }
                     val epInfo = epObj.optJSONObject("info")
 
@@ -2232,7 +2250,9 @@ class MediaRepository(private val context: Context) {
                     seasonEpisodesMap.getOrPut(sNum) { mutableListOf() }.add(episode)
                     allEpisodes.add(episode)
                 }
+                seasonEpisodesMap.values.forEach { it.sortBy { ep -> ep.episodeNum } }
             }
+            allEpisodes.sortBy { it.seasonNum * 10000 + it.episodeNum }
 
             // Parse seasons array
             val seasonsList = mutableListOf<SeasonInfo>()

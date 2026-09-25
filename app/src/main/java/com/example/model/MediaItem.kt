@@ -33,8 +33,9 @@ data class EpisodeItem(
     fun toMediaItem(parentSeries: MediaItem): MediaItem {
         val epServers = if (servers.isNotEmpty()) servers else listOf(StreamServer("সার্ভার ১ (HD)", streamUrl))
         val cleanTitle = if (title.isNotBlank()) title else "${parentSeries.title} - S${seasonNum}E${episodeNum}"
+        val uniqueEpId = if (id.isNotBlank() && id != "0") "xtream_ep_${id}" else "${parentSeries.id}_s${seasonNum}e${episodeNum}"
         return MediaItem(
-            id = "${parentSeries.id}_s${seasonNum}e${episodeNum}",
+            id = uniqueEpId,
             title = cleanTitle,
             category = parentSeries.category,
             type = MediaType.SERIES,
@@ -46,7 +47,7 @@ data class EpisodeItem(
             isLive = false,
             rating = rating ?: parentSeries.rating,
             year = releaseDate?.take(4) ?: parentSeries.year,
-            seriesId = parentSeries.seriesId ?: parentSeries.id,
+            seriesId = (parentSeries.seriesId ?: parentSeries.id).removePrefix("xtream_series_").removePrefix("xtream_ep_"),
             currentSeasonNum = seasonNum,
             currentEpisodeNum = episodeNum,
             seasons = parentSeries.seasons,
