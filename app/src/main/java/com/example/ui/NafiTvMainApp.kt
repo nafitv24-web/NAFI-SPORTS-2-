@@ -106,6 +106,15 @@ enum class AppTab(val title: String, val englishLabel: String) {
     MENU("মেনু", "Menu")
 }
 
+enum class LoadingStage(val title: String, val shortLabel: String, val step: Int, val totalSteps: Int = 4) {
+    IDLE("প্রস্তুত", "Ready", 0),
+    LIVE_EVENTS("১. লাইভ ইভেন্ট লোড হচ্ছে...", "লাইভ ইভেন্ট", 1),
+    LIVE_TV("২. লাইভ টিভি চ্যানেল লোড হচ্ছে...", "লাইভ টিভি", 2),
+    MOVIES("৩. মুভি ও সিরিজ লোড হচ্ছে...", "মুভি ও সিরিজ", 3),
+    PLAYLISTS("৪. প্লেলিস্ট ও ক্লাউডস্ট্রিম লোড হচ্ছে...", "প্লেলিস্ট", 4),
+    COMPLETED("সকল ডেটা সফলভাবে লোড সম্পন্ন!", "সম্পন্ন", 4)
+}
+
 enum class AdminTab(val label: String) {
     ANALYTICS("👥 ইউজার ও ট্রাফিক"),
     TICKER("ব্রেকিং নিউজ বার"),
@@ -244,6 +253,7 @@ fun NafiTvMainApp(
     var favoriteIds by remember { mutableStateOf(repository.getFavoriteIds()) }
     var breakingNewsText by remember { mutableStateOf(repository.getMarqueeTickerText()) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var currentLoadingStage by remember { mutableStateOf(LoadingStage.IDLE) }
 
     fun checkForUpdates(isManualCheck: Boolean = false) {
         coroutineScope.launch {
@@ -267,14 +277,17 @@ fun NafiTvMainApp(
         }
     }
 
-    // Auto-fetch data: Sequential Loading (Events -> TV Channels -> Movies -> Playlists & Cloud)
+    // Auto-fetch data: Sequential Staged Loading (1. Events -> 2. Live TV -> 3. Movies -> 4. Playlists & Cloud)
     fun refreshAllData() {
         coroutineScope.launch(Dispatchers.IO) {
-            isRefreshing = true
+            withContext(Dispatchers.Main) {
+                isRefreshing = true
+                currentLoadingStage = LoadingStage.LIVE_EVENTS
+            }
             try {
                 val deleted = repository.getDeletedIds()
 
-                // Step 0: Sync Remote App Config & Playlists immediately so latest Admin Panel URLs are in place
+                // Step 0: Sync Remote App Config immediately
                 try {
                     repository.fetchAppConfigFromFirebase()
                 } catch (e: Exception) {
@@ -282,41 +295,15 @@ fun NafiTvMainApp(
                 }
 
                 // -------------------------------------------------------------
-                // সর্বোচ্চ অগ্রাধিকার (সবার আগে): এডমিন প্যানেলের লাইভ খেলা ও ইভেন্ট তাৎক্ষণিক ফেচ ও আপডেট
-                // -------------------------------------------------------------
-                val adminLiveEventsDeferred = async {
-                    try {
-                        val adminEvents = repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
-                        if (adminEvents.isNotEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                // এডমিন প্যানেলের খেলা সবার আগে যুক্ত হবে (Top priority)
-                                sportsList = (adminEvents + sportsList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                                repository.saveCachedSportsMatches(sportsList)
-                            }
-                        }
-                        adminEvents
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        emptyList()
-                    }
-                }
-
-                val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
-                val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
-                val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
-                val fbPlaylists = try { repository.fetchPlaylistsFromFirebase() } catch (_: Exception) { emptyList() }
-                val allPlaylists = (adminPlaylists + userPlaylists + fbPlaylists + initialPlaylists)
-                    .distinctBy { it.id }
-                    .filterNot { deleted.contains(it.id) }
-                adminPlaylistsList = allPlaylists
-                playlistsList = allPlaylists
-                val playlistIds = allPlaylists.map { it.id }.toSet()
-
-                // -------------------------------------------------------------
-                // ধাপ ১: প্রথমে Events / লাইভ খেলাধুলা লোড হবে (First: Events)
+                // ধাপ ১: প্রথমে লাইভ ইভেন্ট / খেলাধুলা লোড হবে (First: Live Events)
                 // -------------------------------------------------------------
                 try {
-                    val adminEvents = adminLiveEventsDeferred.await()
+                    val adminEvents = try {
+                        repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
                     val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
                     val cachedAdmin = repository.getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
                     val allAdminSports = (adminEvents + customSports + cachedAdmin).distinctBy { it.id }
@@ -332,7 +319,6 @@ fun NafiTvMainApp(
                                 )
                             }.filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
-                            e.printStackTrace()
                             emptyList()
                         }
                     } else emptyList()
@@ -340,32 +326,34 @@ fun NafiTvMainApp(
                     val tapmad = try {
                         repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
                     } catch (e: Exception) {
-                        e.printStackTrace()
                         emptyList()
                     }
 
-                    // এডমিন প্যানেল থেকে যেগুলো খেলা এড করা হয়েছে সেগুলো সবার আগে আসবে (allAdminSports at index 0)
-                    val updatedSports = (allAdminSports + tapmad + sportsM3u)
-                        .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
-                        .distinctBy { it.id }
+                    val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }
 
                     if (updatedSports.isNotEmpty()) {
-                        sportsList = updatedSports
+                        withContext(Dispatchers.Main) {
+                            sportsList = updatedSports
+                        }
                         repository.saveCachedSportsMatches(sportsList)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+                delay(120) // Smooth yield to prevent UI frame drop
 
                 // -------------------------------------------------------------
-                // ধাপ ২: তারপর টিভি চ্যানেল লোড হবে (Second: TV Channels)
+                // ধাপ ২: তারপর লাইভ টিভি অপশন গুলো লোড হবে (Second: Live TV Channels)
                 // -------------------------------------------------------------
+                withContext(Dispatchers.Main) {
+                    currentLoadingStage = LoadingStage.LIVE_TV
+                }
                 try {
                     val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
                     val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
                         try {
                             repository.parseM3uFromUrl(liveTvM3uUrl).map {
-                                it.copy(type = MediaType.LIVE_TV)
+                                it.copy(type = MediaType.LIVE_TV, isLive = true)
                             }.filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
                             e.printStackTrace()
@@ -373,22 +361,32 @@ fun NafiTvMainApp(
                         }
                     } else emptyList()
 
+                    val xtreamLiveChannels = try {
+                        repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
-                    val updatedTv = (customTv + tvM3u)
-                        .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
-                        .distinctBy { it.id }
+                    val updatedTv = (customTv + tvM3u + xtreamLiveChannels).distinctBy { it.id }
 
                     if (updatedTv.isNotEmpty()) {
-                        liveTvList = updatedTv
+                        withContext(Dispatchers.Main) {
+                            liveTvList = updatedTv
+                        }
                         repository.saveCachedLiveTvChannels(liveTvList)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+                delay(120) // Smooth yield
 
                 // -------------------------------------------------------------
-                // ধাপ ৩: তার পর মুভি ও সিরিজ লোড হবে (Third: Movies & Auto-Update Playlists)
+                // ধাপ ৩: তারপর মুভি ও সিরিজ অপশন গুলো লোড হবে (Third: Movies & Series)
                 // -------------------------------------------------------------
+                withContext(Dispatchers.Main) {
+                    currentLoadingStage = LoadingStage.MOVIES
+                }
                 try {
                     val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
                     val moviesM3u = if (moviesM3uUrl.isNotBlank()) {
@@ -401,7 +399,6 @@ fun NafiTvMainApp(
                                 )
                             }.filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
-                            e.printStackTrace()
                             emptyList()
                         }
                     } else emptyList()
@@ -415,7 +412,6 @@ fun NafiTvMainApp(
                             )
                         }.filterNot { deleted.contains(it.id) }
                     } catch (e: Exception) {
-                        e.printStackTrace()
                         emptyList()
                     }
 
@@ -428,106 +424,120 @@ fun NafiTvMainApp(
                             )
                         }.filterNot { deleted.contains(it.id) }
                     } catch (e: Exception) {
-                        e.printStackTrace()
                         emptyList()
                     }
 
                     val starshareMov = try {
-                        repository.fetchStarshareMoviesAndSeries()
+                        repository.fetchStarshareMoviesAndSeries().filterNot { deleted.contains(it.id) }
                     } catch (e: Exception) {
                         emptyList()
-                    }
-
-                    val xtreamLiveChannels = try {
-                        repository.fetchAllXtreamLiveChannels()
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
-                    if (xtreamLiveChannels.isNotEmpty()) {
-                        liveTvList = (liveTvList + xtreamLiveChannels)
-                            .filterNot { deleted.contains(it.id) }
-                            .distinctBy { it.id }
-                        repository.saveCachedLiveTvChannels(liveTvList)
                     }
 
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies)
-                        .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
-                        .distinctBy { it.id }
+                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies).distinctBy { it.id }
 
                     if (updatedMov.isNotEmpty()) {
-                        moviesList = updatedMov
+                        withContext(Dispatchers.Main) {
+                            moviesList = updatedMov
+                        }
                         repository.saveCachedMoviesList(moviesList)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+                delay(120) // Smooth yield
 
                 // -------------------------------------------------------------
-                // ধাপ ৪: অতিরিক্ত Firebase আইটেম, নোটিফিকেশন ও ক্লাউডস্ট্রিম
+                // ধাপ ৪: তারপর প্লেলিস্ট অপশন গুলো লোড হবে (Fourth: Playlists & Cloud)
                 // -------------------------------------------------------------
+                withContext(Dispatchers.Main) {
+                    currentLoadingStage = LoadingStage.PLAYLISTS
+                }
                 try {
-                    val fbItems = try { repository.fetchFromFirebase().filterNot { deleted.contains(it.id) } } catch (_: Exception) { emptyList() }
-                    val fbSports = fbItems.filter { it.type == MediaType.LIVE_EVENT }
-                    val fbTv = fbItems.filter { it.type == MediaType.LIVE_TV }
-                    val fbMov = fbItems.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+                    val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
+                    val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
+                    val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
+                    val fbPlaylists = try { repository.fetchPlaylistsFromFirebase() } catch (_: Exception) { emptyList() }
+                    val allPlaylists = (adminPlaylists + userPlaylists + fbPlaylists + initialPlaylists)
+                        .distinctBy { it.id }
+                        .filterNot { deleted.contains(it.id) }
 
-                    if (fbSports.isNotEmpty()) {
-                        sportsList = (fbSports + sportsList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                        repository.saveCachedSportsMatches(sportsList)
+                    withContext(Dispatchers.Main) {
+                        adminPlaylistsList = allPlaylists
+                        playlistsList = allPlaylists
                     }
-                    if (fbTv.isNotEmpty()) {
-                        liveTvList = (liveTvList + fbTv).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                        repository.saveCachedLiveTvChannels(liveTvList)
-                    }
-                    if (fbMov.isNotEmpty()) {
-                        moviesList = (moviesList + fbMov).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-                        repository.saveCachedMoviesList(moviesList)
-                    }
+
+                    // Firebase extra items & CloudStream
+                    try {
+                        val fbItems = try { repository.fetchFromFirebase().filterNot { deleted.contains(it.id) } } catch (_: Exception) { emptyList() }
+                        val fbSports = fbItems.filter { it.type == MediaType.LIVE_EVENT }
+                        val fbTv = fbItems.filter { it.type == MediaType.LIVE_TV }
+                        val fbMov = fbItems.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+
+                        withContext(Dispatchers.Main) {
+                            if (fbSports.isNotEmpty()) {
+                                sportsList = (fbSports + sportsList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                                repository.saveCachedSportsMatches(sportsList)
+                            }
+                            if (fbTv.isNotEmpty()) {
+                                liveTvList = (liveTvList + fbTv).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                                repository.saveCachedLiveTvChannels(liveTvList)
+                            }
+                            if (fbMov.isNotEmpty()) {
+                                moviesList = (moviesList + fbMov).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                                repository.saveCachedMoviesList(moviesList)
+                            }
+                        }
+                    } catch (_: Exception) {}
 
                     try { repository.fetchRemoteNotifications() } catch (_: Exception) {}
-                    notificationsList = repository.getStoredNotifications()
+                    withContext(Dispatchers.Main) {
+                        notificationsList = repository.getStoredNotifications()
+                        customList = repository.getCustomStreams().filterNot { deleted.contains(it.id) }
+                        favoriteIds = repository.getFavoriteIds()
+                    }
+
+                    // CloudStream Repos
+                    try {
+                        val fbRepos = repository.fetchCloudStreamReposFromFirebase()
+                        if (fbRepos.isNotEmpty()) {
+                            val localRepos = repository.getSavedCloudStreamRepos()
+                            val merged = (fbRepos + localRepos).distinctBy { it.id }
+                            repository.saveCloudStreamRepos(merged)
+                            withContext(Dispatchers.Main) {
+                                cloudStreamRepos = merged
+                                allMovieProviders = repository.getAllMovieProviders()
+                            }
+                        }
+                    } catch (_: Exception) {}
+
+                    try {
+                        val remoteTicker = repository.fetchMarqueeTickerFromFirebase()
+                        withContext(Dispatchers.Main) {
+                            if (!remoteTicker.isNullOrBlank()) {
+                                breakingNewsText = remoteTicker
+                            } else {
+                                breakingNewsText = repository.getMarqueeTickerText()
+                            }
+                        }
+                    } catch (_: Exception) {}
+
+                    checkForUpdates(isManualCheck = false)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
 
-                // 5. Custom streams & favorites
-                val customStreams = repository.getCustomStreams().filterNot { deleted.contains(it.id) }
-                customList = customStreams
-                favoriteIds = repository.getFavoriteIds()
-
-                // 6. Sync CloudStream repositories & providers from Firebase
-                try {
-                    val fbRepos = repository.fetchCloudStreamReposFromFirebase()
-                    if (fbRepos.isNotEmpty()) {
-                        val localRepos = repository.getSavedCloudStreamRepos()
-                        val merged = (fbRepos + localRepos).distinctBy { it.id }
-                        repository.saveCloudStreamRepos(merged)
-                        cloudStreamRepos = merged
-                        allMovieProviders = repository.getAllMovieProviders()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    currentLoadingStage = LoadingStage.COMPLETED
                 }
-
-                try {
-                    val remoteTicker = repository.fetchMarqueeTickerFromFirebase()
-                    if (!remoteTicker.isNullOrBlank()) {
-                        breakingNewsText = remoteTicker
-                    } else {
-                        breakingNewsText = repository.getMarqueeTickerText()
-                    }
-                } catch (_: Exception) {
-                    breakingNewsText = repository.getMarqueeTickerText()
-                }
-
-                // 7. App update check
-                checkForUpdates(isManualCheck = false)
+                delay(600)
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                isRefreshing = false
+                withContext(Dispatchers.Main) {
+                    isRefreshing = false
+                    currentLoadingStage = LoadingStage.IDLE
+                }
             }
         }
     }
@@ -596,7 +606,7 @@ fun NafiTvMainApp(
             activePlaybackPlaylist
         } else {
             when (currentTab) {
-                AppTab.LIVE_TV -> mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV })
+                AppTab.LIVE_TV -> mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
                 AppTab.MOVIES -> (moviesList + customList.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES } + m3uList.filter { it.type == MediaType.MOVIE }).distinctBy { it.id }
                 AppTab.EVENTS -> sportsList.distinctBy { it.id }
                 AppTab.PLAYLIST -> (customList + m3uList).distinctBy { it.id }
@@ -984,6 +994,47 @@ fun NafiTvMainApp(
                         }
                     }
 
+                    // Phased Sequential Loading Indicator Banner (TV Mode)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isRefreshing && currentLoadingStage != LoadingStage.IDLE,
+                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 3.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF0F172A),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    color = Color(0xFF00E5FF),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = currentLoadingStage.title,
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "ধাপ ${currentLoadingStage.step}/4",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
                     // Breaking News Bar at the very top in TV Mode
                     BreakingNewsTickerBar(
                         tickerText = breakingNewsText,
@@ -1015,7 +1066,7 @@ fun NafiTvMainApp(
 
                             AppTab.LIVE_TV -> {
                             val mergedTvList = remember(liveTvList, customList, m3uList) {
-                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV })
+                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
                             }
                             LiveTvTabScreen(
                                 channels = mergedTvList,
@@ -1284,6 +1335,47 @@ fun NafiTvMainApp(
                         }
                     }
 
+                    // Phased Sequential Loading Indicator Banner (Mobile Mode)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isRefreshing && currentLoadingStage != LoadingStage.IDLE,
+                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF0F172A),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(13.dp),
+                                    color = Color(0xFF00E5FF),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = currentLoadingStage.title,
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "ধাপ ${currentLoadingStage.step}/4",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
                     // App-wide Breaking News Ticker Bar at the very top of mobile app
                         BreakingNewsTickerBar(
                             tickerText = breakingNewsText,
@@ -1366,7 +1458,7 @@ fun NafiTvMainApp(
 
                         AppTab.LIVE_TV -> {
                             val mergedTvList = remember(liveTvList, customList, m3uList) {
-                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV })
+                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
                             }
                             LiveTvTabScreen(
                                 channels = mergedTvList,
@@ -1512,7 +1604,7 @@ fun NafiTvMainApp(
                     NotificationType.LIVE_TV -> {
                         currentTab = AppTab.LIVE_TV
                         if (!notif.targetId.isNullOrBlank()) {
-                            val allTv = mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV })
+                            val allTv = mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
                             val matched = allTv.find { it.id == notif.targetId }
                             if (matched != null) {
                                 selectedMediaItem = matched

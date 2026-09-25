@@ -2384,7 +2384,7 @@ fun AdminControlAppScreen(
                                             repository.pushAppConfigToFirebase(liveTvM3u = MediaRepository.DEFAULT_LIVE_TV_M3U_URL)
                                         }
                                         onDataChanged()
-                                        Toast.makeText(context, "ডিফল্ট Nafitv24.m3u লিঙ্ক রিসেট ও সিঙ্ক হয়েছে", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "ডিফল্ট লাইভ টিভি M3U লিঙ্ক রিসেট ও সিঙ্ক হয়েছে", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.weight(1f).height(44.dp),
                                     shape = RoundedCornerShape(10.dp),

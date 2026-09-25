@@ -87,7 +87,7 @@ class MediaRepository(private val context: Context) {
     companion object {
         const val DEFAULT_MARQUEE_TEXT = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
-        const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/Nafitv24.m3u"
+        const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
         const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.json"
         const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.m3u"
@@ -793,7 +793,11 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    fun parseMediaFromJsonString(content: String, defaultCategory: String = "Movies"): List<MediaItem> {
+    fun parseMediaFromJsonString(
+        content: String,
+        defaultCategory: String = "Live TV",
+        defaultType: MediaType = MediaType.LIVE_TV
+    ): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return emptyList()
@@ -817,24 +821,24 @@ class MediaRepository(private val context: Context) {
                             for (j in 0 until innerArr.length()) {
                                 val mObj = innerArr.optJSONObject(j)
                                 if (mObj != null) {
-                                    val parsed = parseSingleMediaFromJson(mObj, items.size, catName)
+                                    val parsed = parseSingleMediaFromJson(mObj, items.size, catName, defaultType = defaultType)
                                     if (parsed != null) items.add(parsed)
                                 }
                             }
                         } else {
-                            val parsed = parseSingleMediaFromJson(element, i, defaultCategory)
+                            val parsed = parseSingleMediaFromJson(element, i, defaultCategory, defaultType = defaultType)
                             if (parsed != null) items.add(parsed)
                         }
                     } else if (element is String && (element.startsWith("http://") || element.startsWith("https://"))) {
                         items.add(
                             MediaItem(
                                 id = "json_str_$i",
-                                title = "Movie ${i + 1}",
+                                title = "Channel ${i + 1}",
                                 category = defaultCategory,
-                                type = MediaType.MOVIE,
+                                type = defaultType,
                                 streamUrl = element,
                                 servers = listOf(StreamServer("সার্ভার ১", element)),
-                                isLive = false,
+                                isLive = defaultType != MediaType.MOVIE && defaultType != MediaType.SERIES,
                                 quality = "HD"
                             )
                         )
@@ -864,7 +868,7 @@ class MediaRepository(private val context: Context) {
                                 for (i in 0 until catItemsArr.length()) {
                                     val itemObj = catItemsArr.optJSONObject(i)
                                     if (itemObj != null) {
-                                        val parsed = parseSingleMediaFromJson(itemObj, items.size, catName)
+                                        val parsed = parseSingleMediaFromJson(itemObj, items.size, catName, defaultType = defaultType)
                                         if (parsed != null) items.add(parsed)
                                     }
                                 }
@@ -897,7 +901,7 @@ class MediaRepository(private val context: Context) {
                         for (i in 0 until arr.length()) {
                             val itemObj = arr.optJSONObject(i)
                             if (itemObj != null) {
-                                val parsed = parseSingleMediaFromJson(itemObj, items.size, inferredCat)
+                                val parsed = parseSingleMediaFromJson(itemObj, items.size, inferredCat, defaultType = defaultType)
                                 if (parsed != null) items.add(parsed)
                             }
                         }
@@ -907,7 +911,7 @@ class MediaRepository(private val context: Context) {
                 // 4. If root object itself is a single media item
                 if (items.isEmpty() && (rootObj.has("url") || rootObj.has("streamUrl") || rootObj.has("link") || rootObj.has("file") || rootObj.has("servers") || rootObj.has("sources"))) {
                     val catName = if (rootCatName.isNotBlank()) rootCatName else defaultCategory
-                    val parsed = parseSingleMediaFromJson(rootObj, 0, catName)
+                    val parsed = parseSingleMediaFromJson(rootObj, 0, catName, defaultType = defaultType)
                     if (parsed != null) items.add(parsed)
                 }
 
@@ -920,7 +924,7 @@ class MediaRepository(private val context: Context) {
                         val itemObj = rootObj.optJSONObject(k)
                         if (itemObj != null) {
                             val catName = if (rootCatName.isNotBlank()) rootCatName else defaultCategory
-                            val parsed = parseSingleMediaFromJson(itemObj, count++, catName, explicitId = k)
+                            val parsed = parseSingleMediaFromJson(itemObj, count++, catName, explicitId = k, defaultType = defaultType)
                             if (parsed != null) items.add(parsed)
                         }
                     }
@@ -930,16 +934,17 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        return items.distinctBy { if (it.streamUrl.isNotBlank()) it.streamUrl else it.id }
+        return items.distinctBy { it.id }
     }
 
     private fun parseSingleMediaFromJson(
         obj: JSONObject,
         index: Int,
-        fallbackCategory: String = "Movies",
-        explicitId: String? = null
+        fallbackCategory: String = "Live TV",
+        explicitId: String? = null,
+        defaultType: MediaType = MediaType.LIVE_TV
     ): MediaItem? {
-        val title = obj.optString("name", obj.optString("title", obj.optString("movie_name", obj.optString("movie_title", obj.optString("channel_name", obj.optString("label", "Movie ${index + 1}")))))).trim()
+        val title = obj.optString("name", obj.optString("title", obj.optString("movie_name", obj.optString("movie_title", obj.optString("channel_name", obj.optString("label", "Channel ${index + 1}")))))).trim()
         val rawUrl = obj.optString("url", obj.optString("streamUrl", obj.optString("stream_url", obj.optString("link", obj.optString("file", obj.optString("src", obj.optString("videoUrl", obj.optString("video_url", obj.optString("video", obj.optString("playUrl", obj.optString("play_url", obj.optString("hls", obj.optString("m3u8", obj.optString("mp4", obj.optString("direct_url", ""))))))))))))))).trim()
         val backupUrl = obj.optString("backupUrl", obj.optString("backup_url", obj.optString("backup", obj.optString("mirror", obj.optString("fallbackUrl", ""))))).trim().takeIf { it.isNotBlank() }
 
@@ -1006,12 +1011,22 @@ class MediaRepository(private val context: Context) {
         val typeStr = obj.optString("type", "").uppercase()
         val mediaType = when {
             typeStr.contains("SERIES") || category.contains("Series", ignoreCase = true) || obj.has("episodes") || obj.has("seasons") -> MediaType.SERIES
-            typeStr.contains("EVENT") || typeStr.contains("SPORT") || category.contains("Sport", ignoreCase = true) || category.contains("Cricket", ignoreCase = true) || category.contains("Football", ignoreCase = true) -> MediaType.LIVE_EVENT
+            typeStr.contains("EVENT") || (typeStr.contains("SPORT") && defaultType == MediaType.LIVE_EVENT) || (category.contains("Cricket", ignoreCase = true) && defaultType == MediaType.LIVE_EVENT) -> MediaType.LIVE_EVENT
+            defaultType == MediaType.LIVE_TV -> MediaType.LIVE_TV
+            defaultType == MediaType.MOVIE -> MediaType.MOVIE
             typeStr.contains("TV") || typeStr.contains("CHANNEL") || typeStr.contains("LIVE") -> MediaType.LIVE_TV
-            else -> MediaType.MOVIE
+            typeStr.contains("MOVIE") -> MediaType.MOVIE
+            else -> defaultType
         }
 
-        val id = explicitId ?: obj.optString("id", obj.optString("_id", obj.optString("stream_id", "movie_${Math.abs((title + "_" + primaryStream).hashCode())}")))
+        val prefix = when (mediaType) {
+            MediaType.LIVE_TV -> "tv"
+            MediaType.LIVE_EVENT -> "event"
+            MediaType.SERIES -> "series"
+            else -> "movie"
+        }
+        val cleanHash = Math.abs((title + "_" + category + "_" + primaryStream).hashCode())
+        val id = explicitId ?: obj.optString("id", obj.optString("_id", obj.optString("stream_id", "${prefix}_${cleanHash}")))
 
         return MediaItem(
             id = id,
@@ -1079,7 +1094,7 @@ class MediaRepository(private val context: Context) {
                 content = content.removePrefix("\uFEFF").trim()
             }
             if (content.startsWith("[") || content.startsWith("{")) {
-                return@withContext parseMediaFromJsonString(content)
+                return@withContext parseMediaFromJsonString(content, defaultCategory = "Live TV", defaultType = MediaType.LIVE_TV)
             }
             parseM3uLines(content.lines())
         } catch (e: Exception) {
@@ -3544,7 +3559,11 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getSavedLiveTvM3uUrl(): String {
-        return prefs.getString("saved_live_tv_m3u_url", DEFAULT_LIVE_TV_M3U_URL) ?: DEFAULT_LIVE_TV_M3U_URL
+        val current = prefs.getString("saved_live_tv_m3u_url", DEFAULT_LIVE_TV_M3U_URL) ?: DEFAULT_LIVE_TV_M3U_URL
+        if (current.isBlank() || current.contains("Nafitv24.m3u")) {
+            return DEFAULT_LIVE_TV_M3U_URL
+        }
+        return current
     }
 
     fun saveSportsM3uUrl(url: String) {

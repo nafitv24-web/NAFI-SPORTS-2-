@@ -35,10 +35,15 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.ui.components.NafiLogoLoadingView
 import com.example.util.ChannelStatusManager
 
+private val SERVER_CLEAN_REGEX = Regex("^(?i)(server|সার্ভার)\\s*\\d*.*")
+
 fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
+    if (channels.isEmpty()) return emptyList()
     val grouped = linkedMapOf<String, MutableList<MediaItem>>()
     for (item in channels) {
-        val key = item.title.trim().lowercase()
+        val cat = item.category?.trim()?.lowercase() ?: ""
+        val title = item.title.trim().lowercase()
+        val key = if (cat.isNotBlank()) "${cat}_${title}" else title
         if (key.isNotEmpty()) {
             grouped.getOrPut(key) { mutableListOf() }.add(item)
         }
@@ -53,7 +58,7 @@ fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
             val mergedServers = combinedServers.mapIndexed { idx, s ->
                 val num = idx + 1
                 val rawName = s.name.trim()
-                val cleanName = if (rawName.isBlank() || rawName.equals(first.title.trim(), ignoreCase = true) || rawName.matches(Regex("^(?i)(server|সার্ভার)\\s*\\d*.*"))) {
+                val cleanName = if (rawName.isBlank() || rawName.equals(first.title.trim(), ignoreCase = true) || rawName.matches(SERVER_CLEAN_REGEX)) {
                     "সার্ভার $num"
                 } else {
                     "সার্ভার $num ($rawName)"
@@ -80,14 +85,14 @@ fun LiveTvTabScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("ALL") }
-    var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
+    var showOnlyActive by rememberSaveable { mutableStateOf(false) }
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Trigger non-blocking background health check on unverified channels safely
-    LaunchedEffect(channels) {
-        if (channels.isNotEmpty()) {
+    // Trigger non-blocking background health check on unverified channels ONLY if user turned on showOnlyActive filter
+    LaunchedEffect(channels, showOnlyActive) {
+        if (showOnlyActive && channels.isNotEmpty()) {
             ChannelStatusManager.enqueueChannelsForProbing(channels)
         }
     }
