@@ -125,9 +125,11 @@ data class MediaItem(
     val director: String? = null,
     val xtreamServerUrl: String? = null,
     val xtreamUsername: String? = null,
-    val xtreamPassword: String? = null
+    val xtreamPassword: String? = null,
+    val isAdminAdded: Boolean = false
 ) {
     val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty()
+    val isFromAdmin: Boolean get() = isAdminAdded || id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("admin_")
     val headers: Map<String, String>? get() = customHeaders
     // Helper to get all available server URLs
     fun getAllServers(): List<StreamServer> {

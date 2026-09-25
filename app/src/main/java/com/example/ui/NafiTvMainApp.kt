@@ -63,6 +63,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -278,6 +280,26 @@ fun NafiTvMainApp(
                     e.printStackTrace()
                 }
 
+                // -------------------------------------------------------------
+                // সর্বোচ্চ অগ্রাধিকার (সবার আগে): এডমিন প্যানেলের লাইভ খেলা ও ইভেন্ট তাৎক্ষণিক ফেচ ও আপডেট
+                // -------------------------------------------------------------
+                val adminLiveEventsDeferred = async {
+                    try {
+                        val adminEvents = repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
+                        if (adminEvents.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                // এডমিন প্যানেলের খেলা সবার আগে যুক্ত হবে (Top priority)
+                                sportsList = (adminEvents + sportsList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                                repository.saveCachedSportsMatches(sportsList)
+                            }
+                        }
+                        adminEvents
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        emptyList()
+                    }
+                }
+
                 val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
                 val adminPlaylists = repository.getAdminPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = true, isReadOnly = true) }
                 val userPlaylists = repository.getUserPlaylists().filterNot { deleted.contains(it.id) }.map { it.copy(isAdmin = false, isReadOnly = false) }
@@ -293,6 +315,11 @@ fun NafiTvMainApp(
                 // ধাপ ১: প্রথমে Events / লাইভ খেলাধুলা লোড হবে (First: Events)
                 // -------------------------------------------------------------
                 try {
+                    val adminEvents = adminLiveEventsDeferred.await()
+                    val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
+                    val cachedAdmin = repository.getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
+                    val allAdminSports = (adminEvents + customSports + cachedAdmin).distinctBy { it.id }
+
                     val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                     val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
                         try {
@@ -316,8 +343,8 @@ fun NafiTvMainApp(
                         emptyList()
                     }
 
-                    val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }
-                    val updatedSports = (customSports + tapmad + sportsM3u)
+                    // এডমিন প্যানেল থেকে যেগুলো খেলা এড করা হয়েছে সেগুলো সবার আগে আসবে (allAdminSports at index 0)
+                    val updatedSports = (allAdminSports + tapmad + sportsM3u)
                         .filterNot { it.id.startsWith("pl_") || playlistIds.contains(it.id) }
                         .distinctBy { it.id }
 
@@ -446,7 +473,7 @@ fun NafiTvMainApp(
                     val fbMov = fbItems.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
 
                     if (fbSports.isNotEmpty()) {
-                        sportsList = (sportsList + fbSports).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        sportsList = (fbSports + sportsList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
                         repository.saveCachedSportsMatches(sportsList)
                     }
                     if (fbTv.isNotEmpty()) {
@@ -646,6 +673,8 @@ fun NafiTvMainApp(
                 val userPl = repository.getUserPlaylists().map { it.copy(isAdmin = false, isReadOnly = false) }
                 adminPlaylistsList = (adminPl + userPl + initial).distinctBy { it.id }
                 playlistsList = adminPlaylistsList
+                sportsList = repository.getInitialSports()
+                customList = repository.getCustomStreams()
                 refreshAllData()
             }
         )
@@ -2830,7 +2859,7 @@ fun EventsScreen(
     }
 
     val filteredSports = remember(sports, selectedCategory, selectedStatus, tickCount / 10L) {
-        sports.filter { item ->
+        val filtered = sports.filter { item ->
             val isLive = isEventLiveNow(item, tickCount)
             val catMatches = when (selectedCategory) {
                 "All" -> true
@@ -2850,6 +2879,12 @@ fun EventsScreen(
             }
             catMatches && statusMatches
         }.distinctBy { it.id }
+
+        // এডমিন প্যানেল থেকে যেগুলো খেলা এড করা হবে সেগুলো যেন সবার আগে আসে (Admin matches always first)
+        val (adminItems, otherItems) = filtered.partition { item ->
+            item.isAdminAdded || item.isFromAdmin
+        }
+        adminItems + otherItems
     }
 
     Column(
@@ -3092,8 +3127,10 @@ fun LiveEventMatchCard(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
         border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (isTvMode && isCardFocused) Color(0xFF38BDF8) else Color(0xFF1E293B)
+            if (sport.isAdminAdded || sport.isFromAdmin) 1.5.dp else 1.dp,
+            if (isTvMode && isCardFocused) Color(0xFF38BDF8)
+            else if (sport.isAdminAdded || sport.isFromAdmin) Color(0xFF0284C7)
+            else Color(0xFF1E293B)
         ),
         modifier = cardModifier
     ) {
@@ -3245,15 +3282,35 @@ fun LiveEventMatchCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = stageHeader,
-                        color = Color(0xFFF59E0B),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f, fill = false)
-                    )
+                    ) {
+                        if (sport.isAdminAdded || sport.isFromAdmin) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF2563EB).copy(alpha = 0.25f),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF38BDF8)),
+                                modifier = Modifier.padding(end = 6.dp)
+                            ) {
+                                Text(
+                                    text = "⭐ ADMIN",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = stageHeader,
+                            color = Color(0xFFF59E0B),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Spacer(modifier = Modifier.width(6.dp))
 
                     if (isEffectivelyLive) {

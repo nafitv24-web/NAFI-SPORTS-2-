@@ -371,6 +371,10 @@ class MediaRepository(private val context: Context) {
         return loadListFromFileCache("cache_sports_v2.json").filterNot { it.id.startsWith("sport_default_") }
     }
 
+    fun getCachedAdminLiveEvents(): List<MediaItem> {
+        return loadListFromFileCache("cache_admin_events_v2.json")
+    }
+
     fun getCachedLiveTvChannels(): List<MediaItem> {
         return loadListFromFileCache("cache_livetv_v2.json")
     }
@@ -381,6 +385,10 @@ class MediaRepository(private val context: Context) {
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
         saveListToFileCache("cache_sports_v2.json", list.filterNot { it.id.startsWith("sport_default_") })
+    }
+
+    fun saveCachedAdminLiveEvents(list: List<MediaItem>) {
+        saveListToFileCache("cache_admin_events_v2.json", list)
     }
 
     fun saveCachedLiveTvChannels(list: List<MediaItem>) {
@@ -594,10 +602,15 @@ class MediaRepository(private val context: Context) {
     // High-speed instant loaders (Always return immediate items in 0 milliseconds, never empty)
     fun getInitialSports(): List<MediaItem> {
         val deleted = getDeletedIds()
-        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }
+        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
+        val cachedAdmin = getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
         val cached = getCachedSportsMatches().filterNot { deleted.contains(it.id) }
         val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinSports()
-        return (customSports + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+
+        // Admin matches (custom + cached admin from Firebase) ALWAYS come first (সবার আগে)!
+        val adminMatches = (customSports + cachedAdmin).distinctBy { it.id }
+        val otherMatches = baseList.filterNot { it.id in adminMatches.map { m -> m.id } }
+        return (adminMatches + otherMatches).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
     }
 
     fun getInitialLiveTv(): List<MediaItem> {
@@ -642,6 +655,18 @@ class MediaRepository(private val context: Context) {
         current.removeAll { it.id == item.id }
         current.add(0, item)
         saveCustomList(current)
+
+        if (item.type == MediaType.LIVE_EVENT) {
+            val adminEvents = getCachedAdminLiveEvents().toMutableList()
+            adminEvents.removeAll { it.id == item.id }
+            adminEvents.add(0, item.copy(isAdminAdded = true))
+            saveCachedAdminLiveEvents(adminEvents)
+
+            val sports = getCachedSportsMatches().toMutableList()
+            sports.removeAll { it.id == item.id }
+            sports.add(0, item.copy(isAdminAdded = true))
+            saveCachedSportsMatches(sports)
+        }
     }
 
     fun saveCustomList(list: List<MediaItem>) {
@@ -656,6 +681,11 @@ class MediaRepository(private val context: Context) {
         addDeletedId(id)
         val current = getCustomStreams().filterNot { it.id == id }
         saveCustomList(current)
+
+        val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == id }
+        saveCachedAdminLiveEvents(adminEvents)
+        val sports = getCachedSportsMatches().filterNot { it.id == id }
+        saveCachedSportsMatches(sports)
     }
 
     suspend fun deleteMediaItem(item: MediaItem): Boolean {
@@ -668,6 +698,12 @@ class MediaRepository(private val context: Context) {
         // 2. Remove from local custom streams
         val current = getCustomStreams().filterNot { it.id == id }
         saveCustomList(current)
+        if (type == MediaType.LIVE_EVENT) {
+            val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == id }
+            saveCachedAdminLiveEvents(adminEvents)
+            val sports = getCachedSportsMatches().filterNot { it.id == id }
+            saveCachedSportsMatches(sports)
+        }
         // 3. Remove from Firebase
         return deleteFromFirebase(id, type)
     }
@@ -1514,8 +1550,108 @@ class MediaRepository(private val context: Context) {
             drmScheme = s("drmScheme").ifBlank { s("license_type") }.takeIf { it.isNotBlank() },
             drmLicenseUrl = s("drmLicenseUrl").takeIf { it.isNotBlank() },
             drmLicenseKey = s("drmLicenseKey").ifBlank { s("license_key") }.ifBlank { s("clearkey") }.takeIf { it.isNotBlank() },
-            manifestType = s("manifestType").ifBlank { s("manifest_type") }.takeIf { it.isNotBlank() }
+            manifestType = s("manifestType").ifBlank { s("manifest_type") }.takeIf { it.isNotBlank() },
+            isAdminAdded = b("isAdminAdded", false) || col in listOf("sports", "events", "matches") || docId.startsWith("sport_") || docId.startsWith("match_") || docId.startsWith("event_") || docId.startsWith("admin_")
         )
+    }
+
+    suspend fun fetchAdminLiveEventsFromFirebase(url: String = getSavedFirebaseUrl()): List<MediaItem> = withContext(Dispatchers.IO) {
+        val deleted = getDeletedIds()
+        val items = mutableListOf<MediaItem>()
+
+        val collections = listOf("events", "sports", "matches")
+        val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
+
+        coroutineScope {
+            // 1. Fetch only Live Events collections from Firestore REST in parallel
+            val firestoreJobs = databases.flatMap { dbId ->
+                collections.map { col ->
+                    async {
+                        val colItems = mutableListOf<MediaItem>()
+                        try {
+                            val firestoreUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col?key=$FIREBASE_API_KEY"
+                            val req = Request.Builder().url(firestoreUrl).header("User-Agent", "NAFITV24-Android/2.6.5").build()
+                            val resp = client.newCall(req).execute()
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string() ?: ""
+                                if (body.isNotBlank() && body.startsWith("{")) {
+                                    val json = JSONObject(body)
+                                    val docs = json.optJSONArray("documents")
+                                    if (docs != null) {
+                                        for (i in 0 until docs.length()) {
+                                            val doc = docs.optJSONObject(i) ?: continue
+                                            val name = doc.optString("name", "")
+                                            val docId = name.substringAfterLast("/")
+                                            if (docId.isBlank() || deleted.contains(docId)) continue
+
+                                            val fields = doc.optJSONObject("fields") ?: continue
+                                            val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
+                                            if (!deleted.contains(mediaItem.id)) {
+                                                colItems.add(mediaItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            // ignore single failure
+                        }
+                        colItems
+                    }
+                }
+            }
+
+            // 2. Fetch RTDB sports, events, matches, custom in parallel
+            val rtdbJobs = if (url.isNotBlank()) {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                val subKeys = listOf("events", "sports", "matches", "custom")
+                subKeys.map { sub ->
+                    async {
+                        val subItems = mutableListOf<MediaItem>()
+                        try {
+                            val targetUrl = appendRtdbAuth("$cleanUrl/$sub.json")
+                            val request = Request.Builder()
+                                .url(targetUrl)
+                                .header("User-Agent", "NAFITV24-Android/2.6.5")
+                                .build()
+                            val response = client.newCall(request).execute()
+                            if (response.isSuccessful) {
+                                val body = response.body?.string()?.trim() ?: ""
+                                if (body.startsWith("{")) {
+                                    val subObj = JSONObject(body)
+                                    val keys = subObj.keys()
+                                    while (keys.hasNext()) {
+                                        val k = keys.next()
+                                        if (!deleted.contains(k) && !k.startsWith("pl_")) {
+                                            val itemObj = subObj.optJSONObject(k)
+                                            if (itemObj != null && !itemObj.has("channelCount")) {
+                                                val rawItem = parseMediaFromJsonObj(k, itemObj)
+                                                if (rawItem.type == MediaType.LIVE_EVENT || (sub != "channels" && sub != "movies") || rawItem.id.startsWith("sport_") || rawItem.id.startsWith("match_") || rawItem.id.startsWith("event_")) {
+                                                    val finalItem = rawItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true)
+                                                    if (!deleted.contains(finalItem.id)) {
+                                                        subItems.add(finalItem)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                        subItems
+                    }
+                }
+            } else emptyList()
+
+            val allFetched = (firestoreJobs.awaitAll().flatten() + rtdbJobs.awaitAll().flatten())
+            items.addAll(allFetched)
+        }
+
+        val result = items.distinctBy { it.id }.filterNot { deleted.contains(it.id) || it.id.startsWith("pl_") }
+        if (result.isNotEmpty()) {
+            saveCachedAdminLiveEvents(result)
+        }
+        result
     }
 
     suspend fun fetchFromFirebase(url: String = getSavedFirebaseUrl()): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -1780,6 +1916,7 @@ class MediaRepository(private val context: Context) {
         obj.put("drmLicenseUrl", item.drmLicenseUrl ?: "")
         obj.put("drmLicenseKey", item.drmLicenseKey ?: "")
         obj.put("manifestType", item.manifestType ?: "")
+        obj.put("isAdminAdded", item.isAdminAdded || item.isFromAdmin)
 
         // Multiple servers array
         val serversArr = JSONArray()
@@ -1859,7 +1996,8 @@ class MediaRepository(private val context: Context) {
             drmScheme = obj.optString("drmScheme", obj.optString("license_type", null)).takeIf { it?.isNotBlank() == true },
             drmLicenseUrl = obj.optString("drmLicenseUrl", null).takeIf { it?.isNotBlank() == true },
             drmLicenseKey = obj.optString("drmLicenseKey", obj.optString("license_key", obj.optString("clearkey", null))).takeIf { it?.isNotBlank() == true },
-            manifestType = obj.optString("manifestType", obj.optString("manifest_type", null)).takeIf { it?.isNotBlank() == true }
+            manifestType = obj.optString("manifestType", obj.optString("manifest_type", null)).takeIf { it?.isNotBlank() == true },
+            isAdminAdded = obj.optBoolean("isAdminAdded", false) || id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("admin_")
         )
     }
 

@@ -2082,7 +2082,8 @@ fun AdminControlAppScreen(
                                             countdownTargetSeconds = parsedCountdown,
                                             score1 = team1Score.takeIf { it.isNotBlank() },
                                             score2 = team2Score.takeIf { it.isNotBlank() },
-                                            quality = "1080p FHD"
+                                            quality = "1080p FHD",
+                                            isAdminAdded = true
                                         )
 
                                         repository.saveCustomStream(matchItem)
@@ -5761,7 +5762,8 @@ fun AdminControlAppScreen(
                                         matchTimeFormatted = editMatchTime.takeIf { it.isNotBlank() },
                                         countdownTargetSeconds = parsedCountdown,
                                         score1 = editTeam1Score.takeIf { it.isNotBlank() },
-                                        score2 = editTeam2Score.takeIf { it.isNotBlank() }
+                                        score2 = editTeam2Score.takeIf { it.isNotBlank() },
+                                        isAdminAdded = true
                                     )
 
                                     repository.saveCustomStream(updatedMatch)
