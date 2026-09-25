@@ -87,7 +87,7 @@ class MediaRepository(private val context: Context) {
     companion object {
         const val DEFAULT_MARQUEE_TEXT = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
-        const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u"
+        const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u\nhttps://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
         const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.json"
         const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.m3u"
@@ -664,8 +664,24 @@ class MediaRepository(private val context: Context) {
         val deleted = getDeletedIds()
         val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
         val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) }
-        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinLiveTv()
-        return (customTv + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+        val builtin = getDefaultBuiltinLiveTv().filterNot { deleted.contains(it.id) }
+
+        // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
+        // Ensure all built-in channels (T Sports HD, T Sports NF, A Sports HD, A Sports) plus custom & cached are preserved
+        val combined = mutableListOf<MediaItem>()
+        combined.addAll(builtin)
+        combined.addAll(customTv)
+        combined.addAll(cached)
+
+        val seen = HashSet<String>()
+        return combined.mapIndexed { idx, ch ->
+            var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
+            if (seen.contains(uid)) {
+                uid = "${uid}_$idx"
+            }
+            seen.add(uid)
+            ch.copy(id = uid)
+        }.filterNot { deleted.contains(it.id) }
     }
 
     fun getInitialMoviesSeries(): List<MediaItem> {
@@ -2636,11 +2652,21 @@ class MediaRepository(private val context: Context) {
                     )
                 } else if (type.equals("live", ignoreCase = true)) {
                     val streamId = obj.optString("stream_id").takeIf { it.isNotBlank() } ?: continue
-                    val name = obj.optString("name", "Channel $streamId")
+                    val name = obj.optString("name", "Channel $streamId").trim()
+                    if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
                     val icon = obj.optString("stream_icon").takeIf { it.isNotBlank() }
                     val catName = obj.optString("category_name", "Live TV")
-                    val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.m3u8"
-                    val directPlayUrl = "$cleanServer/$cleanUser/$cleanPass/$streamId"
+                    val isRgkkw = cleanServer.contains("rgkkw.live", ignoreCase = true)
+                    val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.ts"
+                    val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                    val altPlayUrl = "$altServer/live/$cleanUser/$cleanPass/$streamId.ts"
+                    val sList = mutableListOf(
+                        StreamServer("সার্ভার ১ (TS Stream)", playUrl),
+                        StreamServer("সার্ভার ২ (বিকল্প TS)", altPlayUrl)
+                    )
+                    if (!isRgkkw) {
+                        sList.add(StreamServer("সার্ভার ৩ (HLS)", "$cleanServer/live/$cleanUser/$cleanPass/$streamId.m3u8"))
+                    }
                     list.add(
                         MediaItem(
                             id = "xtream_live_$streamId",
@@ -2648,11 +2674,8 @@ class MediaRepository(private val context: Context) {
                             category = catName,
                             type = MediaType.LIVE_TV,
                             streamUrl = playUrl,
-                            backupUrl = directPlayUrl,
-                            servers = listOf(
-                                StreamServer("সার্ভার ১ (HLS)", playUrl),
-                                StreamServer("সার্ভার ২ (Direct TS)", directPlayUrl)
-                            ),
+                            backupUrl = altPlayUrl,
+                            servers = sList,
                             logoUrl = icon,
                             isLive = true,
                             quality = "HD",
@@ -2777,13 +2800,23 @@ class MediaRepository(private val context: Context) {
                                 val sObj = liveArr.optJSONObject(i) ?: continue
                                 val streamId = sObj.optString("stream_id", "")
                                 if (streamId.isBlank()) continue
-                                val name = sObj.optString("name", "Channel $streamId")
+                                val name = sObj.optString("name", "Channel $streamId").trim()
+                                if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
                                 val catId = sObj.optString("category_id", "")
                                 val categoryName = liveCatMap[catId] ?: "Live TV"
                                 val icon = sObj.optString("stream_icon").takeIf { it.isNotBlank() }
 
-                                val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.m3u8"
-                                val directPlayUrl = "$cleanServer/$cleanUser/$cleanPass/$streamId"
+                                val isRgkkw = cleanServer.contains("rgkkw.live", ignoreCase = true)
+                                val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.ts"
+                                val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                                val altPlayUrl = "$altServer/live/$cleanUser/$cleanPass/$streamId.ts"
+                                val sList = mutableListOf(
+                                    StreamServer("সার্ভার ১ (TS Stream)", playUrl),
+                                    StreamServer("সার্ভার ২ (বিকল্প TS)", altPlayUrl)
+                                )
+                                if (!isRgkkw) {
+                                    sList.add(StreamServer("সার্ভার ৩ (HLS)", "$cleanServer/live/$cleanUser/$cleanPass/$streamId.m3u8"))
+                                }
 
                                 liveItems.add(
                                     MediaItem(
@@ -2792,11 +2825,8 @@ class MediaRepository(private val context: Context) {
                                         category = categoryName,
                                         type = MediaType.LIVE_TV,
                                         streamUrl = playUrl,
-                                        backupUrl = directPlayUrl,
-                                        servers = listOf(
-                                            StreamServer("সার্ভার ১ (HLS)", playUrl),
-                                            StreamServer("সার্ভার ২ (Direct TS)", directPlayUrl)
-                                        ),
+                                        backupUrl = altPlayUrl,
+                                        servers = sList,
                                         logoUrl = icon,
                                         isLive = true,
                                         quality = "HD",
@@ -3620,18 +3650,19 @@ class MediaRepository(private val context: Context) {
 
     fun getSavedLiveTvM3uUrl(): String {
         val current = prefs.getString("saved_live_tv_m3u_url", DEFAULT_LIVE_TV_M3U_URL) ?: DEFAULT_LIVE_TV_M3U_URL
-        if (current.isBlank() || current.contains("Nafitv24.m3u")) {
-            return DEFAULT_LIVE_TV_M3U_URL
-        }
+        val updateChannelUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u"
         val sportsNfUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
-        var result = current
-        if (!result.contains("Update%20Channel.m3u") && !result.contains("Update Channel.m3u")) {
-            result = "$DEFAULT_LIVE_TV_M3U_URL\n$result"
+
+        val urls = mutableSetOf<String>()
+        urls.add(updateChannelUrl)
+        urls.add(sportsNfUrl)
+        if (current.isNotBlank() && !current.contains("Nafitv24.m3u")) {
+            current.split(Regex("[\r\n,;]+"))
+                .map { it.trim() }
+                .filter { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
+                .forEach { urls.add(it) }
         }
-        if (!result.contains("Sports%20Channel%20NF.m3u") && !result.contains("Sports Channel NF.m3u")) {
-            result = "$result\n$sportsNfUrl"
-        }
-        return result
+        return urls.joinToString("\n")
     }
 
     fun saveSportsM3uUrl(url: String) {

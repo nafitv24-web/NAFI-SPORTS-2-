@@ -372,7 +372,9 @@ fun NafiTvMainApp(
                     }
 
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
+                    val builtinTv = repository.getDefaultBuiltinLiveTv().filterNot { deleted.contains(it.id) }
                     val combinedTv = mutableListOf<MediaItem>()
+                    combinedTv.addAll(builtinTv)
                     combinedTv.addAll(customTv)
                     combinedTv.addAll(tvM3u)
                     combinedTv.addAll(xtreamLiveChannels)
