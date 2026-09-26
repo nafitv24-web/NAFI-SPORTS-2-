@@ -1193,7 +1193,17 @@ class MediaRepository(private val context: Context) {
                     if (currentOrigin.isNullOrBlank()) currentOrigin = "https://pixeldrain.com"
                 }
 
-                val isLivePattern = streamUrl.contains(".m3u8", ignoreCase = true) ||
+                val isExplicitMovieUrl = streamUrl.contains("/movie/", ignoreCase = true) ||
+                        streamUrl.contains("/vod/", ignoreCase = true) ||
+                        streamUrl.endsWith(".mp4", ignoreCase = true) ||
+                        streamUrl.endsWith(".mkv", ignoreCase = true) ||
+                        streamUrl.endsWith(".avi", ignoreCase = true) ||
+                        isPixeldrain
+
+                val isExplicitSeriesUrl = streamUrl.contains("/series/", ignoreCase = true)
+
+                val isLivePattern = !isExplicitMovieUrl && !isExplicitSeriesUrl && (
+                        streamUrl.contains(".m3u8", ignoreCase = true) ||
                         streamUrl.contains("/hls/", ignoreCase = true) ||
                         streamUrl.contains("/live/", ignoreCase = true) ||
                         streamUrl.contains("edge-cache-token=", ignoreCase = true) ||
@@ -1201,25 +1211,21 @@ class MediaRepository(private val context: Context) {
                         currentGroup.contains("tv", ignoreCase = true) ||
                         currentGroup.contains("news", ignoreCase = true) ||
                         currentGroup.contains("sports", ignoreCase = true)
+                )
 
-                val isMovieOrVod = !isLivePattern && (
+                val isMovieOrVod = isExplicitMovieUrl || (!isLivePattern && (
                         currentGroup.contains("movie", ignoreCase = true) ||
                         currentGroup.contains("cinema", ignoreCase = true) ||
                         currentGroup.contains("vod", ignoreCase = true) ||
-                        currentGroup.contains("film", ignoreCase = true) ||
-                        streamUrl.contains("/movie/", ignoreCase = true) ||
-                        streamUrl.contains("/vod/", ignoreCase = true) ||
-                        streamUrl.contains(".mp4", ignoreCase = true) ||
-                        streamUrl.contains(".mkv", ignoreCase = true) ||
-                        streamUrl.contains(".avi", ignoreCase = true) ||
-                        isPixeldrain
-                )
+                        currentGroup.contains("film", ignoreCase = true)
+                ))
 
-                val isSeries = !isLivePattern && (
+                val isSeries = isExplicitSeriesUrl || (!isLivePattern && !isMovieOrVod && (
                         currentGroup.contains("series", ignoreCase = true) ||
                         currentGroup.contains("web series", ignoreCase = true) ||
-                        streamUrl.contains("/series/", ignoreCase = true)
-                )
+                        currentGroup.contains("drama", ignoreCase = true) ||
+                        currentGroup.contains("serial", ignoreCase = true)
+                ))
 
                 val mediaType = when {
                     isSeries -> MediaType.SERIES
@@ -2400,6 +2406,8 @@ class MediaRepository(private val context: Context) {
                     val rating = obj.optString("rating", "8.5")
                     val catName = obj.optString("category_name", "Movies")
                     val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+                    val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                    val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
                     list.add(
                         MediaItem(
                             id = "xtream_vod_$streamId",
@@ -2407,7 +2415,11 @@ class MediaRepository(private val context: Context) {
                             category = catName,
                             type = MediaType.MOVIE,
                             streamUrl = playUrl,
-                            servers = listOf(StreamServer("সার্ভার ১ (VOD)", playUrl)),
+                            backupUrl = altPlayUrl,
+                            servers = listOf(
+                                StreamServer("সার্ভার ১ (VOD)", playUrl),
+                                StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
+                            ),
                             logoUrl = icon,
                             isLive = false,
                             rating = rating,
@@ -2551,28 +2563,43 @@ class MediaRepository(private val context: Context) {
                     }
                 }
 
-                // B. Priority VOD categories: All Bangla movies, 2026/2025/2024 releases, Hindi Dubbed
+                // B. Priority VOD categories: All Bangla movies, 2026/2025/2024 releases, Hindi Dubbed, Indian FHD
                 val priorityVodCatIds = listOf(
                     "792", "610", "538", "100", // BANGLA 2026, 2025, 2024, BANGLA ALL
                     "749", "597", "525", // ENGLISH FHD 2026, 2025, 2024
                     "766", "599", "527", // INDIAN FHD 2026, 2025, 2024
                     "26", "93", "168"    // ENGLISH HINDI DUBBED, SOUTH INDIAN DUBBED, NETFLIX HINDI
                 )
+                val targetVodCatIds = priorityVodCatIds.toMutableList()
+                val vodKeywords = listOf("bangla", "bengali", "2026", "2025", "hindi", "indian", "netflix", "south", "dubbed")
+                for ((cId, cName) in vodCatMap) {
+                    val lower = cName.lowercase()
+                    if (vodKeywords.any { lower.contains(it) } && !targetVodCatIds.contains(cId)) {
+                        targetVodCatIds.add(cId)
+                    }
+                }
                 val priorityVodJob = async {
-                    for (catId in priorityVodCatIds) {
-                        try {
-                            val catVodItems = fetchXtreamCategoryItems(
-                                serverUrl = cleanServer,
-                                username = cleanUser,
-                                pass = cleanPass,
-                                categoryId = catId,
-                                type = "movie"
-                            ).map { item ->
-                                val catName = vodCatMap[catId] ?: item.category
-                                item.copy(category = catName)
+                    targetVodCatIds.chunked(6).forEach { chunk ->
+                        coroutineScope {
+                            val chunkJobs = chunk.map { catId ->
+                                async {
+                                    try {
+                                        val catVodItems = fetchXtreamCategoryItems(
+                                            serverUrl = cleanServer,
+                                            username = cleanUser,
+                                            pass = cleanPass,
+                                            categoryId = catId,
+                                            type = "movie"
+                                        ).map { item ->
+                                            val catName = vodCatMap[catId] ?: item.category
+                                            item.copy(category = catName)
+                                        }
+                                        synchronized(items) { items.addAll(catVodItems) }
+                                    } catch (_: Exception) {}
+                                }
                             }
-                            synchronized(items) { items.addAll(catVodItems) }
-                        } catch (_: Exception) {}
+                            chunkJobs.awaitAll()
+                        }
                     }
                 }
 
@@ -2664,6 +2691,8 @@ class MediaRepository(private val context: Context) {
                                 val rating = vObj.optString("rating", "8.5")
 
                                 val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+                                val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                                val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
 
                                 vodItems.add(
                                     MediaItem(
@@ -2672,8 +2701,10 @@ class MediaRepository(private val context: Context) {
                                         category = categoryName,
                                         type = MediaType.MOVIE,
                                         streamUrl = playUrl,
+                                        backupUrl = altPlayUrl,
                                         servers = listOf(
-                                            StreamServer("সার্ভার ১ (VOD)", playUrl)
+                                            StreamServer("সার্ভার ১ (VOD)", playUrl),
+                                            StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
                                         ),
                                         logoUrl = icon,
                                         isLive = false,
@@ -2987,25 +3018,25 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchPlaylistChannels(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
         if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
-            val liveItems = fetchXtreamLiveStreamsOnly(playlist.serverUrl, playlist.username, playlist.password)
-            if (liveItems.isNotEmpty()) {
-                return@withContext liveItems
-            }
             val xtreamItems = fetchXtreamCodesStreams(playlist.serverUrl, playlist.username, playlist.password)
             if (xtreamItems.isNotEmpty()) {
                 return@withContext xtreamItems
+            }
+            val liveItems = fetchXtreamLiveStreamsOnly(playlist.serverUrl, playlist.username, playlist.password)
+            if (liveItems.isNotEmpty()) {
+                return@withContext liveItems
             }
         }
         if (playlist.url.isNotBlank()) {
             val creds = parseXtreamCredentials(playlist.url)
             if (creds != null) {
-                val liveFallback = fetchXtreamLiveStreamsOnly(creds.first, creds.second, creds.third)
-                if (liveFallback.isNotEmpty()) {
-                    return@withContext liveFallback
-                }
                 val xtreamFallback = fetchXtreamCodesStreams(creds.first, creds.second, creds.third)
                 if (xtreamFallback.isNotEmpty()) {
                     return@withContext xtreamFallback
+                }
+                val liveFallback = fetchXtreamLiveStreamsOnly(creds.first, creds.second, creds.third)
+                if (liveFallback.isNotEmpty()) {
+                    return@withContext liveFallback
                 }
             }
             val m3uItems = parseM3uFromUrl(playlist.url)

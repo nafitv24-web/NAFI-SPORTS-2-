@@ -614,15 +614,13 @@ fun VideoPlayerScreen(
         }
         val isRgkkw = rawClean.contains("rgkkw.live", ignoreCase = true)
 
-        // Only convert specifically rgkkw.live URLs from .m3u8 to .ts on the path component (rgkkw server only serves .ts)
-        // NEVER touch .m3u8 playlists on Toffee, Akamai, or any standard HLS servers!
+        // Only convert specifically rgkkw.live live channels from .m3u8 to .ts on the path component (rgkkw live streams serve .ts)
+        // NEVER touch movies (/movie/), series (/series/), .mp4, .mkv, or standard HLS playlists!
         val finalCleanUrl = if (isRgkkw) {
             val pathBeforeQuery = rawClean.substringBefore('?')
             val queryPart = if (rawClean.contains('?')) "?" + rawClean.substringAfter('?') else ""
-            if (pathBeforeQuery.endsWith(".m3u8", ignoreCase = true)) {
+            if (pathBeforeQuery.contains("/live/", ignoreCase = true) && pathBeforeQuery.endsWith(".m3u8", ignoreCase = true)) {
                 pathBeforeQuery.substringBeforeLast(".m3u8") + ".ts" + queryPart
-            } else if (!pathBeforeQuery.endsWith(".ts", ignoreCase = true)) {
-                "$pathBeforeQuery.ts$queryPart"
             } else {
                 rawClean
             }
@@ -698,9 +696,18 @@ fun VideoPlayerScreen(
                 finalCleanUrl.contains("/hls/", ignoreCase = true) ||
                 isToffee
 
-        val isTsStream = !isM3u8Pattern && (pathBeforeQuery.endsWith(".ts") ||
+        val isMovieFormat = pathBeforeQuery.endsWith(".mp4") ||
+                pathBeforeQuery.endsWith(".mkv") ||
+                pathBeforeQuery.endsWith(".avi") ||
+                pathBeforeQuery.endsWith(".webm") ||
+                finalCleanUrl.contains("/movie/", ignoreCase = true) ||
+                finalCleanUrl.contains("/series/", ignoreCase = true) ||
+                currentMedia.type == MediaType.MOVIE ||
+                currentMedia.type == MediaType.SERIES
+
+        val isTsStream = !isM3u8Pattern && !isMovieFormat && (pathBeforeQuery.endsWith(".ts") ||
                 finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
-                isRgkkw)
+                (isRgkkw && finalCleanUrl.contains("/live/")))
 
         val primaryUa = when {
             !extractedUa.isNullOrBlank() -> extractedUa!!
@@ -793,8 +800,7 @@ fun VideoPlayerScreen(
         val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(false) // Never force CBR seeking on live continuous streams
             .setTsExtractorFlags(tsPayloadReaderFlags)
-            .setTsExtractorTimestampSearchBytes(0) // Crucial: 0 for live continuous TS streams so playback starts immediately without stalling trying to find stream end
-            .setTsExtractorMode(if (isRgkkw) androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT else androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
+            .setTsExtractorMode(androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -972,7 +978,7 @@ fun VideoPlayerScreen(
                 val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
                 val isTs = (finalCleanUrl.contains(".ts", ignoreCase = true) ||
                         finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
-                        ((isRgkkw || finalCleanUrl.contains("/live/")) && !finalCleanUrl.contains(".m3u8", ignoreCase = true))) && !isMp4 && !isMkv && !isWebm
+                        ((isRgkkw && finalCleanUrl.contains("/live/")) && !finalCleanUrl.contains(".m3u8", ignoreCase = true))) && !isMp4 && !isMkv && !isWebm
 
                 val isFileHost = finalCleanUrl.contains("pixeldrain", ignoreCase = true) ||
                         finalCleanUrl.contains("pixeldra.in", ignoreCase = true) ||
@@ -1188,7 +1194,7 @@ fun VideoPlayerScreen(
                                 currentUrl.contains("toffee", ignoreCase = true) ||
                                 currentUrl.contains("akamaized.net", ignoreCase = true) ||
                                 currentUrl.contains("tapmad", ignoreCase = true)
-                        if (!isProtectHls && (is405 || currentUrl.contains("rgkkw.live", ignoreCase = true)) && currentUrl.contains(".m3u8")) {
+                        if (!isProtectHls && (is405 || currentUrl.contains("rgkkw.live", ignoreCase = true)) && currentUrl.contains("/live/") && currentUrl.contains(".m3u8")) {
                             currentUrl = currentUrl.replace(".m3u8", ".ts")
                             playerRetryKey = 0
                             errorMessage = "MPEG-TS সংযোগে রূপান্তর করা হচ্ছে..."
@@ -1196,6 +1202,11 @@ fun VideoPlayerScreen(
                         }
                         if (currentUrl.contains("rgkkw.live:80", ignoreCase = true)) {
                             currentUrl = currentUrl.replace("rgkkw.live:80", "rgkkw.live")
+                            playerRetryKey = 0
+                            errorMessage = "বিকল্প সংযোগে রূপান্তর করা হচ্ছে..."
+                            return
+                        } else if (currentUrl.contains("rgkkw.live", ignoreCase = true) && !currentUrl.contains("rgkkw.live:80", ignoreCase = true) && playerRetryKey == 0) {
+                            currentUrl = currentUrl.replace("rgkkw.live", "rgkkw.live:80")
                             playerRetryKey = 0
                             errorMessage = "বিকল্প সংযোগে রূপান্তর করা হচ্ছে..."
                             return
