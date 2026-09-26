@@ -379,12 +379,31 @@ class MediaRepository(private val context: Context) {
         return loadListFromFileCache("cache_livetv_v2.json")
     }
 
+    fun isDemoChannel(item: MediaItem): Boolean {
+        val id = item.id.lowercase()
+        return id.startsWith("tv_tsports") ||
+                id.startsWith("tv_asports") ||
+                id.startsWith("tv_gtv") ||
+                id.startsWith("tv_star_sports") ||
+                id.startsWith("tv_sony_ten") ||
+                id.startsWith("tv_somoy") ||
+                id.startsWith("tv_jamuna") ||
+                id.startsWith("tv_channel_i") ||
+                id.startsWith("tv_btv") ||
+                id.startsWith("demo_") ||
+                id.startsWith("mov_toofan") ||
+                id.startsWith("mov_mohanagar") ||
+                id.startsWith("mov_kalki") ||
+                id.startsWith("mov_jawan") ||
+                id.startsWith("mov_panchayat")
+    }
+
     fun getCachedMoviesList(): List<MediaItem> {
-        return loadListFromFileCache("cache_movies_v2.json")
+        return loadListFromFileCache("cache_movies_v2.json").filterNot { isDemoChannel(it) }
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
-        saveListToFileCache("cache_sports_v2.json", list.filterNot { it.id.startsWith("sport_default_") })
+        saveListToFileCache("cache_sports_v2.json", list.filterNot { it.id.startsWith("sport_default_") || isDemoChannel(it) })
     }
 
     fun saveCachedAdminLiveEvents(list: List<MediaItem>) {
@@ -392,11 +411,11 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCachedLiveTvChannels(list: List<MediaItem>) {
-        saveListToFileCache("cache_livetv_v2.json", list)
+        saveListToFileCache("cache_livetv_v2.json", list.filterNot { isDemoChannel(it) })
     }
 
     fun saveCachedMoviesList(list: List<MediaItem>) {
-        saveListToFileCache("cache_movies_v2.json", list)
+        saveListToFileCache("cache_movies_v2.json", list.filterNot { isDemoChannel(it) })
     }
 
     // Built-in starter items for instant presentation on first launch
@@ -405,271 +424,33 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getDefaultBuiltinLiveTv(): List<MediaItem> {
-        return listOf(
-            MediaItem(
-                id = "tv_tsports_hd",
-                title = "T Sports HD",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "http://103.151.60.162:2122/play/a030/index.m3u8?hls",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (T Sports Main)", "http://103.151.60.162:2122/play/a030/index.m3u8?hls"),
-                    StreamServer("সার্ভার ২ (T Sports Live)", "https://tvsen5.aynaott.com/TnMn5kZz8aLm/index.m3u8"),
-                    StreamServer("সার্ভার ৩ (Robi TV BD)", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/2.m3u8"),
-                    StreamServer("সার্ভার ৪ (Direct CDN)", "https://d3bq19vx8xhpwy.cloudfront.net/live/myStream/playlist.m3u8")
-                ),
-                logoUrl = "https://i.postimg.cc/Qx3GZn6T/20240823_024117.png",
-                isLive = true,
-                quality = "1080p HD"
-            ),
-            MediaItem(
-                id = "tv_tsports_nf",
-                title = "T Sports NF",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "http://103.151.60.162:2122/play/a030/index.m3u8?hls",
-                servers = listOf(
-                    StreamServer("সার্ভার ১", "http://103.151.60.162:2122/play/a030/index.m3u8?hls"),
-                    StreamServer("সার্ভার ২", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/2.m3u8"),
-                    StreamServer("সার্ভার ৩", "https://playztv-apps.pages.dev/ptv-sports/index.m3u8"),
-                    StreamServer("সার্ভার ৪", "https://tvsen5.aynaott.com/TnMn5kZz8aLm/index.m3u8")
-                ),
-                logoUrl = "https://i.postimg.cc/Qx3GZn6T/20240823_024117.png",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_asports_hd",
-                title = "A Sports HD",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (A Sports HD)", "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8"),
-                    StreamServer("সার্ভার ২ (BDIX Server)", "http://103.151.60.162:2122/play/a02z/index.m3u8?hls"),
-                    StreamServer("সার্ভার ৩ (Live CDN)", "https://cdn5.zohanayaan.com:1686/hls/asportshd.m3u8")
-                ),
-                logoUrl = "https://i.postimg.cc/W1z5BGPZ/20240823_024712.png",
-                isLive = true,
-                quality = "1080p HD"
-            ),
-            MediaItem(
-                id = "tv_asports",
-                title = "A Sports",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Main HD)", "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8"),
-                    StreamServer("সার্ভার ২ (Backup)", "http://103.151.60.162:2122/play/a02z/index.m3u8?hls")
-                ),
-                logoUrl = "https://i.postimg.cc/W1z5BGPZ/20240823_024712.png",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_gtv_hd",
-                title = "GTV (Gazi Television)",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://live-gtv.akamaized.net/live/live-gtv/playlist.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (GTV Live HD)", "https://live-gtv.akamaized.net/live/live-gtv/playlist.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=300&fit=crop",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_star_sports_1",
-                title = "Star Sports 1 HD",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://stream.crichd.vip/live/starsports1.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Star Sports 1)", "https://stream.crichd.vip/live/starsports1.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=300&fit=crop",
-                isLive = true,
-                quality = "FHD"
-            ),
-            MediaItem(
-                id = "tv_sony_ten_1",
-                title = "Sony Sports Ten 1 HD",
-                category = "Sports",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://stream.crichd.vip/live/sonyten1.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Sony Ten 1 HD)", "https://stream.crichd.vip/live/sonyten1.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=300&fit=crop",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_somoy_news",
-                title = "Somoy TV Live",
-                category = "News",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://somoynews.akamaized.net/hls/live/2017366/somoy/master.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Somoy TV 24/7)", "https://somoynews.akamaized.net/hls/live/2017366/somoy/master.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=300&fit=crop",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_jamuna_news",
-                title = "Jamuna TV HD",
-                category = "News",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://jamunanews.akamaized.net/live/master.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Jamuna TV Live)", "https://jamunanews.akamaized.net/live/master.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=300&fit=crop",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_channel_i",
-                title = "Channel i HD",
-                category = "Entertainment",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://channeli.akamaized.net/live/channeli.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Channel i)", "https://channeli.akamaized.net/live/channeli.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=300&fit=crop",
-                isLive = true,
-                quality = "HD"
-            ),
-            MediaItem(
-                id = "tv_btv_world",
-                title = "BTV World",
-                category = "Entertainment",
-                type = MediaType.LIVE_TV,
-                streamUrl = "https://btv.akamaized.net/live/btvworld.m3u8",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (BTV World Live)", "https://btv.akamaized.net/live/btvworld.m3u8")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=300&fit=crop",
-                isLive = true,
-                quality = "HD"
-            )
-        )
+        return emptyList()
     }
 
     fun getDefaultBuiltinMovies(): List<MediaItem> {
-        return listOf(
-            MediaItem(
-                id = "mov_toofan_2024",
-                title = "Toofan (তুফান)",
-                category = "Bangla Blockbuster",
-                type = MediaType.MOVIE,
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (4K HDR)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&fit=crop",
-                description = "Shakib Khan starrer all-time blockbuster action thriller movie.",
-                rating = "9.2",
-                year = "2024",
-                isLive = false,
-                quality = "4K UHD"
-            ),
-            MediaItem(
-                id = "mov_mohanagar_series",
-                title = "Mohanagar (মহানগর)",
-                category = "Web Series",
-                type = MediaType.MOVIE,
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Full HD)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&fit=crop",
-                description = "Mosharraf Karim as OC Harun in the thrilling crime mystery web series.",
-                rating = "8.9",
-                year = "2023",
-                isLive = false,
-                quality = "1080p"
-            ),
-            MediaItem(
-                id = "mov_kalki_2898",
-                title = "Kalki 2898 AD",
-                category = "Action & Sci-Fi",
-                type = MediaType.MOVIE,
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Dolby Atmos)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&fit=crop",
-                description = "Prabhas, Amitabh Bachchan & Kamal Haasan in futuristic mythological spectacle.",
-                rating = "8.5",
-                year = "2024",
-                isLive = false,
-                quality = "4K Ultra"
-            ),
-            MediaItem(
-                id = "mov_jawan_2023",
-                title = "Jawan (জওয়ান)",
-                category = "Action & Thriller",
-                type = MediaType.MOVIE,
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (Hindi 1080p)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=500&fit=crop",
-                description = "Shah Rukh Khan in high-voltage action thriller directed by Atlee.",
-                rating = "8.4",
-                year = "2023",
-                isLive = false,
-                quality = "1080p"
-            ),
-            MediaItem(
-                id = "mov_panchayat_s3",
-                title = "Panchayat (Season 3)",
-                category = "Web Series",
-                type = MediaType.MOVIE,
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                servers = listOf(
-                    StreamServer("সার্ভার ১ (HD)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4")
-                ),
-                logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=500&fit=crop",
-                description = "Heartwarming rural comedy drama series in Phulera village.",
-                rating = "9.0",
-                year = "2024",
-                isLive = false,
-                quality = "HD"
-            )
-        )
+        return emptyList()
     }
 
     // High-speed instant loaders (Always return immediate items in 0 milliseconds, never empty)
     fun getInitialSports(): List<MediaItem> {
         val deleted = getDeletedIds()
-        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
-        val cachedAdmin = getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
-        val cached = getCachedSportsMatches().filterNot { deleted.contains(it.id) }
+        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
+        val cachedAdmin = getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
+        val cached = getCachedSportsMatches().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
         val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinSports()
 
         // Admin matches (custom + cached admin from Firebase) ALWAYS come first (সবার আগে)!
         val adminMatches = (customSports + cachedAdmin).distinctBy { it.id }
         val otherMatches = baseList.filterNot { it.id in adminMatches.map { m -> m.id } }
-        return (adminMatches + otherMatches).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+        return (adminMatches + otherMatches).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
     }
 
     fun getInitialLiveTv(): List<MediaItem> {
         val deleted = getDeletedIds()
-        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
-        val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) }
-        val builtin = getDefaultBuiltinLiveTv().filterNot { deleted.contains(it.id) }
+        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
 
-        // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
-        // Ensure all built-in channels (T Sports HD, T Sports NF, A Sports HD, A Sports) plus custom & cached are preserved
         val combined = mutableListOf<MediaItem>()
-        combined.addAll(builtin)
         combined.addAll(customTv)
         combined.addAll(cached)
 
@@ -681,15 +462,14 @@ class MediaRepository(private val context: Context) {
             }
             seen.add(uid)
             ch.copy(id = uid)
-        }.filterNot { deleted.contains(it.id) }
+        }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
     }
 
     fun getInitialMoviesSeries(): List<MediaItem> {
         val deleted = getDeletedIds()
-        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-        val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) }
-        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
-        return (customMov + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        return (customMov + cached).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
     }
 
     // Custom streams saved locally in SharedPreferences

@@ -39,10 +39,23 @@ private val SERVER_CLEAN_REGEX = Regex("^(?i)(server|সার্ভার)\\s*\
 
 fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     if (channels.isEmpty()) return emptyList()
+    val nonDemo = channels.filterNot { item ->
+        val id = item.id.lowercase()
+        id.startsWith("tv_tsports") ||
+                id.startsWith("tv_asports") ||
+                id.startsWith("tv_gtv") ||
+                id.startsWith("tv_star_sports") ||
+                id.startsWith("tv_sony_ten") ||
+                id.startsWith("tv_somoy") ||
+                id.startsWith("tv_jamuna") ||
+                id.startsWith("tv_channel_i") ||
+                id.startsWith("tv_btv") ||
+                id.startsWith("demo_")
+    }
     // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
     // Keep all channels intact even with identical names, guaranteeing unique IDs for Compose rendering
     val seenIds = HashSet<String>()
-    return channels.mapIndexed { index, item ->
+    return nonDemo.mapIndexed { index, item ->
         val safeServers = item.getAllServers()
         var uniqueId = item.id.ifBlank { "ch_${index}_${Math.abs(item.title.hashCode())}" }
         if (seenIds.contains(uniqueId)) {

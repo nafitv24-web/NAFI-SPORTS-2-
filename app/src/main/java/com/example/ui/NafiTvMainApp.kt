@@ -371,18 +371,16 @@ fun NafiTvMainApp(
                         emptyList()
                     }
 
-                    val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) }
-                    val builtinTv = repository.getDefaultBuiltinLiveTv().filterNot { deleted.contains(it.id) }
+                    val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
                     val combinedTv = mutableListOf<MediaItem>()
-                    combinedTv.addAll(builtinTv)
                     combinedTv.addAll(customTv)
-                    combinedTv.addAll(tvM3u)
-                    combinedTv.addAll(xtreamLiveChannels)
+                    combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
+                    combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
 
                     // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
                     // Preserve every single channel even with duplicate names, ensuring unique IDs for Compose
                     val seenTvIds = HashSet<String>()
-                    val updatedTv = combinedTv.mapIndexed { idx, ch ->
+                    val updatedTv = combinedTv.filterNot { repository.isDemoChannel(it) }.mapIndexed { idx, ch ->
                         var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
                         if (seenTvIds.contains(uid)) {
                             uid = "${uid}_$idx"
