@@ -596,22 +596,38 @@ fun VideoPlayerScreen(
             itemHeaders = currentMedia.drmHeaders,
             itemManifestType = currentMedia.manifestType
         )
-        // Clean URL: normalize duplicate slashes in path (e.g. //master.m3u8 -> /master.m3u8)
-        val rawClean = when {
-            streamInfo.cleanUrl.startsWith("http://", ignoreCase = true) ->
-                "http://" + streamInfo.cleanUrl.substring(7).replace(Regex("/+"), "/")
-            streamInfo.cleanUrl.startsWith("https://", ignoreCase = true) ->
-                "https://" + streamInfo.cleanUrl.substring(8).replace(Regex("/+"), "/")
-            else -> streamInfo.cleanUrl
+        // Clean URL: normalize duplicate slashes in path ONLY (never touch query string with tokens/base64)
+        val rawClean = streamInfo.cleanUrl.let { url ->
+            val queryIdx = url.indexOf('?')
+            if (queryIdx != -1) {
+                val pathPart = url.substring(0, queryIdx)
+                val queryPart = url.substring(queryIdx)
+                val scheme = if (pathPart.startsWith("https://", ignoreCase = true)) "https://" else if (pathPart.startsWith("http://", ignoreCase = true)) "http://" else ""
+                val rest = if (scheme.isNotEmpty()) pathPart.substring(scheme.length) else pathPart
+                val cleanPath = scheme + rest.replace(Regex("/+"), "/")
+                cleanPath + queryPart
+            } else {
+                val scheme = if (url.startsWith("https://", ignoreCase = true)) "https://" else if (url.startsWith("http://", ignoreCase = true)) "http://" else ""
+                val rest = if (scheme.isNotEmpty()) url.substring(scheme.length) else url
+                scheme + rest.replace(Regex("/+"), "/")
+            }
         }
-        // Xtream Codes live streams: rgkkw.live and standard Xtream servers only serve MPEG-TS (.ts) for live channels.
-        // If the URL has .m3u8 on an Xtream server, convert it to .ts so it plays instantly without 405 Method Not Allowed error.
-        val finalCleanUrl = when {
-            (rawClean.contains("rgkkw.live", ignoreCase = true) || rawClean.contains("/live/")) && rawClean.endsWith(".m3u8", ignoreCase = true) ->
-                rawClean.substringBeforeLast(".m3u8") + ".ts"
-            (rawClean.contains("rgkkw.live", ignoreCase = true) || rawClean.contains("/live/")) && !rawClean.endsWith(".ts", ignoreCase = true) && !rawClean.endsWith(".m3u8", ignoreCase = true) && !rawClean.contains(".mp4", ignoreCase = true) && !rawClean.contains(".mkv", ignoreCase = true) ->
-                "$rawClean.ts"
-            else -> rawClean
+        val isRgkkw = rawClean.contains("rgkkw.live", ignoreCase = true)
+
+        // Only convert specifically rgkkw.live URLs from .m3u8 to .ts on the path component (rgkkw server only serves .ts)
+        // NEVER touch .m3u8 playlists on Toffee, Akamai, or any standard HLS servers!
+        val finalCleanUrl = if (isRgkkw) {
+            val pathBeforeQuery = rawClean.substringBefore('?')
+            val queryPart = if (rawClean.contains('?')) "?" + rawClean.substringAfter('?') else ""
+            if (pathBeforeQuery.endsWith(".m3u8", ignoreCase = true)) {
+                pathBeforeQuery.substringBeforeLast(".m3u8") + ".ts" + queryPart
+            } else if (!pathBeforeQuery.endsWith(".ts", ignoreCase = true)) {
+                "$pathBeforeQuery.ts$queryPart"
+            } else {
+                rawClean
+            }
+        } else {
+            rawClean
         }
         val drmConfig = streamInfo.drmConfig
 
@@ -670,41 +686,64 @@ fun VideoPlayerScreen(
         val isAkr4m = finalCleanUrl.contains("akr4m.com", ignoreCase = true) ||
                 finalCleanUrl.contains("/bdtv/", ignoreCase = true)
 
-        val isRgkkw = finalCleanUrl.contains("rgkkw.live", ignoreCase = true)
-
         if (isAkr4m) {
             if (extractedUa.isNullOrBlank()) extractedUa = "VLC/3.0.18 LibVLC/3.0.18"
         } else if (isRgkkw) {
             if (extractedUa.isNullOrBlank()) extractedUa = "IPTVSmartersPro"
         }
 
-        val isTsStream = finalCleanUrl.contains(".ts", ignoreCase = true) ||
-                finalCleanUrl.contains("/live/", ignoreCase = true) ||
-                isRgkkw
+        val pathBeforeQuery = finalCleanUrl.substringBefore('?').lowercase()
+        val isM3u8Pattern = pathBeforeQuery.endsWith(".m3u8") ||
+                finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
+                finalCleanUrl.contains("/hls/", ignoreCase = true) ||
+                isToffee
+
+        val isTsStream = !isM3u8Pattern && (pathBeforeQuery.endsWith(".ts") ||
+                finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
+                isRgkkw)
+
+        val primaryUa = when {
+            !extractedUa.isNullOrBlank() -> extractedUa!!
+            isToffee -> "Toffee (Linux;Android 14)"
+            isTsStream || isAkr4m || isRgkkw -> "IPTVSmartersPro"
+            else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
 
         // Multi-Agent fallback list for maximum online stream compatibility
         val fallbackUserAgents = listOf(
-            extractedUa ?: if (isTsStream || isAkr4m || isRgkkw) "IPTVSmartersPro" else "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+            primaryUa,
+            "Toffee (Linux;Android 14)",
             "IPTVSmartersPro/3.1.5.1",
             "VLC/3.0.18 LibVLC/3.0.18",
             "TiviMate/4.7.0 (Android TV)",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
+        ).distinct()
         val finalUserAgent = fallbackUserAgents[playerRetryKey.coerceAtLeast(0) % fallbackUserAgents.size]
 
         val uriHost = try { android.net.Uri.parse(finalCleanUrl).host } catch (_: Exception) { null }
-        val streamHostReferer = if (!uriHost.isNullOrBlank() && !isRgkkw) "https://$uriHost/" else null
-        val streamHostOrigin = if (!uriHost.isNullOrBlank() && !isRgkkw) "https://$uriHost" else null
+        val streamHostReferer = if (!uriHost.isNullOrBlank() && !isRgkkw && !isToffee) "https://$uriHost/" else null
+        val streamHostOrigin = if (!uriHost.isNullOrBlank() && !isRgkkw && !isToffee) "https://$uriHost" else null
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
-        val finalReferer = extractedReferer ?: if (isTapmad) "https://www.tapmad.com/" else streamHostReferer
-        val finalOrigin = extractedOrigin ?: if (isTapmad) "https://www.tapmad.com" else streamHostOrigin
+        val finalReferer = when {
+            !extractedReferer.isNullOrBlank() -> extractedReferer
+            isToffee -> "https://toffeelive.com/"
+            isTapmad -> "https://www.tapmad.com/"
+            else -> streamHostReferer
+        }
+        val finalOrigin = when {
+            !extractedOrigin.isNullOrBlank() -> extractedOrigin
+            isToffee -> "https://toffeelive.com"
+            isTapmad -> "https://www.tapmad.com"
+            else -> streamHostOrigin
+        }
 
-        if (!finalReferer.isNullOrBlank() && !isRgkkw) {
+        val suppressReferer = (playerRetryKey == 1) || isRgkkw
+        if (!finalReferer.isNullOrBlank() && !suppressReferer) {
             requestHeaders["Referer"] = finalReferer
         }
-        if (!finalOrigin.isNullOrBlank() && !isRgkkw) {
+        if (!finalOrigin.isNullOrBlank() && !suppressReferer) {
             requestHeaders["Origin"] = finalOrigin
         }
         if (!extractedCookie.isNullOrBlank()) {
@@ -755,7 +794,7 @@ fun VideoPlayerScreen(
             .setConstantBitrateSeekingEnabled(false) // Never force CBR seeking on live continuous streams
             .setTsExtractorFlags(tsPayloadReaderFlags)
             .setTsExtractorTimestampSearchBytes(0) // Crucial: 0 for live continuous TS streams so playback starts immediately without stalling trying to find stream end
-            .setTsExtractorMode(androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT)
+            .setTsExtractorMode(if (isRgkkw) androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT else androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -892,9 +931,9 @@ fun VideoPlayerScreen(
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isAkr4m) 25000 else if (isLiveStream) 20000 else 25000, // 20-25s forward buffer cushion prevents stalls
-                /* maxBufferMs = */ if (isAkr4m) 60000 else if (isLiveStream) 50000 else 60000, // up to 50-60s maximum forward buffer in RAM
-                /* bufferForPlaybackMs = */ 600,                         // Starts playing in 600ms (instant start)
+                /* minBufferMs = */ if (isAkr4m) 20000 else if (isLiveStream) 6000 else 15000,
+                /* maxBufferMs = */ if (isAkr4m) 50000 else if (isLiveStream) 30000 else 50000,
+                /* bufferForPlaybackMs = */ 500,                         // Starts playing in 500ms (instant start)
                 /* bufferForPlaybackAfterRebufferMs = */ 1000            // Recovers quickly in 1s if network interrupted
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -1145,7 +1184,11 @@ fun VideoPlayerScreen(
                         val currentServers = currentMedia.getAllServers()
                         val httpEx = error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
                         val is405 = httpEx?.responseCode == 405
-                        if ((is405 || currentUrl.contains("rgkkw.live", ignoreCase = true) || currentUrl.contains("/live/")) && currentUrl.contains(".m3u8")) {
+                        val isProtectHls = currentUrl.contains("toffeelive.com", ignoreCase = true) ||
+                                currentUrl.contains("toffee", ignoreCase = true) ||
+                                currentUrl.contains("akamaized.net", ignoreCase = true) ||
+                                currentUrl.contains("tapmad", ignoreCase = true)
+                        if (!isProtectHls && (is405 || currentUrl.contains("rgkkw.live", ignoreCase = true)) && currentUrl.contains(".m3u8")) {
                             currentUrl = currentUrl.replace(".m3u8", ".ts")
                             playerRetryKey = 0
                             errorMessage = "MPEG-TS সংযোগে রূপান্তর করা হচ্ছে..."

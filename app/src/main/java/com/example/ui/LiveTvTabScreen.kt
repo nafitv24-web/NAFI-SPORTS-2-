@@ -41,6 +41,11 @@ fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     if (channels.isEmpty()) return emptyList()
     val nonDemo = channels.filterNot { item ->
         val id = item.id.lowercase()
+        val title = item.title.lowercase()
+        val cat = item.category.lowercase()
+        val url = item.streamUrl.lowercase()
+        val allUrls = (item.servers.map { it.url.lowercase() } + listOf(url)).joinToString(" ")
+
         id.startsWith("tv_tsports") ||
                 id.startsWith("tv_asports") ||
                 id.startsWith("tv_gtv") ||
@@ -50,7 +55,21 @@ fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
                 id.startsWith("tv_jamuna") ||
                 id.startsWith("tv_channel_i") ||
                 id.startsWith("tv_btv") ||
-                id.startsWith("demo_")
+                id.startsWith("demo_") ||
+                id.contains("demo") ||
+                id.contains("sample") ||
+                title.contains("demo") ||
+                title.contains("ডেমো") ||
+                title.contains("sample") ||
+                title.contains("test channel") ||
+                title.contains("পরীক্ষামূলক") ||
+                cat.contains("demo") ||
+                cat.contains("ডেমো") ||
+                allUrls.contains("test-streams.mux.dev") ||
+                allUrls.contains("akamaized.net/hls/live/2000341/test") ||
+                allUrls.contains("bitdash-a.akamaihd.net") ||
+                allUrls.contains("bipbop") ||
+                allUrls.contains("bigbuckbunny")
     }
     // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
     // Keep all channels intact even with identical names, guaranteeing unique IDs for Compose rendering

@@ -376,11 +376,23 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getCachedLiveTvChannels(): List<MediaItem> {
-        return loadListFromFileCache("cache_livetv_v2.json")
+        val list = loadListFromFileCache("cache_livetv_v3.json").filterNot { isDemoChannel(it) }
+        if (list.isNotEmpty()) return list
+        val oldList = loadListFromFileCache("cache_livetv_v2.json").filterNot { isDemoChannel(it) }
+        if (oldList.isNotEmpty()) {
+            saveCachedLiveTvChannels(oldList)
+            try { java.io.File(context.filesDir, "cache_livetv_v2.json").delete() } catch (_: Exception) {}
+        }
+        return oldList
     }
 
     fun isDemoChannel(item: MediaItem): Boolean {
         val id = item.id.lowercase()
+        val title = item.title.lowercase()
+        val cat = item.category.lowercase()
+        val url = item.streamUrl.lowercase()
+        val allUrls = (item.servers.map { it.url.lowercase() } + listOf(url)).joinToString(" ")
+
         return id.startsWith("tv_tsports") ||
                 id.startsWith("tv_asports") ||
                 id.startsWith("tv_gtv") ||
@@ -391,11 +403,25 @@ class MediaRepository(private val context: Context) {
                 id.startsWith("tv_channel_i") ||
                 id.startsWith("tv_btv") ||
                 id.startsWith("demo_") ||
+                id.contains("demo") ||
+                id.contains("sample") ||
                 id.startsWith("mov_toofan") ||
                 id.startsWith("mov_mohanagar") ||
                 id.startsWith("mov_kalki") ||
                 id.startsWith("mov_jawan") ||
-                id.startsWith("mov_panchayat")
+                id.startsWith("mov_panchayat") ||
+                title.contains("demo") ||
+                title.contains("ডেমো") ||
+                title.contains("sample") ||
+                title.contains("test channel") ||
+                title.contains("পরীক্ষামূলক") ||
+                cat.contains("demo") ||
+                cat.contains("ডেমো") ||
+                allUrls.contains("test-streams.mux.dev") ||
+                allUrls.contains("akamaized.net/hls/live/2000341/test") ||
+                allUrls.contains("bitdash-a.akamaihd.net") ||
+                allUrls.contains("bipbop") ||
+                allUrls.contains("bigbuckbunny")
     }
 
     fun getCachedMoviesList(): List<MediaItem> {
@@ -411,7 +437,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCachedLiveTvChannels(list: List<MediaItem>) {
-        saveListToFileCache("cache_livetv_v2.json", list.filterNot { isDemoChannel(it) })
+        saveListToFileCache("cache_livetv_v3.json", list.filterNot { isDemoChannel(it) })
     }
 
     fun saveCachedMoviesList(list: List<MediaItem>) {
@@ -579,6 +605,12 @@ class MediaRepository(private val context: Context) {
 
     fun resetToDefaults() {
         prefs.edit().clear().apply()
+        try {
+            java.io.File(context.filesDir, "cache_livetv_v2.json").delete()
+            java.io.File(context.filesDir, "cache_livetv_v3.json").delete()
+            java.io.File(context.filesDir, "cache_sports_v2.json").delete()
+            java.io.File(context.filesDir, "cache_movies_v2.json").delete()
+        } catch (_: Exception) {}
     }
 
     // M3U parser from Uri
@@ -928,7 +960,7 @@ class MediaRepository(private val context: Context) {
 
             val reqBuilder = Request.Builder()
                 .url(raw)
-                .header("User-Agent", headersMap["User-Agent"] ?: "NAFITV24/2.5.0 (Android ExoPlayer)")
+                .header("User-Agent", headersMap["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
             for ((k, v) in headersMap) {
                 if (!k.equals("User-Agent", ignoreCase = true)) {
@@ -937,9 +969,11 @@ class MediaRepository(private val context: Context) {
             }
 
             val fastClient = client.newBuilder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(8, TimeUnit.SECONDS)
-                .callTimeout(10, TimeUnit.SECONDS)
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(35, TimeUnit.SECONDS)
+                .callTimeout(50, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
                 .build()
 
             val response = fastClient.newCall(reqBuilder.build()).execute()
@@ -1134,11 +1168,18 @@ class MediaRepository(private val context: Context) {
                     if (currentOrigin.isNullOrBlank()) currentOrigin = "https://www.tapmad.com"
                 }
 
-                // Sanitize duplicate slashes in URL path (e.g. //master.m3u8 -> /master.m3u8)
-                if (streamUrl.startsWith("http://", ignoreCase = true)) {
-                    streamUrl = "http://" + streamUrl.substring(7).replace(Regex("/+"), "/")
-                } else if (streamUrl.startsWith("https://", ignoreCase = true)) {
-                    streamUrl = "https://" + streamUrl.substring(8).replace(Regex("/+"), "/")
+                // Sanitize duplicate slashes in URL path ONLY (never touch query string with tokens/base64)
+                val qIdx = streamUrl.indexOf('?')
+                if (qIdx != -1) {
+                    val pPart = streamUrl.substring(0, qIdx)
+                    val qPart = streamUrl.substring(qIdx)
+                    val scheme = if (pPart.startsWith("https://", ignoreCase = true)) "https://" else if (pPart.startsWith("http://", ignoreCase = true)) "http://" else ""
+                    val rest = if (scheme.isNotEmpty()) pPart.substring(scheme.length) else pPart
+                    streamUrl = scheme + rest.replace(Regex("/+"), "/") + qPart
+                } else {
+                    val scheme = if (streamUrl.startsWith("https://", ignoreCase = true)) "https://" else if (streamUrl.startsWith("http://", ignoreCase = true)) "http://" else ""
+                    val rest = if (scheme.isNotEmpty()) streamUrl.substring(scheme.length) else streamUrl
+                    streamUrl = scheme + rest.replace(Regex("/+"), "/")
                 }
 
                 // Normalize Pixeldrain URLs in M3U playlists
@@ -1152,28 +1193,37 @@ class MediaRepository(private val context: Context) {
                     if (currentOrigin.isNullOrBlank()) currentOrigin = "https://pixeldrain.com"
                 }
 
-                val isMovie = currentGroup.contains("movie", ignoreCase = true) ||
+                val isLivePattern = streamUrl.contains(".m3u8", ignoreCase = true) ||
+                        streamUrl.contains("/hls/", ignoreCase = true) ||
+                        streamUrl.contains("/live/", ignoreCase = true) ||
+                        streamUrl.contains("edge-cache-token=", ignoreCase = true) ||
+                        currentGroup.contains("live", ignoreCase = true) ||
+                        currentGroup.contains("tv", ignoreCase = true) ||
+                        currentGroup.contains("news", ignoreCase = true) ||
+                        currentGroup.contains("sports", ignoreCase = true)
+
+                val isMovieOrVod = !isLivePattern && (
+                        currentGroup.contains("movie", ignoreCase = true) ||
                         currentGroup.contains("cinema", ignoreCase = true) ||
                         currentGroup.contains("vod", ignoreCase = true) ||
-                        currentGroup.contains("series", ignoreCase = true) ||
-                        currentGroup.contains("drama", ignoreCase = true) ||
                         currentGroup.contains("film", ignoreCase = true) ||
-                        currentGroup.contains("action", ignoreCase = true) ||
-                        currentGroup.contains("comedy", ignoreCase = true) ||
-                        currentGroup.contains("thriller", ignoreCase = true) ||
-                        currentGroup.contains("horror", ignoreCase = true) ||
-                        currentGroup.contains("romance", ignoreCase = true) ||
-                        currentGroup.contains("adventure", ignoreCase = true) ||
-                        currentGroup.contains("hollywood", ignoreCase = true) ||
-                        currentGroup.contains("bollywood", ignoreCase = true) ||
-                        currentGroup.contains("south", ignoreCase = true) ||
-                        currentGroup.contains("bangla", ignoreCase = true) ||
-                        isPixeldrain ||
+                        streamUrl.contains("/movie/", ignoreCase = true) ||
+                        streamUrl.contains("/vod/", ignoreCase = true) ||
                         streamUrl.contains(".mp4", ignoreCase = true) ||
-                        streamUrl.contains(".mkv", ignoreCase = true)
+                        streamUrl.contains(".mkv", ignoreCase = true) ||
+                        streamUrl.contains(".avi", ignoreCase = true) ||
+                        isPixeldrain
+                )
+
+                val isSeries = !isLivePattern && (
+                        currentGroup.contains("series", ignoreCase = true) ||
+                        currentGroup.contains("web series", ignoreCase = true) ||
+                        streamUrl.contains("/series/", ignoreCase = true)
+                )
 
                 val mediaType = when {
-                    isMovie -> MediaType.MOVIE
+                    isSeries -> MediaType.SERIES
+                    isMovieOrVod -> MediaType.MOVIE
                     else -> MediaType.LIVE_TV
                 }
 
@@ -1888,6 +1938,16 @@ class MediaRepository(private val context: Context) {
                 username = "4dfoydR2gZ",
                 password = "clever3still",
                 type = "XTREAM",
+                isAdmin = true,
+                isReadOnly = false
+            ),
+            PlaylistInfo(
+                id = "pl_toffee_live_bd",
+                title = "Toffee Live TV (Bangladesh)",
+                url = "https://raw.githubusercontent.com/srhady/toffee-bd/refs/heads/main/toffee_playlist.m3u",
+                logoUrl = "https://assets-prod.services.toffeelive.com/Xi_Ga5oBNnOkwJLWkhKP/posters/ef2899d5-1ae0-4fee-aee5-45f9b0b3ba80.png",
+                description = "বাংলাদেশের সকল লাইভ টিভি ও স্পোর্টস চ্যানেল (Toffee HLS)",
+                type = "M3U",
                 isAdmin = true,
                 isReadOnly = false
             )
@@ -3383,15 +3443,14 @@ class MediaRepository(private val context: Context) {
     fun getSavedLiveTvM3uUrl(): String {
         val current = prefs.getString("saved_live_tv_m3u_url", DEFAULT_LIVE_TV_M3U_URL) ?: DEFAULT_LIVE_TV_M3U_URL
         val updateChannelUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u"
-        val sportsNfUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
 
         val urls = mutableSetOf<String>()
         urls.add(updateChannelUrl)
-        urls.add(sportsNfUrl)
         if (current.isNotBlank() && !current.contains("Nafitv24.m3u")) {
             current.split(Regex("[\r\n,;]+"))
                 .map { it.trim() }
                 .filter { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
+                .filterNot { it.contains("Sports%20Channel%20NF.m3u") }
                 .forEach { urls.add(it) }
         }
         return urls.joinToString("\n")

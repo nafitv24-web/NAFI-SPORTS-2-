@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.AlertDialog
@@ -119,7 +120,7 @@ fun PlaylistTabScreen(
             selectedPlaylistTypeFilter = "ALL"
             selectedPlaylistCategory = "All"
             try {
-                playlistChannels = repository.fetchPlaylistChannels(pl)
+                playlistChannels = repository.fetchPlaylistChannels(pl).filterNot { repository.isDemoChannel(it) }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -387,10 +388,38 @@ fun PlaylistTabScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${playlistChannels.size} চ্যানেল সংরক্ষিত",
-                        color = Color(0xFF94A3B8),
+                        text = if (isLoadingChannels) "চ্যানেল লোড হচ্ছে..." else "${playlistChannels.size} চ্যানেল সংরক্ষিত",
+                        color = if (isLoadingChannels) Color(0xFF00E5FF) else Color(0xFF94A3B8),
                         fontSize = 11.sp
                     )
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            isLoadingChannels = true
+                            try {
+                                playlistChannels = repository.fetchPlaylistChannels(currentPl)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            } finally {
+                                isLoadingChannels = false
+                            }
+                        }
+                    }
+                ) {
+                    if (isLoadingChannels) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color(0xFF00E5FF),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Refresh Playlist",
+                            tint = Color(0xFF00E5FF)
+                        )
+                    }
                 }
             }
 
@@ -898,6 +927,29 @@ fun PlaylistTabScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+
+                    // Quick Presets
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                newTitle = "Toffee Live TV"
+                                newUrl = "https://raw.githubusercontent.com/srhady/toffee-bd/refs/heads/main/toffee_playlist.m3u"
+                                newLogo = "https://assets-prod.services.toffeelive.com/Xi_Ga5oBNnOkwJLWkhKP/posters/ef2899d5-1ae0-4fee-aee5-45f9b0b3ba80.png"
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Rounded.Bolt, contentDescription = null, tint = Color(0xFFFFD600), modifier = Modifier.size(16.dp))
+                            Text("প্রিসেট: Toffee Live TV (Bangladesh)", color = Color(0xFF38BDF8), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             },
             confirmButton = {
