@@ -95,7 +95,7 @@ fun PlaylistTabScreen(
     var playlistChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var channelSearchQuery by remember { mutableStateOf("") }
     var isLoadingChannels by remember { mutableStateOf(false) }
-    var showOnlyActive by rememberSaveable { mutableStateOf(ChannelStatusManager.isOnlyActiveEnabled()) }
+    var showOnlyActive by rememberSaveable { mutableStateOf(false) }
     var activeSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
     var selectedPlaylistTypeFilter by remember { mutableStateOf("ALL") }
     var selectedPlaylistCategory by remember { mutableStateOf("All") }

@@ -2099,147 +2099,17 @@ class MediaRepository(private val context: Context) {
         val deleted = getDeletedIds()
         val defaultList = listOf(
             PlaylistInfo(
-                id = "pl_toffee",
-                title = "Toffee",
-                url = DEFAULT_LIVE_TV_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1593784991095-a205069470b6?w=200&fit=crop",
-                description = "Toffee BD Live TV & Sports Streams",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_sports_tv",
-                title = "Sports TV",
-                url = DEFAULT_SPORTS_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=200&fit=crop",
-                description = "Live Sports Cricket & Football Streams",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_sports_tv_2",
-                title = "SPORTS TV 2",
-                url = DEFAULT_TAPMAD_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=200&fit=crop",
-                description = "Live Sports HD & Multi-bitrate Feed",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_aksh_go",
-                title = "Aksh Go",
-                url = DEFAULT_LIVE_TV_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=200&fit=crop",
-                description = "Akash Go Direct HD TV Channels",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_bdix",
-                title = "BDIX",
-                url = DEFAULT_LIVE_TV_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=200&fit=crop",
-                description = "High Speed BDIX Local IPTV Server",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_mrgify_bdix",
-                title = "Mrgify-BDIX",
-                url = DEFAULT_LIVE_TV_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1586899028174-e7098604235b?w=200&fit=crop",
-                description = "Mrgify BDIX Multi-Stream IPTV",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_fast_iptv",
-                title = "FAST-IPTV",
-                url = DEFAULT_LIVE_TV_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1461151304267-38535e780c79?w=200&fit=crop",
-                description = "Fast IPTV Global Live TV Channels",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_crichd",
-                title = "CricHD",
-                url = DEFAULT_SPORTS_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=200&fit=crop",
-                description = "CricHD 24/7 Cricket & Football Live",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
                 id = "pl_starshare_premium",
-                title = "Starshare Premium (Movies & Series)",
+                title = "Starshare IPTV (Playlist Host)",
                 url = "http://rgkkw.live:80",
                 logoUrl = "https://images.unsplash.com/photo-1578022761797-b8636ac1773c?w=300&fit=crop",
-                description = "Starshare Premium Xtream Access (4dfoydR2gZ) - মুভি, সিরিজ ও লাইভ",
+                description = "প্লেলিস্ট হোস্টের সকল চ্যানেল (rgkkw.live:80)",
                 serverUrl = "http://rgkkw.live:80",
                 username = "4dfoydR2gZ",
                 password = "clever3still",
                 type = "XTREAM",
                 isAdmin = true,
                 isReadOnly = false
-            ),
-            PlaylistInfo(
-                id = "pl_nafi_movies_json",
-                title = "NAFI Movies & Series",
-                url = DEFAULT_MOVIES_JSON_URL,
-                logoUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=200&fit=crop",
-                description = "সকল মুভি ও ওয়েব সিরিজ প্লেলিস্ট (movies.json)",
-                type = "JSON",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_tapmad_sports",
-                title = "Tapmad BD Sports Live",
-                url = DEFAULT_TAPMAD_JSON_URL,
-                logoUrl = "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=200&fit=crop",
-                description = "Tapmad Live Sports Stream Events",
-                type = "JSON",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_global_iptv",
-                title = "Global Entertainment",
-                url = DEFAULT_LIVE_TV_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=200&fit=crop",
-                description = "Global News, Movies, Music & TV",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_mix_movies_auto",
-                title = "Mix Movies (Auto Update)",
-                url = DEFAULT_MIX_MOVIES_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=200&fit=crop",
-                description = "Mix Movies Auto Update Collection (Pixeldrain & Direct)",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
-            ),
-            PlaylistInfo(
-                id = "pl_latest_movies_live",
-                title = "Latest Movies Live",
-                url = DEFAULT_LATEST_MOVIES_M3U_URL,
-                logoUrl = "https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0?w=200&fit=crop",
-                description = "Latest Cinema & OTT Movies Collection",
-                type = "M3U",
-                isAdmin = true,
-                isReadOnly = true
             )
         )
         return defaultList.filterNot { deleted.contains(it.id) }
@@ -3116,19 +2986,93 @@ class MediaRepository(private val context: Context) {
         allItems.distinctBy { it.id }
     }
 
+    suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanUser = username.trim()
+        val cleanPass = pass.trim()
+        val items = mutableListOf<MediaItem>()
+
+        try {
+            val liveCatMap = mutableMapOf<String, String>()
+            try {
+                val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_live_categories"
+                val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
+                val catResp = client.newCall(catReq).execute()
+                if (catResp.isSuccessful) {
+                    val arr = JSONArray(catResp.body?.string() ?: "")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val id = obj.optString("category_id")
+                        val name = obj.optString("category_name")
+                        if (id.isNotBlank() && name.isNotBlank()) liveCatMap[id] = name
+                    }
+                }
+            } catch (_: Exception) {}
+
+            val liveUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_live_streams"
+            val liveReq = Request.Builder().url(liveUrl).header("User-Agent", "IPTVSmartersPro").build()
+            val liveResp = client.newCall(liveReq).execute()
+            if (liveResp.isSuccessful) {
+                val liveArr = JSONArray(liveResp.body?.string() ?: "")
+                val isRgkkw = cleanServer.contains("rgkkw.live", ignoreCase = true)
+                for (i in 0 until liveArr.length()) {
+                    val sObj = liveArr.optJSONObject(i) ?: continue
+                    val streamId = sObj.optString("stream_id", "")
+                    if (streamId.isBlank()) continue
+                    val name = sObj.optString("name", "Channel $streamId").trim()
+                    if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
+                    val catId = sObj.optString("category_id", "")
+                    val categoryName = liveCatMap[catId] ?: "Live TV"
+                    val icon = sObj.optString("stream_icon").takeIf { it.isNotBlank() }
+
+                    val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.ts"
+                    val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                    val altPlayUrl = "$altServer/live/$cleanUser/$cleanPass/$streamId.ts"
+                    val sList = mutableListOf(
+                        StreamServer("সার্ভার ১ (TS Stream)", playUrl),
+                        StreamServer("সার্ভার ২ (বিকল্প TS)", altPlayUrl)
+                    )
+                    if (!isRgkkw) {
+                        sList.add(StreamServer("সার্ভার ৩ (HLS)", "$cleanServer/live/$cleanUser/$cleanPass/$streamId.m3u8"))
+                    }
+
+                    items.add(
+                        MediaItem(
+                            id = "xtream_live_${streamId}",
+                            title = name,
+                            category = categoryName,
+                            type = MediaType.LIVE_TV,
+                            streamUrl = playUrl,
+                            backupUrl = altPlayUrl,
+                            servers = sList,
+                            logoUrl = icon,
+                            isLive = true,
+                            quality = "HD",
+                            userAgent = "IPTVSmartersPro"
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        items
+    }
+
     suspend fun fetchAllXtreamLiveChannels(): List<MediaItem> = withContext(Dispatchers.IO) {
         val accounts = getActiveXtreamAccounts().filter { it.includeLive }
         if (accounts.isEmpty()) {
-            return@withContext fetchXtreamCodesStreams("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
-                .filter { it.type == MediaType.LIVE_TV }
+            return@withContext fetchXtreamLiveStreamsOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
         }
         val allItems = mutableListOf<MediaItem>()
         coroutineScope {
             val jobs = accounts.map { acc ->
                 async {
                     try {
-                        val streams = fetchXtreamCodesStreams(acc.serverUrl, acc.username, acc.password)
-                        streams.filter { it.type == MediaType.LIVE_TV }
+                        fetchXtreamLiveStreamsOnly(acc.serverUrl, acc.username, acc.password)
                     } catch (e: Exception) {
                         e.printStackTrace()
                         emptyList()
@@ -3203,22 +3147,30 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchPlaylistChannels(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
         if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
+            val liveItems = fetchXtreamLiveStreamsOnly(playlist.serverUrl, playlist.username, playlist.password)
+            if (liveItems.isNotEmpty()) {
+                return@withContext liveItems
+            }
             val xtreamItems = fetchXtreamCodesStreams(playlist.serverUrl, playlist.username, playlist.password)
             if (xtreamItems.isNotEmpty()) {
                 return@withContext xtreamItems
             }
         }
         if (playlist.url.isNotBlank()) {
-            val m3uItems = parseM3uFromUrl(playlist.url)
-            if (m3uItems.isNotEmpty()) {
-                return@withContext m3uItems
-            }
             val creds = parseXtreamCredentials(playlist.url)
             if (creds != null) {
+                val liveFallback = fetchXtreamLiveStreamsOnly(creds.first, creds.second, creds.third)
+                if (liveFallback.isNotEmpty()) {
+                    return@withContext liveFallback
+                }
                 val xtreamFallback = fetchXtreamCodesStreams(creds.first, creds.second, creds.third)
                 if (xtreamFallback.isNotEmpty()) {
                     return@withContext xtreamFallback
                 }
+            }
+            val m3uItems = parseM3uFromUrl(playlist.url)
+            if (m3uItems.isNotEmpty()) {
+                return@withContext m3uItems
             }
         }
         emptyList()

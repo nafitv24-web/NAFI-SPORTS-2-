@@ -931,10 +931,9 @@ fun VideoPlayerScreen(
                 val isMp4 = finalCleanUrl.contains(".mp4", ignoreCase = true)
                 val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
                 val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
-                val isTs = finalCleanUrl.contains(".ts", ignoreCase = true) ||
-                        isRgkkw ||
+                val isTs = (finalCleanUrl.contains(".ts", ignoreCase = true) ||
                         finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
-                        finalCleanUrl.contains("/live/", ignoreCase = true)
+                        ((isRgkkw || finalCleanUrl.contains("/live/")) && !finalCleanUrl.contains(".m3u8", ignoreCase = true))) && !isMp4 && !isMkv && !isWebm
 
                 val isFileHost = finalCleanUrl.contains("pixeldrain", ignoreCase = true) ||
                         finalCleanUrl.contains("pixeldra.in", ignoreCase = true) ||
