@@ -85,6 +85,7 @@ class MediaRepository(private val context: Context) {
 
     // Marquee Scrolling Breaking News Ticker Management
     companion object {
+        private val memoryFileCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
         const val DEFAULT_MARQUEE_TEXT = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u\nhttps://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
@@ -333,6 +334,7 @@ class MediaRepository(private val context: Context) {
         try {
             // Keep persistent offline cache generous (up to 5000 items) so no user channels or movies are dropped
             val itemsToSave = if (list.size > 5000) list.take(5000) else list
+            memoryFileCache[fileName] = itemsToSave
             val file = java.io.File(context.filesDir, fileName)
             val jsonArray = JSONArray()
             itemsToSave.forEach { item ->
@@ -345,9 +347,14 @@ class MediaRepository(private val context: Context) {
     }
 
     fun loadListFromFileCache(fileName: String): List<MediaItem> {
+        val inMem = memoryFileCache[fileName]
+        val deleted = getDeletedIds()
+        if (inMem != null && inMem.isNotEmpty()) {
+            return if (deleted.isEmpty()) inMem else inMem.filterNot { deleted.contains(it.id) }
+        }
+
         val file = java.io.File(context.filesDir, fileName)
         if (!file.exists()) return emptyList()
-        val deleted = getDeletedIds()
         val list = mutableListOf<MediaItem>()
         try {
             val text = file.readText().trim()
@@ -360,6 +367,9 @@ class MediaRepository(private val context: Context) {
                         list.add(parseMediaFromJsonObj(id, obj))
                     }
                 }
+            }
+            if (list.isNotEmpty()) {
+                memoryFileCache[fileName] = list
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -386,42 +396,50 @@ class MediaRepository(private val context: Context) {
         return oldList
     }
 
-    fun isDemoChannel(item: MediaItem): Boolean {
-        val id = item.id.lowercase()
-        val title = item.title.lowercase()
-        val cat = item.category.lowercase()
-        val url = item.streamUrl.lowercase()
-        val allUrls = (item.servers.map { it.url.lowercase() } + listOf(url)).joinToString(" ")
+    private fun isDemoUrlString(u: String?): Boolean {
+        if (u.isNullOrBlank()) return false
+        val lower = u.lowercase()
+        return lower.contains("test-streams.mux.dev") ||
+                lower.contains("akamaized.net/hls/live/2000341/test") ||
+                lower.contains("bitdash-a.akamaihd.net") ||
+                lower.contains("bipbop") ||
+                lower.contains("bigbuckbunny")
+    }
 
-        return id.startsWith("tv_tsports") ||
-                id.startsWith("tv_asports") ||
-                id.startsWith("tv_gtv") ||
-                id.startsWith("tv_star_sports") ||
-                id.startsWith("tv_sony_ten") ||
-                id.startsWith("tv_somoy") ||
-                id.startsWith("tv_jamuna") ||
-                id.startsWith("tv_channel_i") ||
-                id.startsWith("tv_btv") ||
-                id.startsWith("demo_") ||
-                id.contains("demo") ||
-                id.contains("sample") ||
-                id.startsWith("mov_toofan") ||
-                id.startsWith("mov_mohanagar") ||
-                id.startsWith("mov_kalki") ||
-                id.startsWith("mov_jawan") ||
-                id.startsWith("mov_panchayat") ||
-                title.contains("demo") ||
-                title.contains("ডেমো") ||
-                title.contains("sample") ||
-                title.contains("test channel") ||
-                title.contains("পরীক্ষামূলক") ||
-                cat.contains("demo") ||
-                cat.contains("ডেমো") ||
-                allUrls.contains("test-streams.mux.dev") ||
-                allUrls.contains("akamaized.net/hls/live/2000341/test") ||
-                allUrls.contains("bitdash-a.akamaihd.net") ||
-                allUrls.contains("bipbop") ||
-                allUrls.contains("bigbuckbunny")
+    fun isDemoChannel(item: MediaItem): Boolean {
+        val id = item.id
+        if (id.startsWith("tv_tsports", ignoreCase = true) ||
+            id.startsWith("tv_asports", ignoreCase = true) ||
+            id.startsWith("tv_gtv", ignoreCase = true) ||
+            id.startsWith("tv_star_sports", ignoreCase = true) ||
+            id.startsWith("tv_sony_ten", ignoreCase = true) ||
+            id.startsWith("tv_somoy", ignoreCase = true) ||
+            id.startsWith("tv_jamuna", ignoreCase = true) ||
+            id.startsWith("tv_channel_i", ignoreCase = true) ||
+            id.startsWith("tv_btv", ignoreCase = true) ||
+            id.startsWith("demo_", ignoreCase = true) ||
+            id.contains("demo", ignoreCase = true) ||
+            id.contains("sample", ignoreCase = true) ||
+            id.startsWith("mov_toofan", ignoreCase = true) ||
+            id.startsWith("mov_mohanagar", ignoreCase = true) ||
+            id.startsWith("mov_kalki", ignoreCase = true) ||
+            id.startsWith("mov_jawan", ignoreCase = true) ||
+            id.startsWith("mov_panchayat", ignoreCase = true)) return true
+
+        val title = item.title
+        if (title.contains("demo", ignoreCase = true) ||
+            title.contains("ডেমো") ||
+            title.contains("sample", ignoreCase = true) ||
+            title.contains("test channel", ignoreCase = true) ||
+            title.contains("পরীক্ষামূলক")) return true
+
+        val cat = item.category
+        if (cat.contains("demo", ignoreCase = true) || cat.contains("ডেমো")) return true
+
+        if (isDemoUrlString(item.streamUrl)) return true
+        if (item.servers.any { isDemoUrlString(it.url) }) return true
+
+        return false
     }
 
     // Family Mode (Parental Guard): Default is ALWAYS ON (true)
@@ -2044,6 +2062,14 @@ class MediaRepository(private val context: Context) {
         obj.put("drmLicenseKey", item.drmLicenseKey ?: "")
         obj.put("manifestType", item.manifestType ?: "")
         obj.put("isAdminAdded", item.isAdminAdded || item.isFromAdmin)
+        obj.put("seriesId", item.resolvedSeriesId ?: "")
+        obj.put("xtreamServerUrl", item.xtreamServerUrl ?: "")
+        obj.put("xtreamUsername", item.xtreamUsername ?: "")
+        obj.put("xtreamPassword", item.xtreamPassword ?: "")
+        obj.put("userAgent", item.userAgent ?: "")
+        obj.put("genre", item.genre ?: "")
+        obj.put("cast", item.cast ?: "")
+        obj.put("director", item.director ?: "")
 
         // Multiple servers array
         val serversArr = JSONArray()
@@ -2060,13 +2086,17 @@ class MediaRepository(private val context: Context) {
     fun parseMediaFromJsonObj(id: String, obj: JSONObject): MediaItem {
         val typeStr = obj.optString("type", "").trim().uppercase()
         val categoryStr = obj.optString("category", obj.optString("sport", "General")).trim()
+        val hasSeriesId = obj.optString("seriesId", "").isNotBlank()
+        val isSeriesItem = typeStr == "SERIES" || id.startsWith("xtream_series_") || id.startsWith("series_") ||
+                categoryStr.contains("JALSHA", ignoreCase = true) || categoryStr.contains("SERIAL", ignoreCase = true) ||
+                categoryStr.contains("DRAMA", ignoreCase = true) || hasSeriesId
         val mediaType = when {
             typeStr == "LIVE_TV" -> MediaType.LIVE_TV
             typeStr == "LIVE_EVENT" -> MediaType.LIVE_EVENT
-            typeStr == "MOVIE" || typeStr == "SERIES" -> MediaType.MOVIE
+            isSeriesItem -> MediaType.SERIES
+            typeStr == "MOVIE" || id.startsWith("mov_") || id.startsWith("movie_") -> MediaType.MOVIE
             id.startsWith("tv_") || id.startsWith("channel_") || id.startsWith("ch_") -> MediaType.LIVE_TV
             id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("tapmad_") -> MediaType.LIVE_EVENT
-            id.startsWith("mov_") || id.startsWith("movie_") || id.startsWith("ser_") -> MediaType.MOVIE
             obj.has("poster") || obj.has("year") -> MediaType.MOVIE
             obj.has("team1") || obj.has("team2") || obj.has("tournament") -> MediaType.LIVE_EVENT
             categoryStr.contains("Cricket", ignoreCase = true) || categoryStr.contains("Football", ignoreCase = true) -> MediaType.LIVE_EVENT
@@ -2124,6 +2154,16 @@ class MediaRepository(private val context: Context) {
             drmLicenseUrl = obj.optString("drmLicenseUrl", null).takeIf { it?.isNotBlank() == true },
             drmLicenseKey = obj.optString("drmLicenseKey", obj.optString("license_key", obj.optString("clearkey", null))).takeIf { it?.isNotBlank() == true },
             manifestType = obj.optString("manifestType", obj.optString("manifest_type", null)).takeIf { it?.isNotBlank() == true },
+            seriesId = obj.optString("seriesId", "").ifBlank {
+                if (id.startsWith("xtream_series_")) id.removePrefix("xtream_series_") else null
+            },
+            xtreamServerUrl = obj.optString("xtreamServerUrl", "").takeIf { it.isNotBlank() } ?: (if (isSeriesItem) "http://rgkkw.live:80" else null),
+            xtreamUsername = obj.optString("xtreamUsername", "").takeIf { it.isNotBlank() } ?: (if (isSeriesItem) "4dfoydR2gZ" else null),
+            xtreamPassword = obj.optString("xtreamPassword", "").takeIf { it.isNotBlank() } ?: (if (isSeriesItem) "clever3still" else null),
+            userAgent = obj.optString("userAgent", "IPTVSmartersPro"),
+            genre = obj.optString("genre", null).takeIf { it?.isNotBlank() == true },
+            cast = obj.optString("cast", null).takeIf { it?.isNotBlank() == true },
+            director = obj.optString("director", null).takeIf { it?.isNotBlank() == true },
             isAdminAdded = obj.optBoolean("isAdminAdded", false) || id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("admin_")
         )
     }
@@ -2316,7 +2356,7 @@ class MediaRepository(private val context: Context) {
                         }
 
                         val title = if (rawTitle.isNotBlank()) rawTitle else "Episode $epNum"
-                        val ext = epObj.optString("container_extension", "mkv").ifBlank { "mp4" }
+                        val ext = epObj.optString("container_extension", "mp4").ifBlank { "mp4" }
                         val epInfo = epObj.optJSONObject("info")
 
                         val epDuration = epInfo?.optString("duration") ?: ""
@@ -2325,7 +2365,15 @@ class MediaRepository(private val context: Context) {
                         val epReleaseDate = epInfo?.optString("releasedate") ?: ""
                         val epRating = epInfo?.optString("rating") ?: ""
 
+                        val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
                         val streamUrl = "$cleanServer/series/$cleanUser/$cleanPass/$epId.$ext"
+                        val altPlayUrl = "$altServer/series/$cleanUser/$cleanPass/$epId.$ext"
+                        val altExtUrl = if (ext.equals("mp4", ignoreCase = true)) {
+                            "$cleanServer/series/$cleanUser/$cleanPass/$epId.mkv"
+                        } else {
+                            "$cleanServer/series/$cleanUser/$cleanPass/$epId.mp4"
+                        }
+
                         val episode = EpisodeItem(
                             id = epId,
                             seriesId = seriesId,
@@ -2334,8 +2382,9 @@ class MediaRepository(private val context: Context) {
                             episodeNum = epNum,
                             streamUrl = streamUrl,
                             servers = listOf(
-                                StreamServer("সার্ভার ১ (HD)", streamUrl),
-                                StreamServer("সার্ভার ২ (Direct)", "$cleanServer/series/$cleanUser/$cleanPass/$epId.mkv")
+                                StreamServer("সার্ভার ১ (HD MP4)", streamUrl),
+                                StreamServer("সার্ভার ২ (বিকল্প পোর্ট)", altPlayUrl),
+                                StreamServer("সার্ভার ৩ (বিকল্প ফরম্যাট)", altExtUrl)
                             ),
                             logoUrl = epImage,
                             overview = epPlot,
@@ -2365,7 +2414,7 @@ class MediaRepository(private val context: Context) {
                     }
 
                     val title = if (rawTitle.isNotBlank()) rawTitle else "Episode $epNum"
-                    val ext = epObj.optString("container_extension", "mkv").ifBlank { "mp4" }
+                    val ext = epObj.optString("container_extension", "mp4").ifBlank { "mp4" }
                     val epInfo = epObj.optJSONObject("info")
 
                     val epDuration = epInfo?.optString("duration") ?: ""
@@ -2374,7 +2423,15 @@ class MediaRepository(private val context: Context) {
                     val epReleaseDate = epInfo?.optString("releasedate") ?: ""
                     val epRating = epInfo?.optString("rating") ?: ""
 
+                    val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
                     val streamUrl = "$cleanServer/series/$cleanUser/$cleanPass/$epId.$ext"
+                    val altPlayUrl = "$altServer/series/$cleanUser/$cleanPass/$epId.$ext"
+                    val altExtUrl = if (ext.equals("mp4", ignoreCase = true)) {
+                        "$cleanServer/series/$cleanUser/$cleanPass/$epId.mkv"
+                    } else {
+                        "$cleanServer/series/$cleanUser/$cleanPass/$epId.mp4"
+                    }
+
                     val episode = EpisodeItem(
                         id = epId,
                         seriesId = seriesId,
@@ -2383,7 +2440,9 @@ class MediaRepository(private val context: Context) {
                         episodeNum = epNum,
                         streamUrl = streamUrl,
                         servers = listOf(
-                            StreamServer("সার্ভার ১ (HD)", streamUrl)
+                            StreamServer("সার্ভার ১ (HD MP4)", streamUrl),
+                            StreamServer("সার্ভার ২ (বিকল্প পোর্ট)", altPlayUrl),
+                            StreamServer("সার্ভার ৩ (বিকল্প ফরম্যাট)", altExtUrl)
                         ),
                         logoUrl = epImage,
                         overview = epPlot,
@@ -2779,7 +2838,7 @@ class MediaRepository(private val context: Context) {
                     }
                 }
                 val priorityVodJob = async {
-                    targetVodCatIds.chunked(6).forEach { chunk ->
+                    targetVodCatIds.chunked(10).forEach { chunk ->
                         coroutineScope {
                             val chunkJobs = chunk.map { catId ->
                                 async {
@@ -2844,8 +2903,8 @@ class MediaRepository(private val context: Context) {
                 }
 
                 val prioritySeriesJob = async {
-                    // Fetch categories in parallel batches of 6 to be fast and memory-efficient
-                    targetSeriesCatIds.chunked(6).forEach { chunk ->
+                    // Fetch categories in parallel batches of 10 for rapid completion
+                    targetSeriesCatIds.chunked(10).forEach { chunk ->
                         coroutineScope {
                             val chunkJobs = chunk.map { catId ->
                                 async {
@@ -2869,59 +2928,7 @@ class MediaRepository(private val context: Context) {
                     }
                 }
 
-                // D. Additional VOD streams from general endpoint (safe batch)
-                val generalVodJob = async {
-                    try {
-                        val vodUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams"
-                        val vodReq = Request.Builder().url(vodUrl).header("User-Agent", "IPTVSmartersPro").build()
-                        val vodResp = client.newCall(vodReq).execute()
-                        if (vodResp.isSuccessful) {
-                            val vodArr = JSONArray(vodResp.body?.string() ?: "")
-                            val vodItems = mutableListOf<MediaItem>()
-                            val limit = minOf(vodArr.length(), 4000)
-                            for (i in 0 until limit) {
-                                val vObj = vodArr.optJSONObject(i) ?: continue
-                                val streamId = vObj.optString("stream_id", "")
-                                if (streamId.isBlank()) continue
-                                val name = vObj.optString("name", "Movie $streamId")
-                                val catId = vObj.optString("category_id", "")
-                                val categoryName = vodCatMap[catId] ?: "Movies"
-                                val icon = vObj.optString("stream_icon").takeIf { it.isNotBlank() }
-                                val ext = vObj.optString("container_extension", "mp4").ifBlank { "mp4" }
-                                val rating = vObj.optString("rating", "8.5")
-
-                                val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
-                                val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
-                                val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
-
-                                vodItems.add(
-                                    MediaItem(
-                                        id = "xtream_vod_${streamId}",
-                                        title = name,
-                                        category = categoryName,
-                                        type = MediaType.MOVIE,
-                                        streamUrl = playUrl,
-                                        backupUrl = altPlayUrl,
-                                        servers = listOf(
-                                            StreamServer("সার্ভার ১ (VOD)", playUrl),
-                                            StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
-                                        ),
-                                        logoUrl = icon,
-                                        isLive = false,
-                                        rating = rating,
-                                        quality = "HD",
-                                        userAgent = "IPTVSmartersPro"
-                                    )
-                                )
-                            }
-                            synchronized(items) { items.addAll(vodItems) }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
-                awaitAll(liveJob, priorityVodJob, prioritySeriesJob, generalVodJob)
+                awaitAll(liveJob, priorityVodJob, prioritySeriesJob)
             }
         } catch (e: Exception) {
             e.printStackTrace()

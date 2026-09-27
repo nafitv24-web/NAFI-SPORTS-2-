@@ -240,14 +240,24 @@ fun VideoPlayerScreen(
 
     // Automatic season & episode metadata fetcher for Series
     LaunchedEffect(currentMedia.id) {
-        if (currentMedia.isSeries && currentMedia.episodes.isEmpty()) {
+        if (currentMedia.isSeries && (currentUrl.isBlank() || currentMedia.episodes.isEmpty())) {
             try {
                 val detailed = MediaRepository(context).fetchSeriesSeasonsAndEpisodes(currentMedia)
                 if (detailed.episodes.isNotEmpty() || detailed.seasons.isNotEmpty()) {
-                    currentMedia = currentMedia.copy(
-                        episodes = detailed.episodes,
-                        seasons = detailed.seasons
-                    )
+                    val firstEp = detailed.episodes.firstOrNull { it.streamUrl.isNotBlank() } ?: detailed.episodes.firstOrNull()
+                    if (currentUrl.isBlank() && firstEp != null) {
+                        val playable = firstEp.toMediaItem(detailed)
+                        currentMedia = playable.copy(
+                            episodes = detailed.episodes,
+                            seasons = detailed.seasons
+                        )
+                        currentUrl = playable.streamUrl
+                    } else {
+                        currentMedia = currentMedia.copy(
+                            episodes = detailed.episodes,
+                            seasons = detailed.seasons
+                        )
+                    }
                 }
             } catch (_: Exception) {}
         }

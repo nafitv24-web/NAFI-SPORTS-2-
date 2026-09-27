@@ -102,7 +102,7 @@ fun MoviesTabScreen(
     val safeMovies = movies
 
     val handleItemSelect: (MediaItem) -> Unit = { item ->
-        if ((item.isSeries || item.type == com.example.model.MediaType.SERIES) && repository != null) {
+        if ((item.isSeries || item.type == com.example.model.MediaType.SERIES || !item.resolvedSeriesId.isNullOrBlank() || item.id.startsWith("xtream_series_")) && repository != null) {
             selectedSeriesForDialog = item
         } else {
             onSelectMedia(item)
@@ -705,10 +705,9 @@ fun MoviesTabScreen(
                 repository = repository,
                 isTvMode = isTvMode,
                 onPlayEpisode = { epMedia ->
-                    val epPlaylist = if (epMedia.episodes.isNotEmpty()) {
-                        epMedia.episodes.map { it.toMediaItem(epMedia) }
-                    } else if (selectedSeriesForDialog?.episodes?.isNotEmpty() == true) {
-                        selectedSeriesForDialog!!.episodes.map { it.toMediaItem(selectedSeriesForDialog!!) }
+                    val currentSeries = selectedSeriesForDialog
+                    val epPlaylist = if (currentSeries != null && currentSeries.episodes.isNotEmpty()) {
+                        currentSeries.episodes.map { it.toMediaItem(currentSeries) }
                     } else {
                         listOf(epMedia)
                     }
