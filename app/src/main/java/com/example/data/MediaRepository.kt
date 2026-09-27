@@ -424,6 +424,86 @@ class MediaRepository(private val context: Context) {
                 allUrls.contains("bigbuckbunny")
     }
 
+    // Family Mode (Parental Guard): Default is ALWAYS ON (true)
+    fun isFamilyModeEnabled(): Boolean {
+        return prefs.getBoolean("family_mode_enabled", true)
+    }
+
+    fun setFamilyModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("family_mode_enabled", enabled).apply()
+    }
+
+    fun isAdultCategory(categoryName: String?): Boolean {
+        if (categoryName.isNullOrBlank()) return false
+        val cat = categoryName.trim().lowercase()
+        return cat.contains("adult") ||
+                cat.contains("xxx") ||
+                cat.contains("18+") ||
+                cat.contains("+18") ||
+                cat.contains("erotic") ||
+                cat.contains("porn") ||
+                cat.contains("nsfw") ||
+                cat.contains("sex") ||
+                cat.contains("sensual") ||
+                cat.contains("playboy") ||
+                cat.contains("hustler") ||
+                cat.contains("brazzer") ||
+                cat.contains("redlight") ||
+                cat.contains("red light") ||
+                cat.contains("dorcel") ||
+                cat.contains("penthouse") ||
+                cat.contains("vivid") ||
+                cat.contains("for adults") ||
+                cat.contains("১৮+") ||
+                cat.contains("এডাল্ট") ||
+                cat.contains("অ্যাডাল্ট")
+    }
+
+    fun isAdultContent(item: MediaItem): Boolean {
+        val title = item.title.trim().lowercase()
+        val cat = item.category.trim().lowercase()
+        val id = item.id.trim().lowercase()
+        val tournament = (item.tournament ?: "").trim().lowercase()
+
+        // 1. Category and group checks
+        if (isAdultCategory(cat) || isAdultCategory(tournament)) {
+            return true
+        }
+
+        // 2. Direct title prefixes and keywords
+        if (title.startsWith("xxx") || title.startsWith("18+") || title.startsWith("+18") ||
+            title.contains("xxx:") || title.contains("xxx -") || title.contains("xxx ") ||
+            title.contains("18+:") || title.contains("18+ -") || title.contains("[18+]") ||
+            title.contains("(18+)")
+        ) {
+            return true
+        }
+
+        val adultKeywords = listOf(
+            "xxx", "18+", "+18", "adult", "adults", "for adults",
+            "erotic", "erotica", "porn", "porno", "sex", "sexy",
+            "brazzer", "brazzers", "fake taxi", "faketaxi",
+            "dorcel", "blue hustler", "hustler", "playboy",
+            "penthouse", "redlight", "red light", "vivid",
+            "sensual", "strip", "stripper", "babes", "naked",
+            "bangbros", "naughty", "private tv", "venus tv",
+            "passion tv", "sct", "dusk", "centoxc", "albahd", "alba xx",
+            "onlyfans", "x-rated", "xrated", "hardcore", "softcore",
+            "milf", "hentai", "jav ", "jav-", "bonga"
+        )
+
+        for (kw in adultKeywords) {
+            if (cat.contains(kw) || tournament.contains(kw)) {
+                return true
+            }
+            if (title.contains(kw) || id.contains(kw)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     fun getCachedMoviesList(): List<MediaItem> {
         return loadListFromFileCache("cache_movies_v2.json").filterNot { isDemoChannel(it) }
     }
@@ -569,7 +649,7 @@ class MediaRepository(private val context: Context) {
         combined.addAll(cached)
 
         val seen = HashSet<String>()
-        return combined.mapIndexed { idx, ch ->
+        val result = combined.mapIndexed { idx, ch ->
             var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
             if (seen.contains(uid)) {
                 uid = "${uid}_$idx"
@@ -577,13 +657,16 @@ class MediaRepository(private val context: Context) {
             seen.add(uid)
             ch.copy(id = uid)
         }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+
+        return if (isFamilyModeEnabled()) result.filterNot { isAdultContent(it) } else result
     }
 
     fun getInitialMoviesSeries(): List<MediaItem> {
         val deleted = getDeletedIds()
         val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
         val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
-        return (customMov + cached).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val result = (customMov + cached).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        return if (isFamilyModeEnabled()) result.filterNot { isAdultContent(it) } else result
     }
 
     // Custom streams saved locally in SharedPreferences
