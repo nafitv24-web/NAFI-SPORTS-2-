@@ -256,6 +256,17 @@ fun NafiTvMainApp(
     var currentLoadingStage by remember { mutableStateOf(LoadingStage.IDLE) }
     var isFamilyModeEnabled by remember { mutableStateOf(repository.isFamilyModeEnabled()) }
 
+    // Pre-computed, remembered and instant safe channel & movie lists for 0ms tab switching
+    val mergedTvList = remember(liveTvList, customList, m3uList, isFamilyModeEnabled) {
+        val allTv = liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
+        val safeTv = if (isFamilyModeEnabled) allTv.filterNot { repository.isAdultContent(it) } else allTv
+        mergeChannelsWithServers(safeTv)
+    }
+
+    val safeMoviesList = remember(moviesList, isFamilyModeEnabled) {
+        if (isFamilyModeEnabled) moviesList.filterNot { repository.isAdultContent(it) } else moviesList
+    }
+
     fun checkForUpdates(isManualCheck: Boolean = false) {
         coroutineScope.launch {
             try {
@@ -642,8 +653,8 @@ fun NafiTvMainApp(
             activePlaybackPlaylist
         } else {
             when (currentTab) {
-                AppTab.LIVE_TV -> mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
-                AppTab.MOVIES -> (moviesList + customList.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES } + m3uList.filter { it.type == MediaType.MOVIE }).distinctBy { it.id }
+                AppTab.LIVE_TV -> mergedTvList
+                AppTab.MOVIES -> safeMoviesList
                 AppTab.EVENTS -> sportsList.distinctBy { it.id }
                 AppTab.PLAYLIST -> (customList + m3uList).distinctBy { it.id }
                 else -> (liveTvList + sportsList + moviesList + customList + m3uList).distinctBy { it.id }
@@ -1100,20 +1111,17 @@ fun NafiTvMainApp(
                                 }
                             )
 
-                            AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList, isFamilyModeEnabled) {
-                                val allTv = liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
-                                val safeTv = if (isFamilyModeEnabled) allTv.filterNot { repository.isAdultContent(it) } else allTv
-                                mergeChannelsWithServers(safeTv)
-                            }
-                            LiveTvTabScreen(
+                            AppTab.LIVE_TV -> LiveTvTabScreen(
                                 channels = mergedTvList,
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
                                 isFamilyModeEnabled = isFamilyModeEnabled,
                                 onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
+                                    val liveItem = if (item.type != MediaType.LIVE_TV || !item.isLive) {
+                                        item.copy(type = MediaType.LIVE_TV, isLive = true)
+                                    } else item
+                                    selectedMediaItem = liveItem
                                     activePlaybackPlaylist = playlist
                                 },
                                 onToggleFavorite = { id ->
@@ -1122,34 +1130,28 @@ fun NafiTvMainApp(
                                 },
                                 onAddChannel = handleAddCustomMedia
                             )
-                        }
 
-                            AppTab.MOVIES -> {
-                                val safeMoviesList = remember(moviesList, isFamilyModeEnabled) {
-                                    if (isFamilyModeEnabled) moviesList.filterNot { repository.isAdultContent(it) } else moviesList
-                                }
-                                MoviesTabScreen(
-                                    movies = safeMoviesList,
-                                    favoriteIds = favoriteIds,
-                                    isLoading = isRefreshing,
-                                    isTvMode = isTvMode,
-                                    isFamilyModeEnabled = isFamilyModeEnabled,
-                                    repository = repository,
-                                    onSelectMedia = { item ->
-                                        selectedMediaItem = item
-                                        activePlaybackPlaylist = safeMoviesList
-                                    },
-                                    onSelectMediaWithPlaylist = { item, epPlaylist ->
-                                        selectedMediaItem = item
-                                        activePlaybackPlaylist = epPlaylist
-                                    },
-                                    onToggleFavorite = { id ->
-                                        repository.toggleFavorite(id)
-                                        favoriteIds = repository.getFavoriteIds()
-                                    },
-                                    onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
-                                )
-                            }
+                            AppTab.MOVIES -> MoviesTabScreen(
+                                movies = safeMoviesList,
+                                favoriteIds = favoriteIds,
+                                isLoading = isRefreshing,
+                                isTvMode = isTvMode,
+                                isFamilyModeEnabled = isFamilyModeEnabled,
+                                repository = repository,
+                                onSelectMedia = { item ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = safeMoviesList
+                                },
+                                onSelectMediaWithPlaylist = { item, epPlaylist ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = epPlaylist
+                                },
+                                onToggleFavorite = { id ->
+                                    repository.toggleFavorite(id)
+                                    favoriteIds = repository.getFavoriteIds()
+                                },
+                                onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
+                            )
 
                             AppTab.PLAYLIST -> {
                                 val safePlaylists = remember(playlistsList, isFamilyModeEnabled) {
@@ -1512,56 +1514,47 @@ fun NafiTvMainApp(
                             }
                         )
 
-                        AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList, isFamilyModeEnabled) {
-                                val allTv = liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
-                                val safeTv = if (isFamilyModeEnabled) allTv.filterNot { repository.isAdultContent(it) } else allTv
-                                mergeChannelsWithServers(safeTv)
-                            }
-                            LiveTvTabScreen(
-                                channels = mergedTvList,
-                                favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
-                                isTvMode = isTvMode,
-                                isFamilyModeEnabled = isFamilyModeEnabled,
-                                onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = playlist
-                                },
-                                onToggleFavorite = { id ->
-                                    repository.toggleFavorite(id)
-                                    favoriteIds = repository.getFavoriteIds()
-                                },
-                                onAddChannel = handleAddCustomMedia
-                            )
-                        }
+                        AppTab.LIVE_TV -> LiveTvTabScreen(
+                            channels = mergedTvList,
+                            favoriteIds = favoriteIds,
+                            isLoading = isRefreshing,
+                            isTvMode = isTvMode,
+                            isFamilyModeEnabled = isFamilyModeEnabled,
+                            onSelectMedia = { item, playlist ->
+                                val liveItem = if (item.type != MediaType.LIVE_TV || !item.isLive) {
+                                    item.copy(type = MediaType.LIVE_TV, isLive = true)
+                                } else item
+                                selectedMediaItem = liveItem
+                                activePlaybackPlaylist = playlist
+                            },
+                            onToggleFavorite = { id ->
+                                repository.toggleFavorite(id)
+                                favoriteIds = repository.getFavoriteIds()
+                            },
+                            onAddChannel = handleAddCustomMedia
+                        )
 
-                        AppTab.MOVIES -> {
-                            val safeMoviesList = remember(moviesList, isFamilyModeEnabled) {
-                                if (isFamilyModeEnabled) moviesList.filterNot { repository.isAdultContent(it) } else moviesList
-                            }
-                            MoviesTabScreen(
-                                movies = safeMoviesList,
-                                favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
-                                isTvMode = isTvMode,
-                                isFamilyModeEnabled = isFamilyModeEnabled,
-                                repository = repository,
-                                onSelectMedia = { item ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = safeMoviesList
-                                },
-                                onSelectMediaWithPlaylist = { item, epPlaylist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = epPlaylist
-                                },
-                                onToggleFavorite = { id ->
-                                    repository.toggleFavorite(id)
-                                    favoriteIds = repository.getFavoriteIds()
-                                },
-                                onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
-                            )
-                        }
+                        AppTab.MOVIES -> MoviesTabScreen(
+                            movies = safeMoviesList,
+                            favoriteIds = favoriteIds,
+                            isLoading = isRefreshing,
+                            isTvMode = isTvMode,
+                            isFamilyModeEnabled = isFamilyModeEnabled,
+                            repository = repository,
+                            onSelectMedia = { item ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = safeMoviesList
+                            },
+                            onSelectMediaWithPlaylist = { item, epPlaylist ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = epPlaylist
+                            },
+                            onToggleFavorite = { id ->
+                                repository.toggleFavorite(id)
+                                favoriteIds = repository.getFavoriteIds()
+                            },
+                            onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
+                        )
 
                         AppTab.PLAYLIST -> {
                             val safePlaylists = remember(playlistsList, isFamilyModeEnabled) {

@@ -37,55 +37,65 @@ import com.example.util.ChannelStatusManager
 
 private val SERVER_CLEAN_REGEX = Regex("^(?i)(server|সার্ভার)\\s*\\d*.*")
 
+private fun isDemoStreamUrl(url: String): Boolean {
+    if (url.isBlank()) return false
+    val u = url.lowercase()
+    return u.contains("test-streams.mux.dev") ||
+            u.contains("akamaized.net/hls/live/2000341/test") ||
+            u.contains("bitdash-a.akamaihd.net") ||
+            u.contains("bipbop") ||
+            u.contains("bigbuckbunny")
+}
+
 fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
     if (channels.isEmpty()) return emptyList()
     val nonDemo = channels.filterNot { item ->
-        val id = item.id.lowercase()
-        val title = item.title.lowercase()
-        val cat = item.category.lowercase()
-        val url = item.streamUrl.lowercase()
-        val allUrls = (item.servers.map { it.url.lowercase() } + listOf(url)).joinToString(" ")
+        val id = item.id
+        if (id.startsWith("tv_tsports", ignoreCase = true) ||
+            id.startsWith("tv_asports", ignoreCase = true) ||
+            id.startsWith("tv_gtv", ignoreCase = true) ||
+            id.startsWith("tv_star_sports", ignoreCase = true) ||
+            id.startsWith("tv_sony_ten", ignoreCase = true) ||
+            id.startsWith("tv_somoy", ignoreCase = true) ||
+            id.startsWith("tv_jamuna", ignoreCase = true) ||
+            id.startsWith("tv_channel_i", ignoreCase = true) ||
+            id.startsWith("tv_btv", ignoreCase = true) ||
+            id.startsWith("demo_", ignoreCase = true) ||
+            id.contains("demo", ignoreCase = true) ||
+            id.contains("sample", ignoreCase = true)) return@filterNot true
 
-        id.startsWith("tv_tsports") ||
-                id.startsWith("tv_asports") ||
-                id.startsWith("tv_gtv") ||
-                id.startsWith("tv_star_sports") ||
-                id.startsWith("tv_sony_ten") ||
-                id.startsWith("tv_somoy") ||
-                id.startsWith("tv_jamuna") ||
-                id.startsWith("tv_channel_i") ||
-                id.startsWith("tv_btv") ||
-                id.startsWith("demo_") ||
-                id.contains("demo") ||
-                id.contains("sample") ||
-                title.contains("demo") ||
-                title.contains("ডেমো") ||
-                title.contains("sample") ||
-                title.contains("test channel") ||
-                title.contains("পরীক্ষামূলক") ||
-                cat.contains("demo") ||
-                cat.contains("ডেমো") ||
-                allUrls.contains("test-streams.mux.dev") ||
-                allUrls.contains("akamaized.net/hls/live/2000341/test") ||
-                allUrls.contains("bitdash-a.akamaihd.net") ||
-                allUrls.contains("bipbop") ||
-                allUrls.contains("bigbuckbunny")
+        val title = item.title
+        if (title.contains("demo", ignoreCase = true) ||
+            title.contains("ডেমো") ||
+            title.contains("sample", ignoreCase = true) ||
+            title.contains("test channel", ignoreCase = true) ||
+            title.contains("পরীক্ষামূলক")) return@filterNot true
+
+        val cat = item.category
+        if (cat.contains("demo", ignoreCase = true) || cat.contains("ডেমো")) return@filterNot true
+
+        if (isDemoStreamUrl(item.streamUrl)) return@filterNot true
+        if (item.servers.any { isDemoStreamUrl(it.url) }) return@filterNot true
+
+        false
     }
-    // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
-    // Keep all channels intact even with identical names, guaranteeing unique IDs for Compose rendering
-    val seenIds = HashSet<String>()
-    return nonDemo.mapIndexed { index, item ->
-        val safeServers = item.getAllServers()
-        var uniqueId = item.id.ifBlank { "ch_${index}_${Math.abs(item.title.hashCode())}" }
-        if (seenIds.contains(uniqueId)) {
+
+    val seenIds = HashSet<String>(channels.size)
+    val result = ArrayList<MediaItem>(nonDemo.size)
+    for (index in nonDemo.indices) {
+        val item = nonDemo[index]
+        val safeServers = if (item.servers.isNotEmpty()) item.servers else listOf(StreamServer("Server 1", item.streamUrl))
+        var uniqueId = if (item.id.isNotBlank()) item.id else "ch_${index}_${Math.abs(item.title.hashCode())}"
+        if (!seenIds.add(uniqueId)) {
             uniqueId = "${uniqueId}_${index}"
+            seenIds.add(uniqueId)
         }
-        seenIds.add(uniqueId)
-        item.copy(
-            id = uniqueId,
-            servers = safeServers
+        result.add(
+            if (item.id == uniqueId && item.servers == safeServers) item
+            else item.copy(id = uniqueId, servers = safeServers)
         )
     }
+    return result
 }
 
 @Composable
@@ -106,22 +116,7 @@ fun LiveTvTabScreen(
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    val displayChannels = remember(channels, isFamilyModeEnabled) {
-        if (isFamilyModeEnabled) {
-            channels.filterNot { ch ->
-                val title = ch.title.lowercase()
-                val cat = ch.category.lowercase()
-                cat.contains("adult") || cat.contains("xxx") || cat.contains("18+") || cat.contains("erotic") || cat.contains("porn") ||
-                cat.contains("for adults") ||
-                title.startsWith("xxx") || title.contains("xxx:") || title.contains("18+") || title.contains("erotic") ||
-                title.contains("brazzer") || title.contains("fake taxi") || title.contains("dorcel") || title.contains("blue hustler") ||
-                title.contains("playboy") || title.contains("hustler") || title.contains("penthouse") || title.contains("redlight") ||
-                title.contains("sensual") || title.contains("stripper") || title.contains("naked") || title.contains("babes")
-            }
-        } else {
-            channels
-        }
-    }
+    val displayChannels = channels
 
     // Trigger non-blocking background health check on unverified channels ONLY if user turned on showOnlyActive filter
     LaunchedEffect(displayChannels, showOnlyActive) {
@@ -134,29 +129,25 @@ fun LiveTvTabScreen(
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    val categories = remember(displayChannels, isFamilyModeEnabled) {
+    val categories = remember(displayChannels) {
         val cats = displayChannels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
-        val safeCats = if (isFamilyModeEnabled) {
-            cats.filterNot { c ->
-                val lower = c.lowercase()
-                lower.contains("adult") || lower.contains("xxx") || lower.contains("18+") || lower.contains("erotic") || lower.contains("porn") || lower.contains("for adults")
-            }
-        } else {
-            cats
-        }
-        listOf("ALL", "FAVORITE") + safeCats
+        listOf("ALL", "FAVORITE") + cats
     }
 
     val filteredChannels = remember(displayChannels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
-        displayChannels.filter { channel ->
-            val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
-            val matchesCategory = when (selectedCategory) {
-                "ALL" -> true
-                "FAVORITE" -> favoriteIds.contains(channel.id)
-                else -> channel.category.equals(selectedCategory, ignoreCase = true)
+        if (searchQuery.isBlank() && selectedCategory == "ALL" && !showOnlyActive) {
+            displayChannels
+        } else {
+            displayChannels.filter { channel ->
+                val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
+                val matchesCategory = when (selectedCategory) {
+                    "ALL" -> true
+                    "FAVORITE" -> favoriteIds.contains(channel.id)
+                    else -> channel.category.equals(selectedCategory, ignoreCase = true)
+                }
+                val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
+                matchesSearch && matchesCategory && matchesActive
             }
-            val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
-            matchesSearch && matchesCategory && matchesActive
         }
     }
 

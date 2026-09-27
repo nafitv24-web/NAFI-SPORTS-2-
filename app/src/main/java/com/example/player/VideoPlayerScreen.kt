@@ -3046,14 +3046,16 @@ fun VideoPlayerScreen(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                // Download Button in Control Bar (Strictly for Movie / OTT option)
-                                val isPortraitMovie = currentMedia.type == MediaType.MOVIE ||
+                                // Download Button in Control Bar (Strictly for Movie / OTT option, NOT for Live TV channels)
+                                val isPortraitMovie = (currentMedia.type != MediaType.LIVE_TV && currentMedia.type != MediaType.LIVE_EVENT && !currentMedia.isLive) && (
+                                        currentMedia.type == MediaType.MOVIE ||
                                         currentMedia.type == MediaType.SERIES ||
                                         currentMedia.tournament == "NAFI_OTT" ||
                                         (currentMedia.category ?: "").contains("Movie", ignoreCase = true) ||
                                         (currentMedia.category ?: "").contains("Cinema", ignoreCase = true) ||
                                         (currentMedia.category ?: "").contains("OTT", ignoreCase = true) ||
                                         (currentMedia.category ?: "").contains("Film", ignoreCase = true)
+                                )
                                 if (isPortraitMovie) {
                                     val ctrlDlContext = LocalContext.current
                                     val ctrlActiveDlMap by MovieDownloadManager.downloadsState.collectAsState()
@@ -3219,7 +3221,9 @@ fun VideoPlayerScreen(
                     .fillMaxSize()
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                val isMovieOrSeries = currentMedia.type == MediaType.MOVIE ||
+                // User Requirement: Live TV Movie channels must NOT use separate movie layout or big icon poster cards
+                val isMovieOrSeries = (currentMedia.type != MediaType.LIVE_TV && currentMedia.type != MediaType.LIVE_EVENT && !currentMedia.isLive) && (
+                        currentMedia.type == MediaType.MOVIE ||
                         currentMedia.type == MediaType.SERIES ||
                         currentMedia.tournament == "NAFI_OTT" ||
                         (currentMedia.category ?: "").contains("Movie", ignoreCase = true) ||
@@ -3230,6 +3234,7 @@ fun VideoPlayerScreen(
                         (currentMedia.category ?: "").contains("Anime", ignoreCase = true) ||
                         (currentMedia.category ?: "").contains("Drama", ignoreCase = true) ||
                         (currentMedia.category ?: "").contains("প্লেলিস্ট", ignoreCase = true)
+                )
 
                 var isMovieSimplifiedView by rememberSaveable { mutableStateOf(false) }
 
@@ -5176,7 +5181,7 @@ private fun FullscreenControlsOverlay(
                 val isDownloading = currentProg?.state == DownloadState.DOWNLOADING || currentProg?.state == DownloadState.PENDING
                 val isDownloaded = MovieDownloadManager.isMovieDownloaded(downloadContext, media.id)
 
-                if (media.type == MediaType.MOVIE || media.type == MediaType.SERIES || !media.isLive) {
+                if ((media.type == MediaType.MOVIE || media.type == MediaType.SERIES) && !media.isLive && media.type != MediaType.LIVE_TV) {
                     TvPlayerActionChip(
                         icon = if (isDownloaded) Icons.Rounded.CheckCircle else if (isDownloading) Icons.Rounded.Downloading else Icons.Rounded.FileDownload,
                         label = if (isDownloaded) "Saved" else if (isDownloading) "${currentProg?.progressPercent ?: 0}%" else "Download",
@@ -5448,14 +5453,16 @@ private fun FullscreenControlsOverlay(
                         iconSize = 26.dp
                     )
 
-                    // Download Button on Fullscreen Control Bar (Strictly for Movie / OTT option)
-                    val isFsMovie = media.type == MediaType.MOVIE ||
+                    // Download Button on Fullscreen Control Bar (Strictly for Movie / OTT option, NOT for Live TV channels)
+                    val isFsMovie = (media.type != MediaType.LIVE_TV && media.type != MediaType.LIVE_EVENT && !media.isLive) && (
+                            media.type == MediaType.MOVIE ||
                             media.type == MediaType.SERIES ||
                             media.tournament == "NAFI_OTT" ||
                             (media.category ?: "").contains("Movie", ignoreCase = true) ||
                             (media.category ?: "").contains("Cinema", ignoreCase = true) ||
                             (media.category ?: "").contains("OTT", ignoreCase = true) ||
                             (media.category ?: "").contains("Film", ignoreCase = true)
+                    )
                     if (isFsMovie) {
                         val fsDlContext = LocalContext.current
                         val fsActiveDlMap by MovieDownloadManager.downloadsState.collectAsState()

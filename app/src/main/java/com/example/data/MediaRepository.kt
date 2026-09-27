@@ -459,44 +459,47 @@ class MediaRepository(private val context: Context) {
                 cat.contains("অ্যাডাল্ট")
     }
 
-    fun isAdultContent(item: MediaItem): Boolean {
-        val title = item.title.trim().lowercase()
-        val cat = item.category.trim().lowercase()
-        val id = item.id.trim().lowercase()
-        val tournament = (item.tournament ?: "").trim().lowercase()
+    private val adultKeywords = arrayOf(
+        "xxx", "18+", "+18", "adult", "adults", "for adults",
+        "erotic", "erotica", "porn", "porno", "sex", "sexy",
+        "brazzer", "brazzers", "fake taxi", "faketaxi",
+        "dorcel", "blue hustler", "hustler", "playboy",
+        "penthouse", "redlight", "red light", "vivid",
+        "sensual", "strip", "stripper", "babes", "naked",
+        "bangbros", "naughty", "private tv", "venus tv",
+        "passion tv", "sct", "dusk", "centoxc", "albahd", "alba xx",
+        "onlyfans", "x-rated", "xrated", "hardcore", "softcore",
+        "milf", "hentai", "jav ", "jav-", "bonga"
+    )
 
-        // 1. Category and group checks
+    fun isAdultContent(item: MediaItem): Boolean {
+        val cat = item.category.trim()
+        val tournament = (item.tournament ?: "").trim()
+
+        // 1. Fast category and group checks
         if (isAdultCategory(cat) || isAdultCategory(tournament)) {
             return true
         }
 
+        val title = item.title.trim()
+        val id = item.id.trim()
+
         // 2. Direct title prefixes and keywords
-        if (title.startsWith("xxx") || title.startsWith("18+") || title.startsWith("+18") ||
-            title.contains("xxx:") || title.contains("xxx -") || title.contains("xxx ") ||
-            title.contains("18+:") || title.contains("18+ -") || title.contains("[18+]") ||
-            title.contains("(18+)")
+        if (title.startsWith("xxx", ignoreCase = true) || title.startsWith("18+", ignoreCase = true) || title.startsWith("+18", ignoreCase = true) ||
+            title.contains("xxx:", ignoreCase = true) || title.contains("xxx -", ignoreCase = true) || title.contains("xxx ", ignoreCase = true) ||
+            title.contains("18+:", ignoreCase = true) || title.contains("18+ -", ignoreCase = true) || title.contains("[18+]", ignoreCase = true) ||
+            title.contains("(18+)", ignoreCase = true)
         ) {
             return true
         }
 
-        val adultKeywords = listOf(
-            "xxx", "18+", "+18", "adult", "adults", "for adults",
-            "erotic", "erotica", "porn", "porno", "sex", "sexy",
-            "brazzer", "brazzers", "fake taxi", "faketaxi",
-            "dorcel", "blue hustler", "hustler", "playboy",
-            "penthouse", "redlight", "red light", "vivid",
-            "sensual", "strip", "stripper", "babes", "naked",
-            "bangbros", "naughty", "private tv", "venus tv",
-            "passion tv", "sct", "dusk", "centoxc", "albahd", "alba xx",
-            "onlyfans", "x-rated", "xrated", "hardcore", "softcore",
-            "milf", "hentai", "jav ", "jav-", "bonga"
-        )
+        val lowerCat = cat.lowercase()
+        val lowerTourn = tournament.lowercase()
+        val lowerTitle = title.lowercase()
+        val lowerId = id.lowercase()
 
         for (kw in adultKeywords) {
-            if (cat.contains(kw) || tournament.contains(kw)) {
-                return true
-            }
-            if (title.contains(kw) || id.contains(kw)) {
+            if (lowerCat.contains(kw) || lowerTourn.contains(kw) || lowerTitle.contains(kw) || lowerId.contains(kw)) {
                 return true
             }
         }
