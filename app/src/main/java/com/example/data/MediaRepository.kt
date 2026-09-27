@@ -329,10 +329,10 @@ class MediaRepository(private val context: Context) {
     }
 
     // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
-    private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
+    fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
         try {
-            // Keep initial offline cache compact (up to 300 items) to prevent huge memory spikes and disk lag on low-RAM devices
-            val itemsToSave = if (list.size > 300) list.take(300) else list
+            // Keep persistent offline cache generous (up to 5000 items) so no user channels or movies are dropped
+            val itemsToSave = if (list.size > 5000) list.take(5000) else list
             val file = java.io.File(context.filesDir, fileName)
             val jsonArray = JSONArray()
             itemsToSave.forEach { item ->
@@ -344,7 +344,7 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    private fun loadListFromFileCache(fileName: String): List<MediaItem> {
+    fun loadListFromFileCache(fileName: String): List<MediaItem> {
         val file = java.io.File(context.filesDir, fileName)
         if (!file.exists()) return emptyList()
         val deleted = getDeletedIds()
@@ -442,6 +442,94 @@ class MediaRepository(private val context: Context) {
 
     fun saveCachedMoviesList(list: List<MediaItem>) {
         saveListToFileCache("cache_movies_v2.json", list.filterNot { isDemoChannel(it) })
+    }
+
+    /**
+     * Incrementally merges newly fetched channels into the existing channel list.
+     * Preserves all existing channels and their order.
+     * Only appends new channels that are not already present (checking by ID and title).
+     * Prevents UI re-renders and freezing if no new channels were added.
+     */
+    fun mergeChannelsIncremental(
+        existingList: List<MediaItem>,
+        newFetched: List<MediaItem>
+    ): List<MediaItem> {
+        if (newFetched.isEmpty()) return existingList
+        val deleted = getDeletedIds()
+        val existingIds = existingList.map { it.id }.toHashSet()
+        val existingKeys = existingList.map { it.title.trim().lowercase() }.toHashSet()
+
+        val additions = mutableListOf<MediaItem>()
+        for (item in newFetched) {
+            if (deleted.contains(item.id) || isDemoChannel(item)) continue
+            val titleKey = item.title.trim().lowercase()
+            if (existingIds.contains(item.id) || existingKeys.contains(titleKey)) {
+                continue
+            }
+            existingIds.add(item.id)
+            existingKeys.add(titleKey)
+            additions.add(item)
+        }
+
+        return if (additions.isEmpty()) {
+            existingList
+        } else {
+            existingList + additions
+        }
+    }
+
+    /**
+     * Incrementally merges newly fetched movies into existing movie list.
+     * Preserves all existing movies and their order.
+     * Only appends new movies that are not already present.
+     */
+    fun mergeMoviesIncremental(
+        existingList: List<MediaItem>,
+        newFetched: List<MediaItem>
+    ): List<MediaItem> {
+        if (newFetched.isEmpty()) return existingList
+        val deleted = getDeletedIds()
+        val existingIds = existingList.map { it.id }.toHashSet()
+        val existingKeys = existingList.map { it.title.trim().lowercase() }.toHashSet()
+
+        val additions = mutableListOf<MediaItem>()
+        for (item in newFetched) {
+            if (deleted.contains(item.id) || isDemoChannel(item)) continue
+            val titleKey = item.title.trim().lowercase()
+            if (existingIds.contains(item.id) || existingKeys.contains(titleKey)) {
+                continue
+            }
+            existingIds.add(item.id)
+            existingKeys.add(titleKey)
+            additions.add(item)
+        }
+
+        return if (additions.isEmpty()) {
+            existingList
+        } else {
+            existingList + additions
+        }
+    }
+
+    /**
+     * Incrementally merges sports events into existing sports list.
+     * Admin/live events take priority at the top, existing sports are preserved.
+     */
+    fun mergeSportsIncremental(
+        existingList: List<MediaItem>,
+        adminEvents: List<MediaItem>,
+        newFetched: List<MediaItem>
+    ): List<MediaItem> {
+        val deleted = getDeletedIds()
+        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
+        val adminMatches = (adminEvents + customSports).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+
+        val existingNonAdmin = existingList.filterNot { item -> adminMatches.any { it.id == item.id } }
+        val existingIds = (adminMatches + existingNonAdmin).map { it.id }.toHashSet()
+
+        val additions = newFetched.filterNot { existingIds.contains(it.id) || deleted.contains(it.id) || isDemoChannel(it) }
+
+        return (adminMatches + existingNonAdmin + additions).distinctBy { it.id }
     }
 
     // Built-in starter items for instant presentation on first launch
@@ -628,14 +716,14 @@ class MediaRepository(private val context: Context) {
     }
 
     // M3U parser from URL (Supports single or multiple URLs separated by newlines, commas, or semicolons)
-    suspend fun parseM3uFromUrl(rawInput: String): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun parseM3uFromUrl(rawInput: String, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val urls = extractUrls(rawInput)
         if (urls.isEmpty()) return@withContext emptyList()
         if (urls.size == 1) {
-            return@withContext fetchSingleM3uUrl(urls[0])
+            return@withContext fetchSingleM3uUrl(urls[0], forceRefresh)
         }
         val deferredList = urls.map { singleUrl ->
-            async { fetchSingleM3uUrl(singleUrl) }
+            async { fetchSingleM3uUrl(singleUrl, forceRefresh) }
         }
         val allParsed = deferredList.awaitAll().flatten()
         val seen = HashSet<String>()
@@ -936,7 +1024,20 @@ class MediaRepository(private val context: Context) {
         )
     }
 
-    private suspend fun fetchSingleM3uUrl(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
+    private suspend fun fetchSingleM3uUrl(url: String, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cacheKey = "m3u_" + Math.abs(url.hashCode()) + ".json"
+        val timeKey = "m3u_time_" + Math.abs(url.hashCode())
+        val lastSaved = prefs.getLong(timeKey, 0L)
+        val now = System.currentTimeMillis()
+        val cacheDuration = 4 * 3600 * 1000L // 4 hours local caching for instantaneous lag-free loading
+
+        if (!forceRefresh && (now - lastSaved < cacheDuration)) {
+            val cached = loadListFromFileCache(cacheKey)
+            if (cached.isNotEmpty()) {
+                return@withContext cached
+            }
+        }
+
         try {
             var raw = url.trim()
             val headersMap = mutableMapOf<String, String>()
@@ -977,18 +1078,31 @@ class MediaRepository(private val context: Context) {
                 .build()
 
             val response = fastClient.newCall(reqBuilder.build()).execute()
-            if (!response.isSuccessful) return@withContext emptyList()
+            if (!response.isSuccessful) {
+                val cached = loadListFromFileCache(cacheKey)
+                if (cached.isNotEmpty()) return@withContext cached
+                return@withContext emptyList()
+            }
 
             var content = response.body?.string()?.trim() ?: return@withContext emptyList()
             if (content.startsWith("\uFEFF")) {
                 content = content.removePrefix("\uFEFF").trim()
             }
-            if (content.startsWith("[") || content.startsWith("{")) {
-                return@withContext parseMediaFromJsonString(content, defaultCategory = "Live TV", defaultType = MediaType.LIVE_TV)
+            val parsedList = if (content.startsWith("[") || content.startsWith("{")) {
+                parseMediaFromJsonString(content, defaultCategory = "Live TV", defaultType = MediaType.LIVE_TV)
+            } else {
+                parseM3uLines(content.lines())
             }
-            parseM3uLines(content.lines())
+
+            if (parsedList.isNotEmpty()) {
+                saveListToFileCache(cacheKey, parsedList)
+                prefs.edit().putLong(timeKey, now).apply()
+            }
+            parsedList
         } catch (e: Exception) {
             e.printStackTrace()
+            val cached = loadListFromFileCache(cacheKey)
+            if (cached.isNotEmpty()) return@withContext cached
             emptyList()
         }
     }
@@ -2933,31 +3047,63 @@ class MediaRepository(private val context: Context) {
         items
     }
 
-    suspend fun fetchAllXtreamLiveChannels(): List<MediaItem> = withContext(Dispatchers.IO) {
-        val accounts = getActiveXtreamAccounts().filter { it.includeLive }
-        if (accounts.isEmpty()) {
-            return@withContext fetchXtreamLiveStreamsOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
+    suspend fun fetchAllXtreamLiveChannels(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val timeKey = "xtream_live_cache_time"
+        val lastSaved = prefs.getLong(timeKey, 0L)
+        val now = System.currentTimeMillis()
+        val cacheDuration = 3 * 3600 * 1000L // 3 hours cache
+
+        if (!forceRefresh && (now - lastSaved < cacheDuration)) {
+            val cached = loadListFromFileCache("cache_xtream_live.json")
+            if (cached.isNotEmpty()) return@withContext cached
         }
-        val allItems = mutableListOf<MediaItem>()
-        coroutineScope {
-            val jobs = accounts.map { acc ->
-                async {
-                    try {
-                        fetchXtreamLiveStreamsOnly(acc.serverUrl, acc.username, acc.password)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        emptyList()
+
+        val accounts = getActiveXtreamAccounts().filter { it.includeLive }
+        val allItems = if (accounts.isEmpty()) {
+            fetchXtreamLiveStreamsOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
+        } else {
+            val list = mutableListOf<MediaItem>()
+            coroutineScope {
+                val jobs = accounts.map { acc ->
+                    async {
+                        try {
+                            fetchXtreamLiveStreamsOnly(acc.serverUrl, acc.username, acc.password)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            emptyList()
+                        }
                     }
                 }
+                val results = jobs.awaitAll()
+                results.forEach { list.addAll(it) }
             }
-            val results = jobs.awaitAll()
-            results.forEach { allItems.addAll(it) }
+            list
         }
-        allItems.distinctBy { it.id }
+        val distinct = allItems.distinctBy { it.id }
+        if (distinct.isNotEmpty()) {
+            saveListToFileCache("cache_xtream_live.json", distinct)
+            prefs.edit().putLong(timeKey, now).apply()
+        }
+        distinct
     }
 
-    suspend fun fetchStarshareMoviesAndSeries(): List<MediaItem> = withContext(Dispatchers.IO) {
-        fetchAllXtreamMoviesAndSeries()
+    suspend fun fetchStarshareMoviesAndSeries(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val timeKey = "xtream_vod_cache_time"
+        val lastSaved = prefs.getLong(timeKey, 0L)
+        val now = System.currentTimeMillis()
+        val cacheDuration = 3 * 3600 * 1000L // 3 hours cache
+
+        if (!forceRefresh && (now - lastSaved < cacheDuration)) {
+            val cached = loadListFromFileCache("cache_xtream_vod.json")
+            if (cached.isNotEmpty()) return@withContext cached
+        }
+
+        val items = fetchAllXtreamMoviesAndSeries()
+        if (items.isNotEmpty()) {
+            saveListToFileCache("cache_xtream_vod.json", items)
+            prefs.edit().putLong(timeKey, now).apply()
+        }
+        items
     }
 
     suspend fun testXtreamCodes(serverUrl: String, username: String, pass: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
