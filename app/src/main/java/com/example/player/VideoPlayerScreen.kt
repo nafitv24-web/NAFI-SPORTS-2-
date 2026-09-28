@@ -3626,8 +3626,11 @@ fun VideoPlayerScreen(
                 }
 
                 // Related / Other Items in Portrait Mode
-                val isLiveEvent = (currentMedia.type == MediaType.LIVE_EVENT) &&
-                        (!currentMedia.team1.isNullOrBlank() && !currentMedia.team2.isNullOrBlank())
+                val isLiveEvent = (currentMedia.type == MediaType.LIVE_EVENT) ||
+                        (!currentMedia.team1.isNullOrBlank() && !currentMedia.team2.isNullOrBlank()) ||
+                        (currentMedia.category ?: "").contains("Cricket", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Football", ignoreCase = true) ||
+                        (currentMedia.category ?: "").contains("Sports", ignoreCase = true)
 
                 if (isLiveEvent) {
                     // Breaking News Bar situated right above the matches list
@@ -3635,6 +3638,13 @@ fun VideoPlayerScreen(
                         tickerText = activeTickerText,
                         isTvMode = isTvMode,
                         modifier = Modifier.padding(bottom = 10.dp)
+                    )
+
+                    // 💬 লাইভ ফ্যান কমেন্ট অপশন (Live Fan Comments & Chat)
+                    com.example.ui.components.LiveMatchCommentSection(
+                        mediaItem = currentMedia,
+                        repository = remember { com.example.data.MediaRepository(context) },
+                        modifier = Modifier.padding(bottom = 14.dp)
                     )
 
                     Text(

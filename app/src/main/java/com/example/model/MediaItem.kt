@@ -329,4 +329,12 @@ data class XtreamAccount(
     val statusMessage: String? = null
 )
 
+data class MatchComment(
+    val id: String = "",
+    val matchId: String = "",
+    val userName: String = "",
+    val text: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 
