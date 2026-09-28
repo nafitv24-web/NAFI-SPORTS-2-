@@ -314,20 +314,54 @@ fun NafiTvMainApp(
                 }
 
                 // -------------------------------------------------------------
-                // ধাপ ১: লাইভ ইভেন্ট / খেলাধুলা (Live Events)
+                // ধাপ ১: লাইভ ইভেন্ট / খেলাধুলা (Live Events - Parallel & Lossless)
                 // -------------------------------------------------------------
                 try {
-                    val adminEvents = try {
-                        repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val prevSportsIds = sportsList.map { it.id }.toSet()
+                    val adminEventsDeferred = async {
+                        try {
+                            repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
                     val sportsM3uUrl = repository.getSavedSportsM3uUrl()
-                    val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
-                        kotlinx.coroutines.withTimeoutOrNull(4000) {
+                    val sportsM3uDeferred = async {
+                        if (sportsM3uUrl.isNotBlank()) {
+                            kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                                try {
+                                    repository.parseM3uFromUrl(sportsM3uUrl, forceRefresh = isManualRefresh).map {
+                                        it.copy(
+                                            type = MediaType.LIVE_EVENT,
+                                            isLive = true,
+                                            status = if (it.status.isBlank()) "LIVE" else it.status
+                                        )
+                                    }.filterNot { deleted.contains(it.id) }
+                                } catch (e: Exception) {
+                                    emptyList()
+                                }
+                            } ?: emptyList()
+                        } else emptyList()
+                    }
+
+                    val tapmadDeferred = async {
+                        kotlinx.coroutines.withTimeoutOrNull(12000L) {
                             try {
-                                repository.parseM3uFromUrl(sportsM3uUrl, forceRefresh = isManualRefresh).map {
+                                repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } ?: emptyList()
+                    }
+
+                    val sportsNfDeferred = async {
+                        kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                            try {
+                                repository.parseM3uFromUrl(
+                                    "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u",
+                                    forceRefresh = isManualRefresh
+                                ).map {
                                     it.copy(
                                         type = MediaType.LIVE_EVENT,
                                         isLive = true,
@@ -338,30 +372,34 @@ fun NafiTvMainApp(
                                 emptyList()
                             }
                         } ?: emptyList()
-                    } else emptyList()
+                    }
 
-                    val tapmad = kotlinx.coroutines.withTimeoutOrNull(3000) {
-                        try {
-                            repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                    } ?: emptyList()
+                    val adminEvents = adminEventsDeferred.await()
+                    val sportsM3u = sportsM3uDeferred.await()
+                    val tapmad = tapmadDeferred.await()
+                    val sportsNf = sportsNfDeferred.await()
 
-                    val mergedSports = repository.mergeSportsIncremental(sportsList, adminEvents, tapmad + sportsM3u)
-                    if (mergedSports.isNotEmpty() && (mergedSports.size != sportsList.size || isManualRefresh || sportsList.isEmpty())) {
+                    val allFetchedSports = (adminEvents + tapmad + sportsM3u + sportsNf).distinctBy { it.id }
+                    val mergedSports = repository.mergeSportsIncremental(sportsList, adminEvents, allFetchedSports)
+                    val finalSports = if (mergedSports.isNotEmpty()) mergedSports else sportsList
+
+                    if (finalSports.isNotEmpty() && (finalSports.size != sportsList.size || isManualRefresh || sportsList.isEmpty())) {
+                        val newCount = finalSports.count { !prevSportsIds.contains(it.id) }
                         withContext(Dispatchers.Main) {
-                            sportsList = mergedSports
+                            sportsList = finalSports
+                            if (newCount > 0 && hasData && !isManualRefresh) {
+                                Toast.makeText(context, "🔔 $newCount টি নতুন লাইভ খেলা যুক্ত হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        repository.saveCachedSportsMatches(sportsList)
+                        repository.saveCachedSportsMatches(finalSports)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(60) // Smooth yield
+                delay(40) // Smooth yield for low-end device CPU
 
                 // -------------------------------------------------------------
-                // ধাপ ২: লাইভ টিভি চ্যানেল (Live TV Channels - Incremental Merge)
+                // ধাপ ২: লাইভ টিভি চ্যানেল (Live TV Channels - Lossless Incremental)
                 // -------------------------------------------------------------
                 if (showVisualLoading) {
                     withContext(Dispatchers.Main) {
@@ -369,28 +407,51 @@ fun NafiTvMainApp(
                     }
                 }
                 try {
+                    val prevTvIds = liveTvList.map { it.id }.toSet()
                     val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
-                    val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
+                    val tvM3uDeferred = async {
+                        if (liveTvM3uUrl.isNotBlank()) {
+                            try {
+                                repository.parseM3uFromUrl(liveTvM3uUrl, forceRefresh = isManualRefresh).map {
+                                    it.copy(type = MediaType.LIVE_TV, isLive = true)
+                                }.filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } else emptyList()
+                    }
+
+                    val xtreamLiveDeferred = async {
                         try {
-                            repository.parseM3uFromUrl(liveTvM3uUrl, forceRefresh = isManualRefresh).map {
-                                it.copy(type = MediaType.LIVE_TV, isLive = true)
+                            repository.fetchAllXtreamLiveChannels(forceRefresh = isManualRefresh).filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+
+                    val sportsNfTvDeferred = async {
+                        try {
+                            repository.parseM3uFromUrl(
+                                "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u",
+                                forceRefresh = isManualRefresh
+                            ).map {
+                                it.copy(type = MediaType.LIVE_TV, isLive = true, category = "Sports TV")
                             }.filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
                             emptyList()
                         }
-                    } else emptyList()
-
-                    val xtreamLiveChannels = try {
-                        repository.fetchAllXtreamLiveChannels(forceRefresh = isManualRefresh).filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
                     }
 
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
+                    val tvM3u = tvM3uDeferred.await()
+                    val xtreamLiveChannels = xtreamLiveDeferred.await()
+                    val sportsNfTv = sportsNfTvDeferred.await()
+
                     val combinedTv = mutableListOf<MediaItem>()
                     combinedTv.addAll(customTv)
                     combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
                     combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
+                    combinedTv.addAll(sportsNfTv.filterNot { repository.isDemoChannel(it) })
 
                     val seenTvIds = HashSet<String>()
                     val cleanFetchedTv = combinedTv.filterNot { repository.isDemoChannel(it) }.mapIndexed { idx, ch ->
@@ -402,21 +463,25 @@ fun NafiTvMainApp(
                         ch.copy(id = uid)
                     }
 
-                    // User requirement: যেগুলো লোডিং থাকবে সেগুলো থাকবে, নতুন কিছু আসলে লোডিং এর মাধ্যমে এড হবে
                     val mergedTv = repository.mergeChannelsIncremental(liveTvList, cleanFetchedTv)
-                    if (mergedTv.isNotEmpty() && (mergedTv.size != liveTvList.size || isManualRefresh || liveTvList.isEmpty())) {
+                    val finalTv = if (mergedTv.isNotEmpty()) mergedTv else liveTvList
+                    if (finalTv.isNotEmpty() && (finalTv.size != liveTvList.size || isManualRefresh || liveTvList.isEmpty())) {
+                        val newCount = finalTv.count { !prevTvIds.contains(it.id) }
                         withContext(Dispatchers.Main) {
-                            liveTvList = mergedTv
+                            liveTvList = finalTv
+                            if (newCount > 0 && hasData && !isManualRefresh) {
+                                Toast.makeText(context, "📺 $newCount টি নতুন টিভি চ্যানেল যুক্ত হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        repository.saveCachedLiveTvChannels(liveTvList)
+                        repository.saveCachedLiveTvChannels(finalTv)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(60) // Smooth yield
+                delay(40) // Smooth yield for low-RAM devices
 
                 // -------------------------------------------------------------
-                // ধাপ ৩: মুভি ও সিরিজ (Movies & Series - Incremental Merge)
+                // ধাপ ৩: মুভি ও সিরিজ (Movies & Series - Parallel & Lossless)
                 // -------------------------------------------------------------
                 if (showVisualLoading) {
                     withContext(Dispatchers.Main) {
@@ -424,66 +489,84 @@ fun NafiTvMainApp(
                     }
                 }
                 try {
+                    val prevMovIds = moviesList.map { it.id }.toSet()
                     val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
-                    val moviesM3u = if (moviesM3uUrl.isNotBlank()) {
+                    val moviesM3uDeferred = async {
+                        if (moviesM3uUrl.isNotBlank()) {
+                            try {
+                                repository.parseM3uFromUrl(moviesM3uUrl, forceRefresh = isManualRefresh).map {
+                                    it.copy(
+                                        type = MediaType.MOVIE,
+                                        tournament = "NAFI_OTT",
+                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                    )
+                                }.filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } else emptyList()
+                    }
+
+                    val mixMoviesDeferred = async {
                         try {
-                            repository.parseM3uFromUrl(moviesM3uUrl, forceRefresh = isManualRefresh).map {
+                            repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL, forceRefresh = isManualRefresh).map {
                                 it.copy(
                                     type = MediaType.MOVIE,
-                                    tournament = "NAFI_OTT",
-                                    category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                    tournament = "MIX_MOVIES",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
                                 )
                             }.filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
                             emptyList()
                         }
-                    } else emptyList()
-
-                    val mixMovies = try {
-                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL, forceRefresh = isManualRefresh).map {
-                            it.copy(
-                                type = MediaType.MOVIE,
-                                tournament = "MIX_MOVIES",
-                                category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
-                            )
-                        }.filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
                     }
 
-                    val latestMovies = try {
-                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL, forceRefresh = isManualRefresh).map {
-                            it.copy(
-                                type = MediaType.MOVIE,
-                                tournament = "LATEST_MOVIES",
-                                category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
-                            )
-                        }.filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val latestMoviesDeferred = async {
+                        try {
+                            repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL, forceRefresh = isManualRefresh).map {
+                                it.copy(
+                                    type = MediaType.MOVIE,
+                                    tournament = "LATEST_MOVIES",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
+                                )
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
-                    val starshareMov = try {
-                        repository.fetchStarshareMoviesAndSeries(forceRefresh = isManualRefresh).filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val starshareMovDeferred = async {
+                        try {
+                            repository.fetchStarshareMoviesAndSeries(forceRefresh = isManualRefresh).filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
+                    val moviesM3u = moviesM3uDeferred.await()
+                    val mixMovies = mixMoviesDeferred.await()
+                    val latestMovies = latestMoviesDeferred.await()
+                    val starshareMov = starshareMovDeferred.await()
+
                     val cleanFetchedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies).distinctBy { it.id }
 
-                    // Incremental Merge for Movies: Existing movies stay, only newly discovered movies are added
                     val mergedMov = repository.mergeMoviesIncremental(moviesList, cleanFetchedMov)
-                    if (mergedMov.isNotEmpty() && (mergedMov.size != moviesList.size || isManualRefresh || moviesList.isEmpty())) {
+                    val finalMov = if (mergedMov.isNotEmpty()) mergedMov else moviesList
+                    if (finalMov.isNotEmpty() && (finalMov.size != moviesList.size || isManualRefresh || moviesList.isEmpty())) {
+                        val newCount = finalMov.count { !prevMovIds.contains(it.id) }
                         withContext(Dispatchers.Main) {
-                            moviesList = mergedMov
+                            moviesList = finalMov
+                            if (newCount > 0 && hasData && !isManualRefresh) {
+                                Toast.makeText(context, "🎬 $newCount টি নতুন মুভি যুক্ত হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        repository.saveCachedMoviesList(moviesList)
+                        repository.saveCachedMoviesList(finalMov)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(60) // Smooth yield
+                delay(40) // Smooth yield
 
                 // -------------------------------------------------------------
                 // ধাপ ৪: প্লেলিস্ট ও ক্লাউড সিঙ্ক (Playlists & Cloud Sync)
@@ -610,6 +693,14 @@ fun NafiTvMainApp(
 
     LaunchedEffect(Unit) {
         refreshAllData()
+        // Continuous smart watcher: Automatically checks for newly added events, TV channels, or movies
+        // so users immediately see updates without missing any match, channel, or film
+        while (isActive) {
+            delay(60_000L)
+            try {
+                refreshAllData(isManualRefresh = false)
+            } catch (_: Exception) {}
+        }
     }
 
     val handleAddCustomMedia: (MediaItem) -> Unit = { item ->
