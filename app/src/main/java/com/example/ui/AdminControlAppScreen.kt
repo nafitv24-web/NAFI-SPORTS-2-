@@ -2177,8 +2177,7 @@ fun AdminControlAppScreen(
                 }
 
                 // Sports Items List
-                val visibleSports = sportsList.filterNot { repository.isItemDeleted(it) }
-                items(visibleSports, key = { it.id }) { item ->
+                items(sportsList) { item ->
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
