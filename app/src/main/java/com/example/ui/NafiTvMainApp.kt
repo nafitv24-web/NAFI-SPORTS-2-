@@ -254,6 +254,18 @@ fun NafiTvMainApp(
     var breakingNewsText by remember { mutableStateOf(repository.getMarqueeTickerText()) }
     var isRefreshing by remember { mutableStateOf(false) }
     var currentLoadingStage by remember { mutableStateOf(LoadingStage.IDLE) }
+    var isFamilyModeEnabled by remember { mutableStateOf(repository.isFamilyModeEnabled()) }
+
+    // Pre-computed, remembered and instant safe channel & movie lists for 0ms tab switching
+    val mergedTvList = remember(liveTvList, customList, m3uList, isFamilyModeEnabled) {
+        val allTv = liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
+        val safeTv = if (isFamilyModeEnabled) allTv.filterNot { repository.isAdultContent(it) } else allTv
+        mergeChannelsWithServers(safeTv)
+    }
+
+    val safeMoviesList = remember(moviesList, isFamilyModeEnabled) {
+        if (isFamilyModeEnabled) moviesList.filterNot { repository.isAdultContent(it) } else moviesList
+    }
 
     fun checkForUpdates(isManualCheck: Boolean = false) {
         coroutineScope.launch {
@@ -277,12 +289,19 @@ fun NafiTvMainApp(
         }
     }
 
-    // Auto-fetch data: Sequential Staged Loading (1. Events -> 2. Live TV -> 3. Movies -> 4. Playlists & Cloud)
-    fun refreshAllData() {
+    // Auto-fetch data: Smart Incremental Background Sync
+    // Existing loaded items stay intact (0-second instant startup).
+    // Newly added items are merged seamlessly in the background without UI hangs or blocking overlays.
+    fun refreshAllData(isManualRefresh: Boolean = false) {
         coroutineScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isRefreshing = true
-                currentLoadingStage = LoadingStage.LIVE_EVENTS
+            val hasData = liveTvList.isNotEmpty() || moviesList.isNotEmpty() || sportsList.isNotEmpty()
+            val showVisualLoading = isManualRefresh || !hasData
+
+            if (showVisualLoading) {
+                withContext(Dispatchers.Main) {
+                    isRefreshing = true
+                    currentLoadingStage = LoadingStage.LIVE_EVENTS
+                }
             }
             try {
                 val deleted = repository.getDeletedIds()
@@ -295,24 +314,54 @@ fun NafiTvMainApp(
                 }
 
                 // -------------------------------------------------------------
-                // ধাপ ১: প্রথমে লাইভ ইভেন্ট / খেলাধুলা লোড হবে (First: Live Events)
+                // ধাপ ১: লাইভ ইভেন্ট / খেলাধুলা (Live Events - Parallel & Lossless)
                 // -------------------------------------------------------------
                 try {
-                    val adminEvents = try {
-                        repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val prevSportsIds = sportsList.map { it.id }.toSet()
+                    val adminEventsDeferred = async {
+                        try {
+                            repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
-                    val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
-                    val cachedAdmin = repository.getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
-                    val allAdminSports = (adminEvents + customSports + cachedAdmin).distinctBy { it.id }
-
                     val sportsM3uUrl = repository.getSavedSportsM3uUrl()
-                    val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
-                        kotlinx.coroutines.withTimeoutOrNull(4000) {
+                    val sportsM3uDeferred = async {
+                        if (sportsM3uUrl.isNotBlank()) {
+                            kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                                try {
+                                    repository.parseM3uFromUrl(sportsM3uUrl, forceRefresh = isManualRefresh).map {
+                                        it.copy(
+                                            type = MediaType.LIVE_EVENT,
+                                            isLive = true,
+                                            status = if (it.status.isBlank()) "LIVE" else it.status
+                                        )
+                                    }.filterNot { deleted.contains(it.id) }
+                                } catch (e: Exception) {
+                                    emptyList()
+                                }
+                            } ?: emptyList()
+                        } else emptyList()
+                    }
+
+                    val tapmadDeferred = async {
+                        kotlinx.coroutines.withTimeoutOrNull(12000L) {
                             try {
-                                repository.parseM3uFromUrl(sportsM3uUrl).map {
+                                repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } ?: emptyList()
+                    }
+
+                    val sportsNfDeferred = async {
+                        kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                            try {
+                                repository.parseM3uFromUrl(
+                                    "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u",
+                                    forceRefresh = isManualRefresh
+                                ).map {
                                     it.copy(
                                         type = MediaType.LIVE_EVENT,
                                         isLive = true,
@@ -323,64 +372,89 @@ fun NafiTvMainApp(
                                 emptyList()
                             }
                         } ?: emptyList()
-                    } else emptyList()
+                    }
 
-                    val tapmad = kotlinx.coroutines.withTimeoutOrNull(3000) {
-                        try {
-                            repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                    } ?: emptyList()
+                    val adminEvents = adminEventsDeferred.await()
+                    val sportsM3u = sportsM3uDeferred.await()
+                    val tapmad = tapmadDeferred.await()
+                    val sportsNf = sportsNfDeferred.await()
 
-                    val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }
+                    val allFetchedSports = (adminEvents + tapmad + sportsM3u + sportsNf).distinctBy { it.id }
+                    val mergedSports = repository.mergeSportsIncremental(sportsList, adminEvents, allFetchedSports)
+                    val finalSports = if (mergedSports.isNotEmpty()) mergedSports else sportsList
 
-                    if (updatedSports.isNotEmpty()) {
+                    if (finalSports.isNotEmpty() && (finalSports.size != sportsList.size || isManualRefresh || sportsList.isEmpty())) {
+                        val newCount = finalSports.count { !prevSportsIds.contains(it.id) }
                         withContext(Dispatchers.Main) {
-                            sportsList = updatedSports
+                            sportsList = finalSports
+                            if (newCount > 0 && hasData && !isManualRefresh) {
+                                Toast.makeText(context, "🔔 $newCount টি নতুন লাইভ খেলা যুক্ত হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        repository.saveCachedSportsMatches(sportsList)
+                        repository.saveCachedSportsMatches(finalSports)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(120) // Smooth yield to prevent UI frame drop
+                delay(40) // Smooth yield for low-end device CPU
 
                 // -------------------------------------------------------------
-                // ধাপ ২: তারপর লাইভ টিভি অপশন গুলো লোড হবে (Second: Live TV Channels)
+                // ধাপ ২: লাইভ টিভি চ্যানেল (Live TV Channels - Lossless Incremental)
                 // -------------------------------------------------------------
-                withContext(Dispatchers.Main) {
-                    currentLoadingStage = LoadingStage.LIVE_TV
+                if (showVisualLoading) {
+                    withContext(Dispatchers.Main) {
+                        currentLoadingStage = LoadingStage.LIVE_TV
+                    }
                 }
                 try {
+                    val prevTvIds = liveTvList.map { it.id }.toSet()
                     val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
-                    val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
+                    val tvM3uDeferred = async {
+                        if (liveTvM3uUrl.isNotBlank()) {
+                            try {
+                                repository.parseM3uFromUrl(liveTvM3uUrl, forceRefresh = isManualRefresh).map {
+                                    it.copy(type = MediaType.LIVE_TV, isLive = true)
+                                }.filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } else emptyList()
+                    }
+
+                    val xtreamLiveDeferred = async {
                         try {
-                            repository.parseM3uFromUrl(liveTvM3uUrl).map {
-                                it.copy(type = MediaType.LIVE_TV, isLive = true)
-                            }.filterNot { deleted.contains(it.id) }
+                            repository.fetchAllXtreamLiveChannels(forceRefresh = isManualRefresh).filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
-                            e.printStackTrace()
                             emptyList()
                         }
-                    } else emptyList()
+                    }
 
-                    val xtreamLiveChannels = try {
-                        repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val sportsNfTvDeferred = async {
+                        try {
+                            repository.parseM3uFromUrl(
+                                "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u",
+                                forceRefresh = isManualRefresh
+                            ).map {
+                                it.copy(type = MediaType.LIVE_TV, isLive = true, category = "Sports TV")
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
+                    val tvM3u = tvM3uDeferred.await()
+                    val xtreamLiveChannels = xtreamLiveDeferred.await()
+                    val sportsNfTv = sportsNfTvDeferred.await()
+
                     val combinedTv = mutableListOf<MediaItem>()
                     combinedTv.addAll(customTv)
                     combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
                     combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
+                    combinedTv.addAll(sportsNfTv.filterNot { repository.isDemoChannel(it) })
 
-                    // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
-                    // Preserve every single channel even with duplicate names, ensuring unique IDs for Compose
                     val seenTvIds = HashSet<String>()
-                    val updatedTv = combinedTv.filterNot { repository.isDemoChannel(it) }.mapIndexed { idx, ch ->
+                    val cleanFetchedTv = combinedTv.filterNot { repository.isDemoChannel(it) }.mapIndexed { idx, ch ->
                         var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
                         if (seenTvIds.contains(uid)) {
                             uid = "${uid}_$idx"
@@ -389,88 +463,118 @@ fun NafiTvMainApp(
                         ch.copy(id = uid)
                     }
 
-                    if (updatedTv.isNotEmpty()) {
+                    val mergedTv = repository.mergeChannelsIncremental(liveTvList, cleanFetchedTv)
+                    val finalTv = if (mergedTv.isNotEmpty()) mergedTv else liveTvList
+                    if (finalTv.isNotEmpty() && (finalTv.size != liveTvList.size || isManualRefresh || liveTvList.isEmpty())) {
+                        val newCount = finalTv.count { !prevTvIds.contains(it.id) }
                         withContext(Dispatchers.Main) {
-                            liveTvList = updatedTv
+                            liveTvList = finalTv
+                            if (newCount > 0 && hasData && !isManualRefresh) {
+                                Toast.makeText(context, "📺 $newCount টি নতুন টিভি চ্যানেল যুক্ত হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        repository.saveCachedLiveTvChannels(liveTvList)
+                        repository.saveCachedLiveTvChannels(finalTv)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(120) // Smooth yield
+                delay(40) // Smooth yield for low-RAM devices
 
                 // -------------------------------------------------------------
-                // ধাপ ৩: তারপর মুভি ও সিরিজ অপশন গুলো লোড হবে (Third: Movies & Series)
+                // ধাপ ৩: মুভি ও সিরিজ (Movies & Series - Parallel & Lossless)
                 // -------------------------------------------------------------
-                withContext(Dispatchers.Main) {
-                    currentLoadingStage = LoadingStage.MOVIES
+                if (showVisualLoading) {
+                    withContext(Dispatchers.Main) {
+                        currentLoadingStage = LoadingStage.MOVIES
+                    }
                 }
                 try {
+                    val prevMovIds = moviesList.map { it.id }.toSet()
                     val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
-                    val moviesM3u = if (moviesM3uUrl.isNotBlank()) {
+                    val moviesM3uDeferred = async {
+                        if (moviesM3uUrl.isNotBlank()) {
+                            try {
+                                repository.parseM3uFromUrl(moviesM3uUrl, forceRefresh = isManualRefresh).map {
+                                    it.copy(
+                                        type = MediaType.MOVIE,
+                                        tournament = "NAFI_OTT",
+                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                    )
+                                }.filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } else emptyList()
+                    }
+
+                    val mixMoviesDeferred = async {
                         try {
-                            repository.parseM3uFromUrl(moviesM3uUrl).map {
+                            repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL, forceRefresh = isManualRefresh).map {
                                 it.copy(
                                     type = MediaType.MOVIE,
-                                    tournament = "NAFI_OTT",
-                                    category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                    tournament = "MIX_MOVIES",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
                                 )
                             }.filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
                             emptyList()
                         }
-                    } else emptyList()
-
-                    val mixMovies = try {
-                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
-                            it.copy(
-                                type = MediaType.MOVIE,
-                                tournament = "MIX_MOVIES",
-                                category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
-                            )
-                        }.filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
                     }
 
-                    val latestMovies = try {
-                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL).map {
-                            it.copy(
-                                type = MediaType.MOVIE,
-                                tournament = "LATEST_MOVIES",
-                                category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
-                            )
-                        }.filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val latestMoviesDeferred = async {
+                        try {
+                            repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL, forceRefresh = isManualRefresh).map {
+                                it.copy(
+                                    type = MediaType.MOVIE,
+                                    tournament = "LATEST_MOVIES",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
+                                )
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
-                    val starshareMov = try {
-                        repository.fetchStarshareMoviesAndSeries().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
+                    val starshareMovDeferred = async {
+                        try {
+                            repository.fetchStarshareMoviesAndSeries(forceRefresh = isManualRefresh).filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
 
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies).distinctBy { it.id }
+                    val moviesM3u = moviesM3uDeferred.await()
+                    val mixMovies = mixMoviesDeferred.await()
+                    val latestMovies = latestMoviesDeferred.await()
+                    val starshareMov = starshareMovDeferred.await()
 
-                    if (updatedMov.isNotEmpty()) {
+                    val cleanFetchedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies).distinctBy { it.id }
+
+                    val mergedMov = repository.mergeMoviesIncremental(moviesList, cleanFetchedMov)
+                    val finalMov = if (mergedMov.isNotEmpty()) mergedMov else moviesList
+                    if (finalMov.isNotEmpty() && (finalMov.size != moviesList.size || isManualRefresh || moviesList.isEmpty())) {
+                        val newCount = finalMov.count { !prevMovIds.contains(it.id) }
                         withContext(Dispatchers.Main) {
-                            moviesList = updatedMov
+                            moviesList = finalMov
+                            if (newCount > 0 && hasData && !isManualRefresh) {
+                                Toast.makeText(context, "🎬 $newCount টি নতুন মুভি যুক্ত হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        repository.saveCachedMoviesList(moviesList)
+                        repository.saveCachedMoviesList(finalMov)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(120) // Smooth yield
+                delay(40) // Smooth yield
 
                 // -------------------------------------------------------------
-                // ধাপ ৪: তারপর প্লেলিস্ট অপশন গুলো লোড হবে (Fourth: Playlists & Cloud)
+                // ধাপ ৪: প্লেলিস্ট ও ক্লাউড সিঙ্ক (Playlists & Cloud Sync)
                 // -------------------------------------------------------------
-                withContext(Dispatchers.Main) {
-                    currentLoadingStage = LoadingStage.PLAYLISTS
+                if (showVisualLoading) {
+                    withContext(Dispatchers.Main) {
+                        currentLoadingStage = LoadingStage.PLAYLISTS
+                    }
                 }
                 try {
                     val initialPlaylists = repository.getInitialPlaylists().filterNot { deleted.contains(it.id) }
@@ -546,10 +650,17 @@ fun NafiTvMainApp(
                     e.printStackTrace()
                 }
 
-                withContext(Dispatchers.Main) {
-                    currentLoadingStage = LoadingStage.COMPLETED
+                if (showVisualLoading) {
+                    withContext(Dispatchers.Main) {
+                        currentLoadingStage = LoadingStage.COMPLETED
+                    }
+                    delay(300)
                 }
-                delay(600)
+                if (isManualRefresh) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "ডাটা সফলভাবে রিফ্রেশ হয়েছে!", Toast.LENGTH_SHORT).show()
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -582,6 +693,14 @@ fun NafiTvMainApp(
 
     LaunchedEffect(Unit) {
         refreshAllData()
+        // Continuous smart watcher: Automatically checks for newly added events, TV channels, or movies
+        // so users immediately see updates without missing any match, channel, or film
+        while (isActive) {
+            delay(60_000L)
+            try {
+                refreshAllData(isManualRefresh = false)
+            } catch (_: Exception) {}
+        }
     }
 
     val handleAddCustomMedia: (MediaItem) -> Unit = { item ->
@@ -625,8 +744,8 @@ fun NafiTvMainApp(
             activePlaybackPlaylist
         } else {
             when (currentTab) {
-                AppTab.LIVE_TV -> mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
-                AppTab.MOVIES -> (moviesList + customList.filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES } + m3uList.filter { it.type == MediaType.MOVIE }).distinctBy { it.id }
+                AppTab.LIVE_TV -> mergedTvList
+                AppTab.MOVIES -> safeMoviesList
                 AppTab.EVENTS -> sportsList.distinctBy { it.id }
                 AppTab.PLAYLIST -> (customList + m3uList).distinctBy { it.id }
                 else -> (liveTvList + sportsList + moviesList + customList + m3uList).distinctBy { it.id }
@@ -990,7 +1109,7 @@ fun NafiTvMainApp(
                                         .scale(refreshScale)
                                         .onFocusChanged { isRefreshFocused = it.isFocused }
                                         .focusable()
-                                        .clickable { refreshAllData() }
+                                        .clickable { refreshAllData(isManualRefresh = true) }
                                 ) {
                                     Box(modifier = Modifier.padding(7.dp)) {
                                         if (isRefreshing) {
@@ -1083,17 +1202,17 @@ fun NafiTvMainApp(
                                 }
                             )
 
-                            AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList) {
-                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
-                            }
-                            LiveTvTabScreen(
+                            AppTab.LIVE_TV -> LiveTvTabScreen(
                                 channels = mergedTvList,
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
+                                isFamilyModeEnabled = isFamilyModeEnabled,
                                 onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
+                                    val liveItem = if (item.type != MediaType.LIVE_TV || !item.isLive) {
+                                        item.copy(type = MediaType.LIVE_TV, isLive = true)
+                                    } else item
+                                    selectedMediaItem = liveItem
                                     activePlaybackPlaylist = playlist
                                 },
                                 onToggleFavorite = { id ->
@@ -1102,17 +1221,17 @@ fun NafiTvMainApp(
                                 },
                                 onAddChannel = handleAddCustomMedia
                             )
-                        }
 
                             AppTab.MOVIES -> MoviesTabScreen(
-                                movies = moviesList,
+                                movies = safeMoviesList,
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
+                                isFamilyModeEnabled = isFamilyModeEnabled,
                                 repository = repository,
                                 onSelectMedia = { item ->
                                     selectedMediaItem = item
-                                    activePlaybackPlaylist = moviesList
+                                    activePlaybackPlaylist = safeMoviesList
                                 },
                                 onSelectMediaWithPlaylist = { item, epPlaylist ->
                                     selectedMediaItem = item
@@ -1125,21 +1244,32 @@ fun NafiTvMainApp(
                                 onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
                             )
 
-                            AppTab.PLAYLIST -> PlaylistTabScreen(
-                                playlists = playlistsList,
-                                repository = repository,
-                                isTvMode = isTvMode,
-                                onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = playlist
-                                },
-                                onPlaylistsChanged = { refreshAllData() }
-                            )
+                            AppTab.PLAYLIST -> {
+                                val safePlaylists = remember(playlistsList, isFamilyModeEnabled) {
+                                    if (isFamilyModeEnabled) {
+                                        playlistsList.filterNot { repository.isAdultCategory(it.title) || repository.isAdultCategory(it.description) }
+                                    } else {
+                                        playlistsList
+                                    }
+                                }
+                                PlaylistTabScreen(
+                                    playlists = safePlaylists,
+                                    repository = repository,
+                                    isTvMode = isTvMode,
+                                    onSelectMedia = { item, playlist ->
+                                        selectedMediaItem = item
+                                        activePlaybackPlaylist = playlist
+                                    },
+                                    onPlaylistsChanged = { refreshAllData() }
+                                )
+                            }
 
                             AppTab.MENU -> MenuScreen(
                                 repository = repository,
                                 customList = customList,
                                 isTvMode = true,
+                                isFamilyModeEnabled = isFamilyModeEnabled,
+                                onFamilyModeChanged = { isFamilyModeEnabled = it },
                                 onSwitchToMobileMode = {
                                     isTvMode = false
                                     activeUserMode = AppUserMode.MOBILE
@@ -1331,7 +1461,7 @@ fun NafiTvMainApp(
                                 Surface(
                                     shape = CircleShape,
                                     color = Color(0xFF1E293B),
-                                    modifier = Modifier.clickable { refreshAllData() }
+                                    modifier = Modifier.clickable { refreshAllData(isManualRefresh = true) }
                                 ) {
                                     Box(modifier = Modifier.padding(8.dp)) {
                                         if (isRefreshing) {
@@ -1475,36 +1605,36 @@ fun NafiTvMainApp(
                             }
                         )
 
-                        AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList) {
-                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
-                            }
-                            LiveTvTabScreen(
-                                channels = mergedTvList,
-                                favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
-                                isTvMode = isTvMode,
-                                onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = playlist
-                                },
-                                onToggleFavorite = { id ->
-                                    repository.toggleFavorite(id)
-                                    favoriteIds = repository.getFavoriteIds()
-                                },
-                                onAddChannel = handleAddCustomMedia
-                            )
-                        }
-
-                        AppTab.MOVIES -> MoviesTabScreen(
-                            movies = moviesList,
+                        AppTab.LIVE_TV -> LiveTvTabScreen(
+                            channels = mergedTvList,
                             favoriteIds = favoriteIds,
                             isLoading = isRefreshing,
                             isTvMode = isTvMode,
+                            isFamilyModeEnabled = isFamilyModeEnabled,
+                            onSelectMedia = { item, playlist ->
+                                val liveItem = if (item.type != MediaType.LIVE_TV || !item.isLive) {
+                                    item.copy(type = MediaType.LIVE_TV, isLive = true)
+                                } else item
+                                selectedMediaItem = liveItem
+                                activePlaybackPlaylist = playlist
+                            },
+                            onToggleFavorite = { id ->
+                                repository.toggleFavorite(id)
+                                favoriteIds = repository.getFavoriteIds()
+                            },
+                            onAddChannel = handleAddCustomMedia
+                        )
+
+                        AppTab.MOVIES -> MoviesTabScreen(
+                            movies = safeMoviesList,
+                            favoriteIds = favoriteIds,
+                            isLoading = isRefreshing,
+                            isTvMode = isTvMode,
+                            isFamilyModeEnabled = isFamilyModeEnabled,
                             repository = repository,
                             onSelectMedia = { item ->
                                 selectedMediaItem = item
-                                activePlaybackPlaylist = moviesList
+                                activePlaybackPlaylist = safeMoviesList
                             },
                             onSelectMediaWithPlaylist = { item, epPlaylist ->
                                 selectedMediaItem = item
@@ -1517,21 +1647,32 @@ fun NafiTvMainApp(
                             onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
                         )
 
-                        AppTab.PLAYLIST -> PlaylistTabScreen(
-                            playlists = playlistsList,
-                            repository = repository,
-                            isTvMode = isTvMode,
-                            onSelectMedia = { item, playlist ->
-                                selectedMediaItem = item
-                                activePlaybackPlaylist = playlist
-                            },
-                            onPlaylistsChanged = { refreshAllData() }
-                        )
+                        AppTab.PLAYLIST -> {
+                            val safePlaylists = remember(playlistsList, isFamilyModeEnabled) {
+                                if (isFamilyModeEnabled) {
+                                    playlistsList.filterNot { repository.isAdultCategory(it.title) || repository.isAdultCategory(it.description) }
+                                } else {
+                                    playlistsList
+                                }
+                            }
+                            PlaylistTabScreen(
+                                playlists = safePlaylists,
+                                repository = repository,
+                                isTvMode = isTvMode,
+                                onSelectMedia = { item, playlist ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = playlist
+                                },
+                                onPlaylistsChanged = { refreshAllData() }
+                            )
+                        }
 
                         AppTab.MENU -> MenuScreen(
                             repository = repository,
                             customList = customList,
                             isTvMode = false,
+                            isFamilyModeEnabled = isFamilyModeEnabled,
+                            onFamilyModeChanged = { isFamilyModeEnabled = it },
                             onSwitchToMobileMode = {
                                 isTvMode = false
                                 activeUserMode = AppUserMode.MOBILE
@@ -1759,6 +1900,8 @@ fun MenuScreen(
     repository: MediaRepository,
     customList: List<MediaItem>,
     isTvMode: Boolean = false,
+    isFamilyModeEnabled: Boolean = true,
+    onFamilyModeChanged: (Boolean) -> Unit = {},
     onSwitchToMobileMode: () -> Unit = {},
     onSwitchToTvMode: () -> Unit = {},
     onResetModeSelection: () -> Unit = {},
@@ -1774,6 +1917,10 @@ fun MenuScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // Family Mode State (Default is ALWAYS ON/True)
+    var isFamilyMode by remember(isFamilyModeEnabled) { mutableStateOf(isFamilyModeEnabled) }
+    var showDisableFamilyConfirmDialog by remember { mutableStateOf(false) }
 
     // 1. Direct Stream State
     var directUrl by remember { mutableStateOf("") }
@@ -1920,6 +2067,109 @@ fun MenuScreen(
                             Text("মোড চয়েস পেজ", fontSize = 12.sp)
                         }
                     }
+                }
+            }
+        }
+
+        // CARD: Family Mode (ফ্যামিলি মোড / প্যারেন্টাল সেফ গার্ড - সর্বদা ডিফল্ট সক্রিয়)
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isFamilyMode) Color(0xFF10B981).copy(alpha = 0.8f) else Color(0xFFF59E0B).copy(alpha = 0.6f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isFamilyMode) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isFamilyMode) Icons.Rounded.Security else Icons.Rounded.LockOpen,
+                                        contentDescription = "Family Mode",
+                                        tint = if (isFamilyMode) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "ফ্যামিলি মোড (Family Mode)",
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isFamilyMode) Color(0xFF065F46) else Color(0xFF78350F)
+                                    ) {
+                                        Text(
+                                            text = if (isFamilyMode) "সুরক্ষিত" else "উন্মুক্ত",
+                                            color = if (isFamilyMode) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = if (isFamilyMode) "১৮+ ও অ্যাডাল্ট কন্টেন্ট সম্পূর্ণ গোপন রয়েছে" else "১৮+ কন্টেন্ট প্রদর্শিত হচ্ছে",
+                                    color = if (isFamilyMode) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isFamilyMode,
+                            onCheckedChange = { checked ->
+                                if (!checked) {
+                                    showDisableFamilyConfirmDialog = true
+                                } else {
+                                    isFamilyMode = true
+                                    repository.setFamilyModeEnabled(true)
+                                    onFamilyModeChanged(true)
+                                    Toast.makeText(context, "ফ্যামিলি মোড সক্রিয় করা হয়েছে! ১৮+ কন্টেন্ট সফলভাবে লুকানো হয়েছে।", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF10B981),
+                                uncheckedThumbColor = Color(0xFF94A3B8),
+                                uncheckedTrackColor = Color(0xFF334155)
+                            )
+                        )
+                    }
+
+                    Text(
+                        text = "পরিবার ও শিশুদের নিরাপদ ব্যবহারের জন্য ফ্যামিলি মোড অ্যাপে সার্বক্ষণিক চালু থাকে। যতক্ষণ না আপনি নিজে এই অপশনটি অফ করছেন, ততক্ষণ কোনো প্রকার অ্যাডাল্ট বা ১৮+ মুভি এবং টিভি চ্যানেল অ্যাপের সামনে আসবে না।",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
                 }
             }
         }
@@ -2653,6 +2903,64 @@ fun MenuScreen(
             dismissButton = {
                 TextButton(onClick = { showAdminLoginDialog = false }) {
                     Text("বাতিল", color = Color.White)
+                }
+            }
+        )
+    }
+
+    // DIALOG: Family Mode Disable Confirmation
+    if (showDisableFamilyConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisableFamilyConfirmDialog = false },
+            containerColor = Color(0xFF1E293B),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "ফ্যামিলি মোড বন্ধ করতে চান?",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = "ফ্যামিলি মোড বন্ধ করলে অ্যাপের লাইভ টিভি ও মুভি সেকশনে ১৮+ বা অ্যাডাল্ট (Adults) চ্যানেল ও মুভি প্রদর্শিত হতে পারে। আপনি কি নিশ্চিত যে আপনি এটি বন্ধ করতে চান?",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDisableFamilyConfirmDialog = false
+                        isFamilyMode = false
+                        repository.setFamilyModeEnabled(false)
+                        onFamilyModeChanged(false)
+                        Toast.makeText(context, "ফ্যামিলি মোড বন্ধ করা হয়েছে।", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("হ্যাঁ, বন্ধ করুন", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showDisableFamilyConfirmDialog = false },
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF10B981))
+                ) {
+                    Text("না, চালু রাখুন", fontWeight = FontWeight.Bold)
                 }
             }
         )
