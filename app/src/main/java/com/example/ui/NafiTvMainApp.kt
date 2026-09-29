@@ -585,6 +585,8 @@ fun NafiTvMainApp(
     }
 
     LaunchedEffect(Unit) {
+        // Yield 350ms so Compose renders the immediate cached UI at full 60fps without any startup freeze
+        delay(350)
         refreshAllData()
     }
 

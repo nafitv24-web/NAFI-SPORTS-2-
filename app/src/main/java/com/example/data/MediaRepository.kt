@@ -328,23 +328,34 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    // High-speed In-Memory Cache to completely eliminate file read and JSON parsing freezes on app startup
+    private val memoryFileCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
+    private val cacheWriteExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
     private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
-        try {
-            // Keep initial offline cache compact (up to 300 items) to prevent huge memory spikes and disk lag on low-RAM devices
-            val itemsToSave = if (list.size > 300) list.take(300) else list
-            val file = java.io.File(context.filesDir, fileName)
-            val jsonArray = JSONArray()
-            itemsToSave.forEach { item ->
-                jsonArray.put(serializeMediaToJsonObj(item))
+        val itemsToSave = if (list.size > 300) list.take(300) else list
+        memoryFileCache[fileName] = itemsToSave
+        cacheWriteExecutor.execute {
+            try {
+                val file = java.io.File(context.filesDir, fileName)
+                val jsonArray = JSONArray()
+                itemsToSave.forEach { item ->
+                    jsonArray.put(serializeMediaToJsonObj(item))
+                }
+                file.writeText(jsonArray.toString())
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            file.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
     private fun loadListFromFileCache(fileName: String): List<MediaItem> {
+        val inMemory = memoryFileCache[fileName]
+        if (inMemory != null) {
+            val deleted = getDeletedIds()
+            return if (deleted.isEmpty()) inMemory else inMemory.filterNot { deleted.contains(it.id) }
+        }
         val file = java.io.File(context.filesDir, fileName)
         if (!file.exists()) return emptyList()
         val deleted = getDeletedIds()
@@ -361,6 +372,7 @@ class MediaRepository(private val context: Context) {
                     }
                 }
             }
+            memoryFileCache[fileName] = list
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -639,9 +651,16 @@ class MediaRepository(private val context: Context) {
         return (customMov + cached).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
     }
 
+    // In-memory cache for custom streams to avoid repeated SharedPreferences JSON parsing
+    private var cachedCustomStreams: List<MediaItem>? = null
+
     // Custom streams saved locally in SharedPreferences
     fun getCustomStreams(): List<MediaItem> {
         val deleted = getDeletedIds()
+        val inMemory = cachedCustomStreams
+        if (inMemory != null) {
+            return if (deleted.isEmpty()) inMemory else inMemory.filterNot { deleted.contains(it.id) }
+        }
         val jsonStr = prefs.getString("custom_streams", "[]") ?: "[]"
         val list = mutableListOf<MediaItem>()
         try {
@@ -656,6 +675,7 @@ class MediaRepository(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        cachedCustomStreams = list
         return list
     }
 
@@ -680,6 +700,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCustomList(list: List<MediaItem>) {
+        cachedCustomStreams = list
         val jsonArray = JSONArray()
         list.forEach { item ->
             jsonArray.put(serializeMediaToJsonObj(item))
@@ -1134,6 +1155,30 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    private val PRECOMPILED_COUNTRY_REGEX = Regex("""\b(BD|KR|IN|US|UK|PK|SA|UAE)\b""", RegexOption.IGNORE_CASE)
+
+    private fun extractM3uAttribute(line: String, attrName: String): String? {
+        val key = "$attrName=\""
+        val start = line.indexOf(key, ignoreCase = true)
+        if (start != -1) {
+            val valStart = start + key.length
+            val end = line.indexOf('"', valStart)
+            if (end != -1) {
+                return line.substring(valStart, end).trim()
+            }
+        }
+        val keyNoQuotes = "$attrName="
+        val startNoQ = line.indexOf(keyNoQuotes, ignoreCase = true)
+        if (startNoQ != -1) {
+            val valStart = startNoQ + keyNoQuotes.length
+            var end = line.indexOf(' ', valStart)
+            if (end == -1) end = line.indexOf(',', valStart)
+            if (end == -1) end = line.length
+            return line.substring(valStart, end).trim('"', ' ')
+        }
+        return null
+    }
+
     private fun parseM3uLines(lines: List<String>): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         var currentTitle = ""
@@ -1157,14 +1202,9 @@ class MediaRepository(private val context: Context) {
             if (trimmed.isEmpty()) continue
 
             if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
-                val groupMatch = Regex("""group-title="([^"]*)"""", RegexOption.IGNORE_CASE).find(trimmed)
-                currentGroup = groupMatch?.groupValues?.get(1)?.trim() ?: "Live TV"
-
-                val logoMatch = Regex("""tvg-logo="([^"]*)"""", RegexOption.IGNORE_CASE).find(trimmed)
-                currentLogo = logoMatch?.groupValues?.get(1)?.trim()
-
-                val countryMatch = Regex("""tvg-country="([^"]*)"""", RegexOption.IGNORE_CASE).find(trimmed)
-                currentCountry = countryMatch?.groupValues?.get(1)?.trim()
+                currentGroup = extractM3uAttribute(trimmed, "group-title") ?: "Live TV"
+                currentLogo = extractM3uAttribute(trimmed, "tvg-logo")
+                currentCountry = extractM3uAttribute(trimmed, "tvg-country")
 
                 val commaIndex = trimmed.lastIndexOf(',')
                 currentTitle = if (commaIndex != -1) {
@@ -1175,7 +1215,7 @@ class MediaRepository(private val context: Context) {
 
                 // If country tag is in the title e.g. "Arirang World KR" or "[BD]"
                 if (currentCountry == null) {
-                    val matchCode = Regex("""\b(BD|KR|IN|US|UK|PK|SA|UAE)\b""", RegexOption.IGNORE_CASE).find(currentTitle)
+                    val matchCode = PRECOMPILED_COUNTRY_REGEX.find(currentTitle)
                     currentCountry = matchCode?.groupValues?.get(1)?.uppercase()
                 }
             } else if (trimmed.startsWith("#EXTVLCOPT:", ignoreCase = true)) {
