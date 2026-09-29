@@ -3664,6 +3664,37 @@ fun LiveEventMatchCard(
                     )
                 }
 
+                // Playlist Source indicator (কোন প্লেলিস্ট থেকে খেলা চলছে তার স্পষ্ট উল্লেখ)
+                val playlistSource = remember(sport.id, sport.category, sport.tournament, sport.isAdminAdded) {
+                    com.example.util.SportsInteractionManager.getPlaylistSource(sport.category, sport.tournament, sport.isAdminAdded, sport.id)
+                }
+                Surface(
+                    shape = RoundedCornerShape(5.dp),
+                    color = Color(0xFF0284C7).copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlaylistPlay,
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "উৎস প্লেলিস্ট: $playlistSource",
+                            color = Color(0xFFBAE6FD),
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
                 // Status / Countdown Banner (Ticks down in real-time second by second)
                 if (isEffectivelyLive) {
                     Box(

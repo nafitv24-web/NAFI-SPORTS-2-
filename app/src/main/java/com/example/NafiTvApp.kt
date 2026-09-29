@@ -32,6 +32,10 @@ class NafiTvApp : Application(), ImageLoaderFactory {
             Log.w("NafiTvApp", "Coil image loader init error", e)
         }
 
+        try {
+            com.example.util.SportsInteractionManager.init(this)
+        } catch (_: Exception) {}
+
         // 2. Global crash protection: Intercepts decoder, GPU, network & memory crashes
         // preventing unexpected process termination on normal & low-spec (512MB RAM) devices
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
