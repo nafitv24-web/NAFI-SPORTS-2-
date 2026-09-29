@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForwardIos
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -168,6 +169,7 @@ fun NafiTvMainApp(
     var isOfflineDownloadsActive by remember { mutableStateOf(false) }
     var cloudStreamRepos by remember { mutableStateOf(repository.getSavedCloudStreamRepos()) }
     var allMovieProviders by remember { mutableStateOf(repository.getAllMovieProviders()) }
+    var isAdultHidden by rememberSaveable { mutableStateOf(repository.isAdultContentHidden()) }
 
     // Deep link repository handler
     LaunchedEffect(deepLinkRepoUrl) {
@@ -1101,6 +1103,8 @@ fun NafiTvMainApp(
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
+                                isAdultHidden = isAdultHidden,
+                                repository = repository,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
@@ -1118,6 +1122,7 @@ fun NafiTvMainApp(
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
+                                isAdultHidden = isAdultHidden,
                                 repository = repository,
                                 onSelectMedia = { item ->
                                     selectedMediaItem = item
@@ -1149,6 +1154,17 @@ fun NafiTvMainApp(
                                 repository = repository,
                                 customList = customList,
                                 isTvMode = true,
+                                isAdultHidden = isAdultHidden,
+                                onToggleAdultHidden = { nextState ->
+                                    repository.setHideAdultContent(nextState)
+                                    isAdultHidden = nextState
+                                    Toast.makeText(
+                                        context,
+                                        if (nextState) "১৮+ অ্যাডাল্ট কনটেন্ট সফলভাবে লুকানো হয়েছে (Safe Mode সক্রিয়)"
+                                        else "অ্যাডাল্ট সিনেমা ও চ্যানেল দৃশ্যমান করা হয়েছে",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
                                 onSwitchToMobileMode = {
                                     isTvMode = false
                                     activeUserMode = AppUserMode.MOBILE
@@ -1500,6 +1516,8 @@ fun NafiTvMainApp(
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
+                                isAdultHidden = isAdultHidden,
+                                repository = repository,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
@@ -1517,6 +1535,7 @@ fun NafiTvMainApp(
                             favoriteIds = favoriteIds,
                             isLoading = isRefreshing,
                             isTvMode = isTvMode,
+                            isAdultHidden = isAdultHidden,
                             repository = repository,
                             onSelectMedia = { item ->
                                 selectedMediaItem = item
@@ -1548,6 +1567,17 @@ fun NafiTvMainApp(
                             repository = repository,
                             customList = customList,
                             isTvMode = false,
+                            isAdultHidden = isAdultHidden,
+                            onToggleAdultHidden = { nextState ->
+                                repository.setHideAdultContent(nextState)
+                                isAdultHidden = nextState
+                                Toast.makeText(
+                                    context,
+                                    if (nextState) "১৮+ অ্যাডাল্ট কনটেন্ট সফলভাবে লুকানো হয়েছে (Safe Mode সক্রিয়)"
+                                    else "অ্যাডাল্ট সিনেমা ও চ্যানেল দৃশ্যমান করা হয়েছে",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
                             onSwitchToMobileMode = {
                                 isTvMode = false
                                 activeUserMode = AppUserMode.MOBILE
@@ -1775,6 +1805,8 @@ fun MenuScreen(
     repository: MediaRepository,
     customList: List<MediaItem>,
     isTvMode: Boolean = false,
+    isAdultHidden: Boolean = true,
+    onToggleAdultHidden: (Boolean) -> Unit = {},
     onSwitchToMobileMode: () -> Unit = {},
     onSwitchToTvMode: () -> Unit = {},
     onResetModeSelection: () -> Unit = {},
@@ -1935,6 +1967,110 @@ fun MenuScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("মোড চয়েস পেজ", fontSize = 12.sp)
                         }
+                    }
+                }
+            }
+        }
+
+        // CARD -0.5: 🔞 Adult & 18+ Content Safe Mode (হাইড বা আনহাইড করার সেটিংস)
+        item {
+            var tvFocusedSafeMode by remember { mutableStateOf(false) }
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                border = androidx.compose.foundation.BorderStroke(
+                    if (isTvMode && tvFocusedSafeMode) 2.dp else 1.dp,
+                    if (isTvMode && tvFocusedSafeMode) Color(0xFF38BDF8)
+                    else if (isAdultHidden) Color(0xFF10B981).copy(alpha = 0.65f)
+                    else Color(0xFFEF4444).copy(alpha = 0.65f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isTvMode) {
+                            Modifier
+                                .onFocusChanged { tvFocusedSafeMode = it.isFocused }
+                                .focusable()
+                                .clickable {
+                                    onToggleAdultHidden(!isAdultHidden)
+                                }
+                        } else Modifier
+                    )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isAdultHidden) Color(0xFF10B981).copy(alpha = 0.18f) else Color(0xFFEF4444).copy(alpha = 0.18f),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isAdultHidden) Icons.Rounded.Security else Icons.Rounded.WarningAmber,
+                                        contentDescription = "Safe Mode",
+                                        tint = if (isAdultHidden) Color(0xFF10B981) else Color(0xFFEF4444),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.padding(end = 8.dp)) {
+                                Text(
+                                    text = "🔞 ১৮+ ও অ্যাডাল্ট কনটেন্ট ফিল্টার",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isAdultHidden)
+                                        "অ্যাডাল্ট সিনেমা, সিরিজ ও চ্যানেল লুকানো আছে (নিরাপদ মোড)"
+                                    else
+                                        "১৮+ অ্যাডাল্ট সিনেমা ও চ্যানেল দৃশ্যমান আছে",
+                                    color = if (isAdultHidden) Color(0xFF6EE7B7) else Color(0xFFFCA5A5),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isAdultHidden,
+                            onCheckedChange = { nextState ->
+                                onToggleAdultHidden(nextState)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF10B981),
+                                uncheckedThumbColor = Color(0xFFE2E8F0),
+                                uncheckedTrackColor = Color(0xFF475569)
+                            )
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "ℹ️ এই অপশনটি ডিফল্টভাবে চালু থাকবে যাতে পরিবার ও পরিবারের সদস্যদের সাথে নিরাপদে ব্যবহার করা যায়। আপনি সুইচটি অফ করলে ১৮+ সিনেমা ও চ্যানেলগুলো আনলক ও দৃশ্যমান হবে।",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            modifier = Modifier.padding(10.dp)
+                        )
                     }
                 }
             }

@@ -6827,6 +6827,31 @@ class MediaRepository(private val context: Context) {
             prefs.edit().putString("saved_app_user_mode", modeName).apply()
         }
     }
+
+    // -------------------------------------------------------------
+    // ADULT / 18+ CONTENT PARENTAL CONTROL / SAFE MODE
+    // Default is TRUE (hidden automatically by default)
+    // -------------------------------------------------------------
+    fun isAdultContentHidden(): Boolean {
+        return prefs.getBoolean("hide_adult_content", true)
+    }
+
+    fun setHideAdultContent(hidden: Boolean) {
+        prefs.edit().putBoolean("hide_adult_content", hidden).apply()
+    }
+
+    fun isAdultMedia(item: MediaItem): Boolean {
+        val adultKeywords = listOf(
+            "adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "erotica", "porn", "sex", "sensual",
+            "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx", "chikoo",
+            "boomx", "cinemadosti", "cinema dosti", "redprime", "gupchup", "hunt", "feneo",
+            "fliz", "voovi", "feelit", "unrated hot", "softcore", "nuefliks", "hotshots"
+        )
+        val textToScan = "${item.title} ${item.category} ${item.genre ?: ""} ${item.description ?: ""}".lowercase()
+        return adultKeywords.any { keyword ->
+            textToScan.contains(keyword)
+        }
+    }
 }
 
 

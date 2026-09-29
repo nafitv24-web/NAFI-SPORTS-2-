@@ -87,7 +87,7 @@ fun MoviesTabScreen(
     favoriteIds: Set<String>,
     isLoading: Boolean = false,
     isTvMode: Boolean = false,
-    isFamilyModeEnabled: Boolean = true,
+    isAdultHidden: Boolean = true,
     repository: com.example.data.MediaRepository? = null,
     onSelectMedia: (MediaItem) -> Unit,
     onSelectMediaWithPlaylist: ((MediaItem, List<MediaItem>) -> Unit)? = null,
@@ -99,39 +99,42 @@ fun MoviesTabScreen(
     var selectedTypeFilter by remember { mutableStateOf("ALL") }
     var selectedSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
 
-    val safeMovies = movies
-
     val handleItemSelect: (MediaItem) -> Unit = { item ->
-        if ((item.isSeries || item.type == com.example.model.MediaType.SERIES || !item.resolvedSeriesId.isNullOrBlank() || item.id.startsWith("xtream_series_")) && repository != null) {
+        if ((item.isSeries || item.type == com.example.model.MediaType.SERIES) && repository != null) {
             selectedSeriesForDialog = item
         } else {
             onSelectMedia(item)
         }
     }
 
-    val typeFilteredMovies = remember(safeMovies, selectedTypeFilter) {
-        when (selectedTypeFilter) {
-            "MOVIE" -> safeMovies.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
-            "SERIES" -> safeMovies.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
-            else -> safeMovies
+    // Adult / 18+ Content Filter (Safe Mode by default)
+    val adultFilteredMovies = remember(movies, isAdultHidden, repository) {
+        if (isAdultHidden && repository != null) {
+            movies.filterNot { repository.isAdultMedia(it) }
+        } else if (isAdultHidden) {
+            val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
+            movies.filterNot { m ->
+                val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
+                adultWords.any { txt.contains(it) }
+            }
+        } else {
+            movies
         }
     }
 
-    // High performance single-pass category and group extraction
-    val (categories, categorizedMovies) = remember(typeFilteredMovies) {
-        val catMap = LinkedHashMap<String, MutableList<MediaItem>>()
-        val seenIds = HashMap<String, HashSet<String>>()
-        for (movie in typeFilteredMovies) {
-            val cat = movie.category.trim()
-            if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true)) {
-                val seen = seenIds.getOrPut(cat) { HashSet() }
-                if (seen.add(movie.id)) {
-                    catMap.getOrPut(cat) { mutableListOf() }.add(movie)
-                }
-            }
+    val typeFilteredMovies = remember(adultFilteredMovies, selectedTypeFilter) {
+        when (selectedTypeFilter) {
+            "MOVIE" -> adultFilteredMovies.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
+            "SERIES" -> adultFilteredMovies.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+            else -> adultFilteredMovies
         }
+    }
 
-        val unique = catMap.keys.toList()
+    val categories = remember(typeFilteredMovies) {
+        val unique = typeFilteredMovies.map { it.category.trim() }
+            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+            .distinct()
+
         val priorityList = listOf(
             "STAR JALSHA", "HUM TV", "PAKISTANI DRAMA", "ZEE BANGLA", "SUN BANGLA",
             "COLORS BANGLA", "HOICHOI", "Chorki/Bangla", "HINDI TV SERIES", "STAR PLUS",
@@ -143,10 +146,7 @@ fun MoviesTabScreen(
                 if (idx != -1) idx else 999
             }
         val others = unique.filterNot { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }.sorted()
-        val catsList = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
-
-        val carousels = catMap.map { (cat, list) -> cat to list }
-        catsList to carousels
+        listOf("All", "ডাউনলোডসমূহ") + highPriority + others
     }
 
     // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)
@@ -155,12 +155,21 @@ fun MoviesTabScreen(
         if (withLogos.isNotEmpty()) withLogos.take(10) else typeFilteredMovies.take(8)
     }
 
+    // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
+    val categorizedMovies = remember(typeFilteredMovies) {
+        val uniqueCats = typeFilteredMovies.map { it.category.trim() }
+            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+            .distinct()
+        uniqueCats.map { cat ->
+            val catMovies = typeFilteredMovies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
+            cat to catMovies
+        }
+    }
+
     // Filtered movies when search query is active or a single category is selected
     val filteredMovies = remember(typeFilteredMovies, searchQuery, selectedCategory, favoriteIds) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
-        } else if (searchQuery.isBlank() && selectedCategory == "All") {
-            typeFilteredMovies
         } else {
             typeFilteredMovies.filter { movie ->
                 val matchesSearch = if (searchQuery.isBlank()) true else {
@@ -176,7 +185,7 @@ fun MoviesTabScreen(
                     else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
                 matchesSearch && matchesCategory
-            }
+            }.distinctBy { it.id }
         }
     }
 
@@ -632,7 +641,7 @@ fun MoviesTabScreen(
                             contentPadding = PaddingValues(horizontal = 14.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(catMovies.take(30), key = { it.id }) { movie ->
+                            items(catMovies, key = { it.id }) { movie ->
                                 MoviePosterCard(
                                     movie = movie,
                                     isFav = favoriteIds.contains(movie.id),
@@ -705,9 +714,10 @@ fun MoviesTabScreen(
                 repository = repository,
                 isTvMode = isTvMode,
                 onPlayEpisode = { epMedia ->
-                    val currentSeries = selectedSeriesForDialog
-                    val epPlaylist = if (currentSeries != null && currentSeries.episodes.isNotEmpty()) {
-                        currentSeries.episodes.map { it.toMediaItem(currentSeries) }
+                    val epPlaylist = if (epMedia.episodes.isNotEmpty()) {
+                        epMedia.episodes.map { it.toMediaItem(epMedia) }
+                    } else if (selectedSeriesForDialog?.episodes?.isNotEmpty() == true) {
+                        selectedSeriesForDialog!!.episodes.map { it.toMediaItem(selectedSeriesForDialog!!) }
                     } else {
                         listOf(epMedia)
                     }

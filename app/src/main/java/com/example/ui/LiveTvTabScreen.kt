@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -34,6 +36,7 @@ import com.example.model.MediaServer
 import androidx.compose.ui.platform.LocalContext
 import com.example.ui.components.NafiLogoLoadingView
 import com.example.util.ChannelStatusManager
+import kotlinx.coroutines.delay
 
 private val SERVER_CLEAN_REGEX = Regex("^(?i)(server|সার্ভার)\\s*\\d*.*")
 
@@ -81,6 +84,8 @@ fun LiveTvTabScreen(
     favoriteIds: Set<String>,
     isLoading: Boolean = false,
     isTvMode: Boolean = false,
+    isAdultHidden: Boolean = true,
+    repository: com.example.data.MediaRepository? = null,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onAddChannel: (MediaItem) -> Unit = {}
@@ -91,11 +96,27 @@ fun LiveTvTabScreen(
 
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+    val firstChannelFocusRequester = remember { FocusRequester() }
+
+    // Adult / 18+ Content Filter (Safe Mode by default)
+    val adultFilteredChannels = remember(channels, isAdultHidden, repository) {
+        if (isAdultHidden && repository != null) {
+            channels.filterNot { repository.isAdultMedia(it) }
+        } else if (isAdultHidden) {
+            val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature")
+            channels.filterNot { ch ->
+                val txt = "${ch.title} ${ch.category} ${ch.genre ?: ""}".lowercase()
+                adultWords.any { txt.contains(it) }
+            }
+        } else {
+            channels
+        }
+    }
 
     // Trigger non-blocking background health check on unverified channels ONLY if user turned on showOnlyActive filter
-    LaunchedEffect(channels, showOnlyActive) {
-        if (showOnlyActive && channels.isNotEmpty()) {
-            ChannelStatusManager.enqueueChannelsForProbing(channels)
+    LaunchedEffect(adultFilteredChannels, showOnlyActive) {
+        if (showOnlyActive && adultFilteredChannels.isNotEmpty()) {
+            ChannelStatusManager.enqueueChannelsForProbing(adultFilteredChannels)
         }
     }
 
@@ -103,12 +124,22 @@ fun LiveTvTabScreen(
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    val categories = remember(channels) {
-        listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
+    // Auto-focus first channel in TV mode so D-Pad lands on the channel list instead of stealing focus to Search field
+    LaunchedEffect(isTvMode, adultFilteredChannels.isNotEmpty()) {
+        if (isTvMode && adultFilteredChannels.isNotEmpty()) {
+            delay(180)
+            try {
+                firstChannelFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
-        channels.filter { channel ->
+    val categories = remember(adultFilteredChannels) {
+        listOf("ALL", "FAVORITE") + adultFilteredChannels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
+    }
+
+    val filteredChannels = remember(adultFilteredChannels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
+        adultFilteredChannels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true
@@ -265,7 +296,7 @@ fun LiveTvTabScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                items(filteredChannels, key = { it.id }) { channel ->
+                itemsIndexed(filteredChannels, key = { _, it -> it.id }) { index, channel ->
                     val isFav = favoriteIds.contains(channel.id)
                     var isFocused by remember { mutableStateOf(false) }
                     val isActive = ChannelStatusManager.isChannelActive(channel)
@@ -274,6 +305,7 @@ fun LiveTvTabScreen(
                         Modifier
                             .fillMaxWidth()
                             .height(140.dp)
+                            .then(if (index == 0) Modifier.focusRequester(firstChannelFocusRequester) else Modifier)
                             .onFocusChanged { isFocused = it.isFocused }
                             .focusable()
                             .clickable { onSelectMedia(channel, filteredChannels) }
