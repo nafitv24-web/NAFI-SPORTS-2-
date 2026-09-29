@@ -3685,10 +3685,10 @@ fun LiveEventMatchCard(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = "উৎস প্লেলিস্ট: $playlistSource",
+                            text = playlistSource,
                             color = Color(0xFFBAE6FD),
                             fontSize = 9.5.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

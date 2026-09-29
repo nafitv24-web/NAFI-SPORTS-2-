@@ -42,6 +42,7 @@ import com.example.model.MediaItem
 import com.example.util.SportComment
 import com.example.util.SportsInteractionManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // Floating Reaction Item Model for Facebook/YouTube Live reaction physics
@@ -66,7 +67,24 @@ fun SportsMatchCommentsAndReactionsView(
         SportsInteractionManager.init(context)
     }
 
+    // Real-time synchronization loop: Fetches real comments and presence from other users
+    LaunchedEffect(sport.id) {
+        SportsInteractionManager.pingPresence(sport.id)
+        SportsInteractionManager.fetchRealLiveViewers(sport.id)
+        SportsInteractionManager.fetchRemoteComments(sport.id)
+
+        while (isActive) {
+            delay(3500L)
+            try {
+                SportsInteractionManager.pingPresence(sport.id)
+                SportsInteractionManager.fetchRealLiveViewers(sport.id)
+                SportsInteractionManager.fetchRemoteComments(sport.id)
+            } catch (_: Exception) {}
+        }
+    }
+
     val updateTick by SportsInteractionManager.updateTick.collectAsState()
+    val viewersMap by SportsInteractionManager.liveViewersMap.collectAsState()
 
     val reactions = remember(sport.id, updateTick) {
         SportsInteractionManager.getReactions(sport.id)
@@ -76,12 +94,13 @@ fun SportsMatchCommentsAndReactionsView(
         SportsInteractionManager.getComments(sport.id)
     }
 
-    val playlistSource = remember(sport.id, sport.category, sport.tournament, sport.isAdminAdded) {
+    // User requirement: শুধুমাত্র Tapmad Sports প্লে লিস্ট এর নাম (no 'উৎস' or 'উৎস প্লেলিস্ট' prefix!)
+    val playlistName = remember(sport.id, sport.category, sport.tournament, sport.isAdminAdded) {
         SportsInteractionManager.getPlaylistSource(sport.category, sport.tournament, sport.isAdminAdded, sport.id)
     }
 
-    val liveViewersCount = remember(sport.id) {
-        SportsInteractionManager.getLiveViewersCount(sport.id)
+    val realViewersText = remember(sport.id, viewersMap) {
+        SportsInteractionManager.getLiveViewersDisplay(sport.id)
     }
 
     var commentInput by remember { mutableStateOf("") }
@@ -105,7 +124,7 @@ fun SportsMatchCommentsAndReactionsView(
         }
     }
 
-    // Auto-scroll to top when a new comment is posted
+    // Auto-scroll to top when a new comment arrives
     LaunchedEffect(comments.size) {
         if (comments.isNotEmpty()) {
             listState.animateScrollToItem(0)
@@ -159,7 +178,7 @@ fun SportsMatchCommentsAndReactionsView(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // LIVE CHAT Pulsing Indicator + Viewers Count
+                        // LIVE CHAT Pulsing Indicator + Real Viewers Count
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -201,7 +220,7 @@ fun SportsMatchCommentsAndReactionsView(
                                 }
                             }
 
-                            // Viewers Count (YouTube / Facebook Live style)
+                            // Real Viewers Count (রিয়েল দর্শক সংখ্যা - কতজন দেখছে)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -213,7 +232,7 @@ fun SportsMatchCommentsAndReactionsView(
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Text(
-                                    text = "$liveViewersCount দর্শক",
+                                    text = realViewersText,
                                     color = Color(0xFFE2E8F0),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -221,7 +240,7 @@ fun SportsMatchCommentsAndReactionsView(
                             }
                         }
 
-                        // PROMINENT PLAYLIST SOURCE BADGE (কোন প্লেলিস্ট থেকে খেলা চলছে তার স্পষ্ট উল্লেখ)
+                        // User requirement: শুধুমাত্র Tapmad Sports প্লে লিস্ট এর নাম (pure name badge)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color(0xFF0369A1).copy(alpha = 0.25f),
@@ -239,7 +258,7 @@ fun SportsMatchCommentsAndReactionsView(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "উৎস: $playlistSource",
+                                    text = playlistName,
                                     color = Color(0xFFE0F2FE),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold
@@ -248,7 +267,7 @@ fun SportsMatchCommentsAndReactionsView(
                         }
                     }
 
-                    // PINNED HIGHLIGHT BANNER (Like YouTube SuperChat / Pinned Message)
+                    // PINNED HIGHLIGHT BANNER
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFF1E293B).copy(alpha = 0.8f),
@@ -262,7 +281,7 @@ fun SportsMatchCommentsAndReactionsView(
                         ) {
                             Text(text = "📌", fontSize = 11.sp)
                             Text(
-                                text = "পিন বার্তা: শালীন ভাষায় মন্তব্য করুন এবং প্রিয় দলকে সাপোর্ট দিন! সেরা কমেন্টে লাভ রিয়েক্ট দিন ❤️",
+                                text = "লাইভ চ্যাটে একজন কমেন্ট করলে অন্য সকল দর্শক রিয়েল-টাইমে দেখতে পাবেন। শালীন ভাষায় মতামত দিন!",
                                 color = Color(0xFFFDE68A),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium,
@@ -340,7 +359,7 @@ fun SportsMatchCommentsAndReactionsView(
             }
 
             // -------------------------------------------------------------
-            // ৩. YOUTUBE / FACEBOOK LIVE COMMENTS STREAM
+            // ৩. YOUTUBE / FACEBOOK LIVE COMMENTS STREAM (Real & Shared)
             // -------------------------------------------------------------
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -351,128 +370,155 @@ fun SportsMatchCommentsAndReactionsView(
                     .weight(1f, fill = false)
                     .heightIn(min = 180.dp, max = 290.dp)
             ) {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(comments, key = { it.id }) { comment ->
-                        // Modern YouTube / Facebook Live style comment bubble
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF131D33).copy(alpha = 0.75f))
-                                .border(0.5.dp, Color(0xFF2563EB).copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                                .padding(horizontal = 9.dp, vertical = 7.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.Top
+                if (comments.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            // High-contrast Gradient Avatar
-                            val avatarColor = try {
-                                Color(android.graphics.Color.parseColor(comment.avatarBgColorHex))
-                            } catch (_: Exception) {
-                                Color(0xFF0284C7)
-                            }
-                            Box(
+                            Text(text = "💬", fontSize = 28.sp)
+                            Text(
+                                text = "এখনো কোনো কমেন্ট করা হয়নি",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "খেলা নিয়ে প্রথম মন্তব্যটি আপনিই করুন! সব দর্শক তা দেখতে পাবেন।",
+                                color = Color(0xFF64748B),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(comments, key = { it.id }) { comment ->
+                            // Real-time Shared User Comment bubble
+                            Row(
                                 modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(avatarColor, Color(0xFF0F172A))
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF131D33).copy(alpha = 0.75f))
+                                    .border(0.5.dp, Color(0xFF2563EB).copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 9.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                // High-contrast Gradient Avatar
+                                val avatarColor = try {
+                                    Color(android.graphics.Color.parseColor(comment.avatarBgColorHex))
+                                } catch (_: Exception) {
+                                    Color(0xFF0284C7)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(avatarColor, Color(0xFF0F172A))
+                                            )
                                         )
-                                    )
-                                    .border(1.dp, avatarColor.copy(alpha = 0.8f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = comment.userName.take(1).uppercase(),
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-
-                            // Comment Content
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                        .border(1.dp, avatarColor.copy(alpha = 0.8f), CircleShape),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Text(
-                                            text = comment.userName,
-                                            color = Color(0xFF38BDF8),
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-
-                                        // Badge (e.g. TOP FAN, VIP, LIVE FAN)
-                                        if (!comment.badge.isNullOrBlank()) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFF59E0B).copy(alpha = 0.15f),
-                                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B).copy(alpha = 0.6f))
-                                            ) {
-                                                Text(
-                                                    text = comment.badge,
-                                                    color = Color(0xFFFBBF24),
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-
                                     Text(
-                                        text = comment.timestamp,
-                                        color = Color(0xFF64748B),
-                                        fontSize = 9.sp
+                                        text = comment.userName.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold
                                     )
                                 }
 
-                                Text(
-                                    text = comment.text,
-                                    color = Color(0xFFF1F5F9),
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp
-                                )
-                            }
+                                // Comment Content
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Text(
+                                                text = comment.userName,
+                                                color = Color(0xFF38BDF8),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
 
-                            // Like / Heart button on individual comments (Facebook/YouTube style)
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable {
-                                        SportsInteractionManager.likeComment(sport.id, comment.id)
+                                            // Badge (e.g. TOP FAN, VIP, LIVE FAN)
+                                            if (!comment.badge.isNullOrBlank()) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B).copy(alpha = 0.6f))
+                                                ) {
+                                                    Text(
+                                                        text = comment.badge,
+                                                        color = Color(0xFFFBBF24),
+                                                        fontSize = 8.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Text(
+                                            text = comment.timestamp,
+                                            color = Color(0xFF64748B),
+                                            fontSize = 9.sp
+                                        )
                                     }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (comment.isLikedByMe) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                    contentDescription = "Like",
-                                    tint = if (comment.isLikedByMe) Color(0xFFEF4444) else Color(0xFF64748B),
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                if (comment.likesCount > 0) {
+
                                     Text(
-                                        text = "${comment.likesCount}",
-                                        color = if (comment.isLikedByMe) Color(0xFFF87171) else Color(0xFF94A3B8),
-                                        fontSize = 9.5.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        text = comment.text,
+                                        color = Color(0xFFF1F5F9),
+                                        fontSize = 12.sp,
+                                        lineHeight = 16.sp
                                     )
+                                }
+
+                                // Like / Heart button on individual comments
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            SportsInteractionManager.likeComment(sport.id, comment.id)
+                                        }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (comment.isLikedByMe) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                        contentDescription = "Like",
+                                        tint = if (comment.isLikedByMe) Color(0xFFEF4444) else Color(0xFF64748B),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    if (comment.likesCount > 0) {
+                                        Text(
+                                            text = "${comment.likesCount}",
+                                            color = if (comment.isLikedByMe) Color(0xFFF87171) else Color(0xFF94A3B8),
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -481,7 +527,7 @@ fun SportsMatchCommentsAndReactionsView(
             }
 
             // -------------------------------------------------------------
-            // ৪. QUICK-TAP REACTION PHRASES (YouTube / Facebook Live Bar)
+            // ৪. QUICK-TAP REACTION PHRASES
             // -------------------------------------------------------------
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -623,7 +669,6 @@ fun SportsMatchCommentsAndReactionsView(
         // -------------------------------------------------------------
         floatingReactions.forEach { item ->
             key(item.id) {
-                val transition = rememberInfiniteTransition(label = "floatReaction")
                 val floatAnim = remember { Animatable(0f) }
 
                 LaunchedEffect(item.id) {

@@ -2,11 +2,19 @@ package com.example.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 data class SportComment(
     val id: String,
@@ -22,15 +30,35 @@ data class SportComment(
 object SportsInteractionManager {
     private const val PREFS_NAME = "nafi_sports_interactions"
     private const val KEY_SAVED_USERNAME = "saved_user_nickname"
+    private const val KEY_DEVICE_ID = "nafi_device_unique_id"
     private var prefs: SharedPreferences? = null
+
+    private val httpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .build()
+    }
 
     private val _updateTick = MutableStateFlow(0L)
     val updateTick: StateFlow<Long> = _updateTick.asStateFlow()
 
+    // Real active live viewers state
+    private val _liveViewersMap = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val liveViewersMap: StateFlow<Map<String, Int>> = _liveViewersMap.asStateFlow()
+
     fun init(context: Context) {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (prefs?.getString(KEY_DEVICE_ID, null).isNullOrBlank()) {
+                val newId = "usr_" + UUID.randomUUID().toString().take(8)
+                prefs?.edit()?.putString(KEY_DEVICE_ID, newId)?.apply()
+            }
         }
+    }
+
+    fun getDeviceId(): String {
+        return prefs?.getString(KEY_DEVICE_ID, null) ?: "usr_anon"
     }
 
     val EMOJI_LIST = listOf("🔥", "🏏", "⚽", "👏", "❤️", "🏆")
@@ -43,11 +71,15 @@ object SportsInteractionManager {
         prefs?.edit()?.putString(KEY_SAVED_USERNAME, name.trim())?.apply()
     }
 
+    /**
+     * User requirement: উৎস প্লেলিস্ট: Tapmad Sports এমন ভাবে না শুধুমাত্র Tapmad Sports প্লে লিস্ট এর নাম
+     * Returns ONLY the pure playlist name directly without any prefix!
+     */
     fun getPlaylistSource(category: String?, tournament: String?, isAdminAdded: Boolean, id: String = ""): String {
         val cat = category ?: ""
         val trn = tournament ?: ""
         return when {
-            isAdminAdded || id.startsWith("sport_") || id.startsWith("admin_") || id.startsWith("event_") -> "অ্যাডমিন স্পোর্টস প্লেলিস্ট"
+            isAdminAdded || id.startsWith("sport_") || id.startsWith("admin_") || id.startsWith("event_") -> "অ্যাডমিন স্পোর্টস"
             id.startsWith("tapmad_") || cat.contains("tapmad", ignoreCase = true) || trn.contains("tapmad", ignoreCase = true) -> "Tapmad Sports"
             cat.contains("Toffee", ignoreCase = true) || trn.contains("Toffee", ignoreCase = true) -> "Toffee Sports"
             cat.contains("TSports", ignoreCase = true) || cat.contains("T Sports", ignoreCase = true) -> "T Sports Live"
@@ -55,37 +87,103 @@ object SportsInteractionManager {
             cat.contains("Star", ignoreCase = true) -> "Star Sports"
             cat.isNotBlank() && !cat.equals("Sports", ignoreCase = true) && !cat.equals("All", ignoreCase = true) -> cat
             trn.isNotBlank() && !trn.equals("Sports Event", ignoreCase = true) -> trn
-            else -> "স্পোর্টস লাইভ স্ট্রিম"
+            else -> "স্পোর্টস লাইভ"
         }
     }
 
-    fun getLiveViewersCount(matchId: String): String {
-        val base = Math.abs(matchId.hashCode() % 1400) + 1250
-        return String.format(java.util.Locale.US, "%,d", base)
+    private fun getMatchTopic(matchId: String): String {
+        return "nafitv24_sport_" + Math.abs(matchId.hashCode())
     }
 
+    private fun getPresenceTopic(matchId: String): String {
+        return "nafitv24_pres_" + Math.abs(matchId.hashCode())
+    }
+
+    // -------------------------------------------------------------
+    // REAL LIVE VIEWERS PRESENCE SYSTEM
+    // -------------------------------------------------------------
+    suspend fun pingPresence(matchId: String) = withContext(Dispatchers.IO) {
+        try {
+            val topic = getPresenceTopic(matchId)
+            val json = JSONObject()
+            json.put("uid", getDeviceId())
+            json.put("time", System.currentTimeMillis())
+            val body = json.toString().toRequestBody("application/json".toMediaTypeOrNull())
+            val req = Request.Builder()
+                .url("https://ntfy.sh/$topic/publish")
+                .post(body)
+                .build()
+            httpClient.newCall(req).execute().close()
+        } catch (_: Exception) {}
+    }
+
+    suspend fun fetchRealLiveViewers(matchId: String): Int = withContext(Dispatchers.IO) {
+        var viewerCount = 1
+        try {
+            val topic = getPresenceTopic(matchId)
+            val req = Request.Builder()
+                .url("https://ntfy.sh/$topic/json?poll=1&since=50s")
+                .get()
+                .build()
+            val resp = httpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            resp.close()
+
+            val lines = body.lines()
+            val activeDevices = mutableSetOf<String>()
+            val now = System.currentTimeMillis()
+
+            for (line in lines) {
+                if (line.isBlank()) continue
+                try {
+                    val root = JSONObject(line)
+                    val msgStr = root.optString("message", "")
+                    if (msgStr.startsWith("{")) {
+                        val msgObj = JSONObject(msgStr)
+                        val uid = msgObj.optString("uid", "")
+                        val time = msgObj.optLong("time", 0L)
+                        if (uid.isNotBlank() && (now - time) < 60_000L) {
+                            activeDevices.add(uid)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            if (activeDevices.isNotEmpty()) {
+                viewerCount = activeDevices.size.coerceAtLeast(1)
+            }
+        } catch (_: Exception) {}
+
+        val currentMap = _liveViewersMap.value.toMutableMap()
+        currentMap[matchId] = viewerCount
+        _liveViewersMap.value = currentMap
+        return@withContext viewerCount
+    }
+
+    fun getLiveViewersDisplay(matchId: String): String {
+        val count = _liveViewersMap.value[matchId] ?: 1
+        return if (count <= 1) "১ জন সরাসরি দেখছেন" else "$count জন সরাসরি দেখছেন"
+    }
+
+    // -------------------------------------------------------------
+    // REAL LIVE REACTIONS
+    // -------------------------------------------------------------
     fun getReactions(matchId: String): Map<String, Int> {
-        val p = prefs ?: return EMOJI_LIST.associateWith { getInitialReactionCount(matchId, it) }
+        val p = prefs ?: return EMOJI_LIST.associateWith { 5 }
         val rawJson = p.getString("rx_$matchId", null)
         val map = mutableMapOf<String, Int>()
         if (rawJson != null) {
             try {
                 val json = JSONObject(rawJson)
                 EMOJI_LIST.forEach { emoji ->
-                    map[emoji] = json.optInt(emoji, getInitialReactionCount(matchId, emoji))
+                    map[emoji] = json.optInt(emoji, 5)
                 }
                 return map
             } catch (_: Exception) {}
         }
         EMOJI_LIST.forEach { emoji ->
-            map[emoji] = getInitialReactionCount(matchId, emoji)
+            map[emoji] = 5
         }
         return map
-    }
-
-    private fun getInitialReactionCount(matchId: String, emoji: String): Int {
-        val base = Math.abs((matchId + emoji).hashCode() % 45) + 12
-        return base
     }
 
     fun addReaction(matchId: String, emoji: String) {
@@ -96,10 +194,29 @@ object SportsInteractionManager {
         current.forEach { (k, v) -> json.put(k, v) }
         p.edit().putString("rx_$matchId", json.toString()).apply()
         _updateTick.value = System.currentTimeMillis()
+
+        // Broadcast reaction to other live users
+        Thread {
+            try {
+                val topic = getMatchTopic(matchId)
+                val rxObj = JSONObject()
+                rxObj.put("type", "reaction")
+                rxObj.put("emoji", emoji)
+                val body = rxObj.toString().toRequestBody("application/json".toMediaTypeOrNull())
+                val req = Request.Builder()
+                    .url("https://ntfy.sh/$topic/publish")
+                    .post(body)
+                    .build()
+                httpClient.newCall(req).execute().close()
+            } catch (_: Exception) {}
+        }.start()
     }
 
+    // -------------------------------------------------------------
+    // REAL LIVE COMMENTS WITH CLOUD SYNC
+    // -------------------------------------------------------------
     fun getComments(matchId: String): List<SportComment> {
-        val p = prefs ?: return getDefaultComments(matchId)
+        val p = prefs ?: return emptyList()
         val rawJson = p.getString("cm_$matchId", null)
         val likedSet = p.getStringSet("liked_cm_$matchId", emptySet()) ?: emptySet()
         if (rawJson != null) {
@@ -125,9 +242,88 @@ object SportsInteractionManager {
                 if (list.isNotEmpty()) return list
             } catch (_: Exception) {}
         }
-        val defaultList = getDefaultComments(matchId)
-        saveComments(matchId, defaultList)
-        return defaultList
+        return emptyList()
+    }
+
+    /**
+     * Poll and fetch real comments posted by other users from the cloud
+     */
+    suspend fun fetchRemoteComments(matchId: String): List<SportComment> = withContext(Dispatchers.IO) {
+        val newComments = mutableListOf<SportComment>()
+        try {
+            val topic = getMatchTopic(matchId)
+            val req = Request.Builder()
+                .url("https://ntfy.sh/$topic/json?poll=1&since=12h")
+                .get()
+                .build()
+            val resp = httpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            resp.close()
+
+            val lines = body.lines()
+            for (line in lines) {
+                if (line.isBlank()) continue
+                try {
+                    val root = JSONObject(line)
+                    val msgStr = root.optString("message", "")
+                    if (msgStr.startsWith("{")) {
+                        val obj = JSONObject(msgStr)
+                        if (obj.optString("type") == "reaction") {
+                            val emoji = obj.optString("emoji")
+                            if (emoji.isNotBlank()) {
+                                val p = prefs
+                                if (p != null) {
+                                    val current = getReactions(matchId).toMutableMap()
+                                    current[emoji] = (current[emoji] ?: 0) + 1
+                                    val jObj = JSONObject()
+                                    current.forEach { (k, v) -> jObj.put(k, v) }
+                                    p.edit().putString("rx_$matchId", jObj.toString()).apply()
+                                }
+                            }
+                        } else {
+                            val id = obj.optString("id")
+                            val user = obj.optString("user")
+                            val text = obj.optString("text")
+                            val time = obj.optString("time", "এখনই")
+                            val color = obj.optString("color", "#0284C7")
+                            val badge = obj.optString("badge", "").takeIf { it.isNotBlank() }
+                            if (id.isNotBlank() && text.isNotBlank()) {
+                                newComments.add(
+                                    SportComment(
+                                        id = id,
+                                        userName = user.ifBlank { "সরাসরি ফ্যান" },
+                                        text = text,
+                                        timestamp = time,
+                                        avatarBgColorHex = color,
+                                        likesCount = obj.optInt("likes", 0),
+                                        badge = badge
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+
+        if (newComments.isNotEmpty()) {
+            val local = getComments(matchId).toMutableList()
+            val seenIds = local.map { it.id }.toHashSet()
+            var addedAny = false
+            for (rc in newComments) {
+                if (!seenIds.contains(rc.id)) {
+                    local.add(0, rc)
+                    seenIds.add(rc.id)
+                    addedAny = true
+                }
+            }
+            if (addedAny) {
+                saveComments(matchId, local)
+                _updateTick.value = System.currentTimeMillis()
+            }
+            return@withContext local
+        }
+        return@withContext getComments(matchId)
     }
 
     fun likeComment(matchId: String, commentId: String) {
@@ -159,19 +355,40 @@ object SportsInteractionManager {
         val colors = listOf("#0284C7", "#10B981", "#8B5CF6", "#F59E0B", "#EC4899", "#3B82F6", "#06B6D4")
         val color = colors[Math.abs(cleanUser.hashCode()) % colors.size]
         val newComment = SportComment(
-            id = "c_${System.currentTimeMillis()}",
+            id = "c_${System.currentTimeMillis()}_${(100..999).random()}",
             userName = cleanUser,
             text = cleanText,
             timestamp = "এখনই",
             avatarBgColorHex = color,
-            likesCount = 1,
-            isLikedByMe = true,
+            likesCount = 0,
+            isLikedByMe = false,
             badge = "🔥 LIVE FAN"
         )
         val current = getComments(matchId).toMutableList()
         current.add(0, newComment)
         saveComments(matchId, current)
         _updateTick.value = System.currentTimeMillis()
+
+        // Broadcast to all other users live in real-time!
+        Thread {
+            try {
+                val topic = getMatchTopic(matchId)
+                val obj = JSONObject()
+                obj.put("id", newComment.id)
+                obj.put("user", newComment.userName)
+                obj.put("text", newComment.text)
+                obj.put("time", newComment.timestamp)
+                obj.put("color", newComment.avatarBgColorHex)
+                obj.put("badge", newComment.badge)
+                val body = obj.toString().toRequestBody("application/json".toMediaTypeOrNull())
+                val req = Request.Builder()
+                    .url("https://ntfy.sh/$topic/publish")
+                    .post(body)
+                    .build()
+                httpClient.newCall(req).execute().close()
+            } catch (_: Exception) {}
+        }.start()
+
         return newComment
     }
 
@@ -190,15 +407,5 @@ object SportsInteractionManager {
             array.put(obj)
         }
         p.edit().putString("cm_$matchId", array.toString()).apply()
-    }
-
-    private fun getDefaultComments(matchId: String): List<SportComment> {
-        return listOf(
-            SportComment("d1", "সাকিবুল হাসান", "লাইভ স্ট্রিমিং ফুল এইচডি ও একদম স্মুথ চলছে, ধন্যবাদ নাফি টিভি! 🔥", "১ মিনিট আগে", "#10B981", 14, false, "👑 TOP FAN"),
-            SportComment("d2", "আরিফ বিল্লাহ", "আজকের খেলাটা দারুণ জমে উঠেছে! কী মারাত্মক শট! 🏏", "২ মিনিট আগে", "#0284C7", 9, false, "⭐ VIP"),
-            SportComment("d3", "তানভীর আহমেদ", "আমাদের দলই জিতবে ইনশাআল্লাহ! গর্জে ওঠো টাইগার্স 👏", "৪ মিনিট আগে", "#8B5CF6", 18, false, "🔥 SUPPORTER"),
-            SportComment("d4", "রিফাত খান", "কোনো বাফারিং ছাড়াই খেলা উপভোগ করছি, লাভ ইউ নাফি ২৪ ❤️", "৭ মিনিট আগে", "#EC4899", 7, false, null),
-            SportComment("d5", "মেহেদী হাসান", "ছক্কা! বল বাউন্ডারির বাইরে! অসাধারণ পারফরম্যান্স 🏆", "১০ মিনিট আগে", "#F59E0B", 12, false, "⚡ LIVE FAN")
-        )
     }
 }
