@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.nafitv.ifmvfb"
     minSdk = 24
     targetSdk = 36
-    versionCode = 27
-    versionName = "2.6.5"
+    versionCode = 26
+    versionName = "2.6.8"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -102,7 +102,6 @@ dependencies {
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.exoplayer.dash)
-  implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
   implementation("androidx.media3:media3-exoplayer-rtsp:1.5.1")
   implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1")
   implementation(libs.converter.moshi)

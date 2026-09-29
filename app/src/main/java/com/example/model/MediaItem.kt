@@ -31,24 +31,7 @@ data class EpisodeItem(
     val containerExtension: String = "mp4"
 ) {
     fun toMediaItem(parentSeries: MediaItem): MediaItem {
-        val cleanSeriesId = (parentSeries.seriesId ?: parentSeries.id).removePrefix("xtream_series_").removePrefix("xtream_ep_").trim()
-        val cleanServer = parentSeries.xtreamServerUrl?.takeIf { it.isNotBlank() } ?: "http://rgkkw.live:80"
-        val cleanUser = parentSeries.xtreamUsername?.takeIf { it.isNotBlank() } ?: "4dfoydR2gZ"
-        val cleanPass = parentSeries.xtreamPassword?.takeIf { it.isNotBlank() } ?: "clever3still"
-        val ext = containerExtension.ifBlank { "mp4" }
-        val finalStreamUrl = if (streamUrl.isNotBlank()) streamUrl else "$cleanServer/series/$cleanUser/$cleanPass/$id.$ext"
-        val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
-        val altPlayUrl = "$altServer/series/$cleanUser/$cleanPass/$id.$ext"
-        val altExtUrl = if (ext.equals("mp4", ignoreCase = true)) {
-            "$cleanServer/series/$cleanUser/$cleanPass/$id.mkv"
-        } else {
-            "$cleanServer/series/$cleanUser/$cleanPass/$id.mp4"
-        }
-        val epServers = if (servers.isNotEmpty()) servers else listOf(
-            StreamServer("সার্ভার ১ (HD MP4)", finalStreamUrl),
-            StreamServer("সার্ভার ২ (বিকল্প পোর্ট)", altPlayUrl),
-            StreamServer("সার্ভার ৩ (বিকল্প ফরম্যাট)", altExtUrl)
-        )
+        val epServers = if (servers.isNotEmpty()) servers else listOf(StreamServer("সার্ভার ১ (HD)", streamUrl))
         val cleanTitle = if (title.isNotBlank()) title else "${parentSeries.title} - S${seasonNum}E${episodeNum}"
         val uniqueEpId = if (id.isNotBlank() && id != "0") "xtream_ep_${id}" else "${parentSeries.id}_s${seasonNum}e${episodeNum}"
         return MediaItem(
@@ -56,25 +39,25 @@ data class EpisodeItem(
             title = cleanTitle,
             category = parentSeries.category,
             type = MediaType.SERIES,
-            streamUrl = finalStreamUrl,
-            backupUrl = altPlayUrl,
+            streamUrl = streamUrl,
+            backupUrl = backupUrl,
             servers = epServers,
             logoUrl = logoUrl ?: parentSeries.logoUrl,
             description = overview?.takeIf { it.isNotBlank() } ?: parentSeries.description,
             isLive = false,
             rating = rating ?: parentSeries.rating,
             year = releaseDate?.take(4) ?: parentSeries.year,
-            seriesId = cleanSeriesId,
+            seriesId = (parentSeries.seriesId ?: parentSeries.id).removePrefix("xtream_series_").removePrefix("xtream_ep_"),
             currentSeasonNum = seasonNum,
             currentEpisodeNum = episodeNum,
             seasons = parentSeries.seasons,
-            episodes = emptyList(), // Avoid recursive object tree explosion in playlist
+            episodes = parentSeries.episodes,
             genre = parentSeries.genre,
             cast = parentSeries.cast,
             director = parentSeries.director,
-            xtreamServerUrl = cleanServer,
-            xtreamUsername = cleanUser,
-            xtreamPassword = cleanPass,
+            xtreamServerUrl = parentSeries.xtreamServerUrl,
+            xtreamUsername = parentSeries.xtreamUsername,
+            xtreamPassword = parentSeries.xtreamPassword,
             userAgent = parentSeries.userAgent ?: "IPTVSmartersPro"
         )
     }
@@ -145,8 +128,7 @@ data class MediaItem(
     val xtreamPassword: String? = null,
     val isAdminAdded: Boolean = false
 ) {
-    val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty() || id.startsWith("xtream_series_") || id.startsWith("series_") || category.contains("JALSHA", ignoreCase = true) || category.contains("SERIAL", ignoreCase = true) || category.contains("DRAMA", ignoreCase = true) || category.contains("SERIES", ignoreCase = true)
-    val resolvedSeriesId: String? get() = seriesId?.takeIf { it.isNotBlank() } ?: if (id.startsWith("xtream_series_")) id.removePrefix("xtream_series_") else null
+    val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty()
     val isFromAdmin: Boolean get() = isAdminAdded || id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("admin_")
     val headers: Map<String, String>? get() = customHeaders
     // Helper to get all available server URLs
@@ -327,14 +309,6 @@ data class XtreamAccount(
     val includeSeries: Boolean = true,
     val lastSyncTime: Long = 0L,
     val statusMessage: String? = null
-)
-
-data class MatchComment(
-    val id: String = "",
-    val matchId: String = "",
-    val userName: String = "",
-    val text: String = "",
-    val timestamp: Long = System.currentTimeMillis()
 )
 
 
