@@ -82,22 +82,27 @@ jobs:
 
       - name: Build APK with Gradle
         run: |
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee build_output.log || {
-            STATUS=$?
-            echo "=========================================================="
-            echo "                 BUILD ERROR DETAILS                      "
-            echo "=========================================================="
-            grep -E -C 3 "(e: |FAILURE:|What went wrong:|Compilation error)" build_output.log | tail -n 50 || cat build_output.log | tail -n 60
-            echo "=========================================================="
-            exit $STATUS
-          }
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK as Artifact
+      - name: Collect and Prepare Mobile APK
+        run: |
+          mkdir -p final-apk
+          if [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            cp -v app/build/outputs/apk/debug/app-debug.apk final-apk/NAFI-TV-24-Mobile-App.apk
+          else
+            find . -name "*.apk" -not -path "*/.gradle/*" -exec cp -v {} final-apk/NAFI-TV-24-Mobile-App.apk \;
+          fi
+          echo "Ready APK files:"
+          ls -lh final-apk/
+
+      - name: Upload Mobile APK as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NAFI-TV-24-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: NAFI-TV-24-Mobile-Android-APK
+          path: final-apk/*.apk
           retention-days: 30
+          if-no-files-found: error
 
   build-windows:
     name: Build Windows PC (.exe)

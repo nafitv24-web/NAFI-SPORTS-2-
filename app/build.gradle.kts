@@ -7,7 +7,7 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36
 
   defaultConfig {
     applicationId = "com.aistudio.nafitv.ifmvfb"
@@ -102,7 +102,6 @@ dependencies {
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.exoplayer.dash)
-  implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
   implementation("androidx.media3:media3-exoplayer-rtsp:1.5.1")
   implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1")
   implementation(libs.converter.moshi)
