@@ -69,14 +69,14 @@ jobs:
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses 2>/dev/null || true
+
       - name: Build APK with Gradle
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx5120m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC\" -Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.configuration-cache=false -Dkotlin.compiler.execution.strategy=in-process"
         run: |
           ./gradlew assembleDebug \
             --no-daemon \
-            --no-configuration-cache \
-            --no-parallel \
             --stacktrace
 
       - name: Upload APK as Artifact
