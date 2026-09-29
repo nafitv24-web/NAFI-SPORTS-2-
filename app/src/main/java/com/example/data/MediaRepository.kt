@@ -295,29 +295,79 @@ class MediaRepository(private val context: Context) {
     // -------------------------------------------------------------
     // Deleted Items Persistence (Ensures deleted items NEVER reappear)
     // -------------------------------------------------------------
+    private val diskDeletedFile by lazy { java.io.File(context.filesDir, "permanently_deleted.json") }
+
+    private fun loadDiskDeleted(): Pair<Set<String>, Set<String>> {
+        if (!diskDeletedFile.exists()) return Pair(emptySet(), emptySet())
+        return try {
+            val json = JSONObject(diskDeletedFile.readText())
+            val ids = mutableSetOf<String>()
+            val idsArr = json.optJSONArray("ids")
+            if (idsArr != null) {
+                for (i in 0 until idsArr.length()) ids.add(idsArr.getString(i))
+            }
+            val titles = mutableSetOf<String>()
+            val titlesArr = json.optJSONArray("titles")
+            if (titlesArr != null) {
+                for (i in 0 until titlesArr.length()) titles.add(titlesArr.getString(i))
+            }
+            Pair(ids, titles)
+        } catch (_: Exception) {
+            Pair(emptySet(), emptySet())
+        }
+    }
+
+    private fun saveDiskDeleted(ids: Set<String>, titles: Set<String>) {
+        try {
+            val json = JSONObject()
+            val idsArr = JSONArray()
+            ids.forEach { idsArr.put(it) }
+            val titlesArr = JSONArray()
+            titles.forEach { titlesArr.put(it) }
+            json.put("ids", idsArr)
+            json.put("titles", titlesArr)
+            diskDeletedFile.writeText(json.toString())
+        } catch (_: Exception) {}
+    }
+
     fun getDeletedIds(): Set<String> {
-        return prefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
+        val prefsSet = prefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
+        val diskSet = loadDiskDeleted().first
+        return prefsSet + diskSet + setOf("sport_1786892061230", "sport_1787095254210")
     }
 
     fun addDeletedId(id: String) {
+        if (id.isBlank()) return
         val current = getDeletedIds().toMutableSet()
         current.add(id)
         prefs.edit().putStringSet("deleted_ids", current).apply()
+        saveDiskDeleted(current, getDeletedTitles())
     }
 
     fun removeDeletedId(id: String) {
         val current = getDeletedIds().toMutableSet()
         if (current.remove(id)) {
             prefs.edit().putStringSet("deleted_ids", current).apply()
+            saveDiskDeleted(current, getDeletedTitles())
         }
     }
 
     fun clearDeletedIds() {
         prefs.edit().remove("deleted_ids").apply()
+        try { diskDeletedFile.delete() } catch (_: Exception) {}
     }
 
     fun getDeletedTitles(): Set<String> {
-        return prefs.getStringSet("deleted_titles", emptySet()) ?: emptySet()
+        val prefsSet = prefs.getStringSet("deleted_titles", emptySet()) ?: emptySet()
+        val diskSet = loadDiskDeleted().second
+        return prefsSet + diskSet + setOf(
+            "bangladesh vs australia",
+            "australia vs bangladesh",
+            "pakistan vs england",
+            "england vs pakistan",
+            "cricket 🏏 || bangladesh vs australia test series 2026",
+            "cricket 🏏|| pakistan vs england test series 2026"
+        )
     }
 
     fun addDeletedTitle(title: String) {
@@ -325,6 +375,7 @@ class MediaRepository(private val context: Context) {
         val current = getDeletedTitles().toMutableSet()
         current.add(title.trim().lowercase())
         prefs.edit().putStringSet("deleted_titles", current).apply()
+        saveDiskDeleted(getDeletedIds(), current)
     }
 
     fun isItemDeleted(item: MediaItem): Boolean {
@@ -408,9 +459,8 @@ class MediaRepository(private val context: Context) {
 
     fun loadListFromFileCache(fileName: String): List<MediaItem> {
         val inMem = memoryFileCache[fileName]
-        val deleted = getDeletedIds()
         if (inMem != null && inMem.isNotEmpty()) {
-            return if (deleted.isEmpty()) inMem else inMem.filterNot { deleted.contains(it.id) }
+            return inMem.filterNot { isItemDeleted(it) }
         }
 
         val file = java.io.File(context.filesDir, fileName)
@@ -423,8 +473,11 @@ class MediaRepository(private val context: Context) {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val id = obj.optString("id", "item_$i")
-                    if (!deleted.contains(id) && !id.startsWith("sport_default_")) {
-                        list.add(parseMediaFromJsonObj(id, obj))
+                    if (!id.startsWith("sport_default_")) {
+                        val parsed = parseMediaFromJsonObj(id, obj)
+                        if (!isItemDeleted(parsed)) {
+                            list.add(parsed)
+                        }
                     }
                 }
             }
@@ -434,15 +487,15 @@ class MediaRepository(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        return list
+        return list.filterNot { isItemDeleted(it) }
     }
 
     fun getCachedSportsMatches(): List<MediaItem> {
-        return loadListFromFileCache("cache_sports_v2.json").filterNot { it.id.startsWith("sport_default_") }
+        return loadListFromFileCache("cache_sports_v2.json").filterNot { isItemDeleted(it) || it.id.startsWith("sport_default_") }
     }
 
     fun getCachedAdminLiveEvents(): List<MediaItem> {
-        return loadListFromFileCache("cache_admin_events_v2.json")
+        return loadListFromFileCache("cache_admin_events_v2.json").filterNot { isItemDeleted(it) }
     }
 
     fun getCachedLiveTvChannels(): List<MediaItem> {
@@ -615,14 +668,14 @@ class MediaRepository(private val context: Context) {
         existingList: List<MediaItem>,
         newFetched: List<MediaItem>
     ): List<MediaItem> {
-        if (newFetched.isEmpty()) return existingList
-        val deleted = getDeletedIds()
-        val existingIds = existingList.map { it.id }.toHashSet()
-        val existingKeys = existingList.map { it.title.trim().lowercase() }.toHashSet()
+        val cleanExisting = existingList.filterNot { isItemDeleted(it) }
+        if (newFetched.isEmpty()) return cleanExisting
+        val existingIds = cleanExisting.map { it.id }.toHashSet()
+        val existingKeys = cleanExisting.map { it.title.trim().lowercase() }.toHashSet()
 
         val additions = mutableListOf<MediaItem>()
         for (item in newFetched) {
-            if (deleted.contains(item.id) || isDemoChannel(item)) continue
+            if (isItemDeleted(item) || isDemoChannel(item)) continue
             val titleKey = item.title.trim().lowercase()
             if (existingIds.contains(item.id) || existingKeys.contains(titleKey)) {
                 continue
@@ -633,9 +686,9 @@ class MediaRepository(private val context: Context) {
         }
 
         return if (additions.isEmpty()) {
-            existingList
+            cleanExisting
         } else {
-            existingList + additions
+            cleanExisting + additions
         }
     }
 
@@ -648,14 +701,14 @@ class MediaRepository(private val context: Context) {
         existingList: List<MediaItem>,
         newFetched: List<MediaItem>
     ): List<MediaItem> {
-        if (newFetched.isEmpty()) return existingList
-        val deleted = getDeletedIds()
-        val existingIds = existingList.map { it.id }.toHashSet()
-        val existingKeys = existingList.map { it.title.trim().lowercase() }.toHashSet()
+        val cleanExisting = existingList.filterNot { isItemDeleted(it) }
+        if (newFetched.isEmpty()) return cleanExisting
+        val existingIds = cleanExisting.map { it.id }.toHashSet()
+        val existingKeys = cleanExisting.map { it.title.trim().lowercase() }.toHashSet()
 
         val additions = mutableListOf<MediaItem>()
         for (item in newFetched) {
-            if (deleted.contains(item.id) || isDemoChannel(item)) continue
+            if (isItemDeleted(item) || isDemoChannel(item)) continue
             val titleKey = item.title.trim().lowercase()
             if (existingIds.contains(item.id) || existingKeys.contains(titleKey)) {
                 continue
@@ -666,9 +719,9 @@ class MediaRepository(private val context: Context) {
         }
 
         return if (additions.isEmpty()) {
-            existingList
+            cleanExisting
         } else {
-            existingList + additions
+            cleanExisting + additions
         }
     }
 
@@ -698,7 +751,81 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getDefaultBuiltinLiveTv(): List<MediaItem> {
-        return emptyList()
+        return listOf(
+            MediaItem(
+                id = "builtin_tv_star_jalsha_hd",
+                title = "Star Jalsha HD",
+                category = "BENGALI",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://da86m1sqpm3o0.cloudfront.net/28072023/smil:starjalsha.smil/chunklist_b1928000.m3u8",
+                logoUrl = "https://images.slivcdn.com/portrait_thumb/1000030097_640x960.jpg",
+                isLive = true,
+                quality = "1080p Full HD",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (CloudFront)", "https://da86m1sqpm3o0.cloudfront.net/28072023/smil:starjalsha.smil/chunklist_b1928000.m3u8"),
+                    StreamServer("সার্ভার ২ (YuppTV)", "https://yupptvcatchupire.yuppcdn.net/preview/starjalsha/1800.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "builtin_tv_zee_bangla_hd",
+                title = "Zee Bangla HD",
+                category = "BENGALI",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://drk6xq0vhn.gpcdn.net/live/zee_bangla_720/index.m3u8",
+                logoUrl = "https://akamaividz2.zee5.com/image/upload/w_504,h_756,c_scale,f_webp,q_auto:eco/resources/0-6-4z5207797/portrait/1920x7706cfd1502447e4ad48b8b320d75824c6e.jpg",
+                isLive = true,
+                quality = "720p HD",
+                servers = listOf(
+                    StreamServer("সার্ভার ১ (GP CDN)", "https://drk6xq0vhn.gpcdn.net/live/zee_bangla_720/index.m3u8"),
+                    StreamServer("সার্ভার ২ (YuppTV)", "https://yupptvcatchupire.yuppcdn.net/preview/zeebangla/2500.m3u8"),
+                    StreamServer("সার্ভার ৩ (BDIX Direct)", "http://103.165.93.31:8095/zeeBangla/index.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "builtin_tv_zee_bangla_cinema",
+                title = "Zee Bangla Cinema",
+                category = "BENGALI",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://bldcmprod-cdn.toffeelive.com/cdn/live/zee_bangla_cinema/playlist.m3u8",
+                logoUrl = "https://bldcmprod-cdn.toffeelive.com/cdn/live/zee_bangla_cinema/logo.png",
+                isLive = true,
+                quality = "1080p FHD"
+            ),
+            MediaItem(
+                id = "builtin_tv_jalsha_movies_hd",
+                title = "Jalsha Movies HD",
+                category = "BENGALI",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://Liveftp.zibobdixserver.top/Jalsha_Movie/index.m3u8",
+                logoUrl = "https://static.wikia.nocookie.net/logopedia/images/4/4c/Jalsha_Movies.png",
+                isLive = true,
+                quality = "HD",
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://Liveftp.zibobdixserver.top/Jalsha_Movie/index.m3u8"),
+                    StreamServer("সার্ভার ২ (BDIX)", "http://103.165.93.31:8095/jalshaMovies/index.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "builtin_tv_tsports_hd",
+                title = "T Sports HD",
+                category = "SPORTS",
+                type = MediaType.LIVE_TV,
+                streamUrl = "http://103.185.24.134:3001/TSportsHD/tracks-v1a1/mono.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSnPevTdjT05ba89m-cFH_ZRydD0gW4N7gHgGlczvCbtg&s=10",
+                isLive = true,
+                quality = "1080p FHD"
+            ),
+            MediaItem(
+                id = "builtin_tv_somoy_tv",
+                title = "Somoy TV",
+                category = "NEWS",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://drk6xq0vhn.gpcdn.net/live/somoy_tv_abr/index.m3u8",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/en/b/b3/Somoy_TV_Logo.png",
+                isLive = true,
+                quality = "HD"
+            )
+        )
     }
 
     fun getDefaultBuiltinMovies(): List<MediaItem> {
@@ -719,13 +846,25 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getInitialLiveTv(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
-        val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
+        val cached = getCachedLiveTvChannels().filterNot { isItemDeleted(it) || isDemoChannel(it) }
+        val builtin = getDefaultBuiltinLiveTv().filterNot { isItemDeleted(it) }
 
         val combined = mutableListOf<MediaItem>()
         combined.addAll(customTv)
         combined.addAll(cached)
+        if (combined.isEmpty()) {
+            combined.addAll(builtin)
+        } else {
+            // Guarantee Star Jalsha and Zee Bangla are at the front if missing
+            val existingIds = combined.map { it.id }.toSet()
+            val existingTitles = combined.map { it.title.trim().lowercase() }.toSet()
+            for (b in builtin) {
+                if (!existingIds.contains(b.id) && !existingTitles.contains(b.title.trim().lowercase())) {
+                    combined.add(0, b)
+                }
+            }
+        }
 
         val seen = HashSet<String>()
         val result = combined.mapIndexed { idx, ch ->
@@ -735,7 +874,7 @@ class MediaRepository(private val context: Context) {
             }
             seen.add(uid)
             ch.copy(id = uid)
-        }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
 
         return if (isFamilyModeEnabled()) result.filterNot { isAdultContent(it) } else result
     }
@@ -789,6 +928,18 @@ class MediaRepository(private val context: Context) {
                 description = "আইন ও ন্যায়ের লড়াই নিয়ে স্টার জলসার নতুন সিরিয়াল।",
                 quality = "1080p FHD",
                 rating = "8.7"
+            ),
+            MediaItem(
+                id = "star_jalsha_horogouri",
+                title = "হরগৌরী পাইস হোটেল (Horogouri Pice Hotel)",
+                category = "STAR JALSHA",
+                type = MediaType.SERIES,
+                isSeries = true,
+                streamUrl = "http://vod.cineplexbd.net:8081/tv-series/Indian%20Bangla/Anondi%20%282024%29/Season%201/Anondi%20-%20Ep.%2006.mp4/tracks-v1a1/mono.m3u8",
+                logoUrl = "https://images.slivcdn.com/portrait_thumb/1000030097_640x960.jpg",
+                description = "স্টার জলসার জনপ্রিয় পারিবারিক ধারাবাহিক নাটক।",
+                quality = "1080p FHD",
+                rating = "8.9"
             ),
             MediaItem(
                 id = "zee_bangla_jagaddhatri",
@@ -866,7 +1017,6 @@ class MediaRepository(private val context: Context) {
 
     // Custom streams saved locally in SharedPreferences
     fun getCustomStreams(): List<MediaItem> {
-        val deleted = getDeletedIds()
         val jsonStr = prefs.getString("custom_streams", "[]") ?: "[]"
         val list = mutableListOf<MediaItem>()
         try {
@@ -874,14 +1024,15 @@ class MediaRepository(private val context: Context) {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val id = obj.optString("id", "c_$i")
-                if (!deleted.contains(id)) {
-                    list.add(parseMediaFromJsonObj(id, obj))
+                val parsed = parseMediaFromJsonObj(id, obj)
+                if (!isItemDeleted(parsed)) {
+                    list.add(parsed)
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        return list
+        return list.filterNot { isItemDeleted(it) }
     }
 
     fun saveCustomStream(item: MediaItem) {
@@ -1071,7 +1222,7 @@ class MediaRepository(private val context: Context) {
             if (!response.isSuccessful) return@withContext emptyList()
 
             val content = response.body?.string()?.trim() ?: return@withContext emptyList()
-            parseMediaFromJsonString(content)
+            parseMediaFromJsonString(content, defaultCategory = "Bangla Movies", defaultType = MediaType.MOVIE).filterNot { isItemDeleted(it) }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -1792,11 +1943,11 @@ class MediaRepository(private val context: Context) {
                                             val doc = docs.optJSONObject(i) ?: continue
                                             val name = doc.optString("name", "")
                                             val docId = name.substringAfterLast("/")
-                                            if (docId.isBlank() || deleted.contains(docId)) continue
+                                            if (docId.isBlank() || getDeletedIds().contains(docId)) continue
 
                                             val fields = doc.optJSONObject("fields") ?: continue
                                             val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
-                                            if (!deleted.contains(mediaItem.id)) {
+                                            if (!isItemDeleted(mediaItem)) {
                                                 colItems.add(mediaItem)
                                             }
                                         }
@@ -1938,11 +2089,11 @@ class MediaRepository(private val context: Context) {
                                             val doc = docs.optJSONObject(i) ?: continue
                                             val name = doc.optString("name", "")
                                             val docId = name.substringAfterLast("/")
-                                            if (docId.isBlank() || deleted.contains(docId)) continue
+                                            if (docId.isBlank() || getDeletedIds().contains(docId)) continue
 
                                             val fields = doc.optJSONObject("fields") ?: continue
                                             val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
-                                            if (!deleted.contains(mediaItem.id)) {
+                                            if (!isItemDeleted(mediaItem)) {
                                                 colItems.add(mediaItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true))
                                             }
                                         }
@@ -1982,10 +2133,12 @@ class MediaRepository(private val context: Context) {
                                             val itemObj = subObj.optJSONObject(k)
                                             if (itemObj != null && !itemObj.has("channelCount")) {
                                                 val rawItem = parseMediaFromJsonObj(k, itemObj)
-                                                if (rawItem.type == MediaType.LIVE_EVENT || (sub != "channels" && sub != "movies") || rawItem.id.startsWith("sport_") || rawItem.id.startsWith("match_") || rawItem.id.startsWith("event_")) {
-                                                    val finalItem = rawItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true)
-                                                    if (!deleted.contains(finalItem.id)) {
-                                                        subItems.add(finalItem)
+                                                if (!isItemDeleted(rawItem)) {
+                                                    if (rawItem.type == MediaType.LIVE_EVENT || (sub != "channels" && sub != "movies") || rawItem.id.startsWith("sport_") || rawItem.id.startsWith("match_") || rawItem.id.startsWith("event_")) {
+                                                        val finalItem = rawItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true)
+                                                        if (!isItemDeleted(finalItem)) {
+                                                            subItems.add(finalItem)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2003,7 +2156,7 @@ class MediaRepository(private val context: Context) {
             items.addAll(allFetched)
         }
 
-        val result = items.distinctBy { it.id }.filterNot { deleted.contains(it.id) || it.id.startsWith("pl_") }
+        val result = items.distinctBy { it.id }.filterNot { isItemDeleted(it) || it.id.startsWith("pl_") }
         if (result.isNotEmpty()) {
             saveCachedAdminLiveEvents(result)
         }
@@ -2015,7 +2168,7 @@ class MediaRepository(private val context: Context) {
         val items = mutableListOf<MediaItem>()
 
         // 1. Fetch from Firestore REST
-        val firestoreItems = fetchFromFirestore()
+        val firestoreItems = fetchFromFirestore().filterNot { isItemDeleted(it) }
         items.addAll(firestoreItems)
 
         // 2. Fetch from Firebase Realtime Database (Optimized: queries targeted media collections to save 95%+ bandwidth and avoid downloading user logs)
@@ -2044,14 +2197,16 @@ class MediaRepository(private val context: Context) {
                                         val itemObj = subObj.optJSONObject(k)
                                         if (itemObj != null && !itemObj.has("channelCount")) {
                                             val rawItem = parseMediaFromJsonObj(k, itemObj)
-                                            val item = when (sub) {
-                                                "channels" -> if (rawItem.type != MediaType.LIVE_TV && !rawItem.id.startsWith("sport_") && !rawItem.id.startsWith("match_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_TV) else rawItem
-                                                "sports", "events", "matches" -> if (rawItem.type != MediaType.LIVE_EVENT && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_EVENT) else rawItem
-                                                "movies" -> if (rawItem.type != MediaType.MOVIE && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("sport_")) rawItem.copy(type = MediaType.MOVIE) else rawItem
-                                                else -> rawItem
-                                            }
-                                            if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
-                                                items.add(item)
+                                            if (!isItemDeleted(rawItem)) {
+                                                val item = when (sub) {
+                                                    "channels" -> if (rawItem.type != MediaType.LIVE_TV && !rawItem.id.startsWith("sport_") && !rawItem.id.startsWith("match_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_TV) else rawItem
+                                                    "sports", "events", "matches" -> if (rawItem.type != MediaType.LIVE_EVENT && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("mov_")) rawItem.copy(type = MediaType.LIVE_EVENT) else rawItem
+                                                    "movies" -> if (rawItem.type != MediaType.MOVIE && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("sport_")) rawItem.copy(type = MediaType.MOVIE) else rawItem
+                                                    else -> rawItem
+                                                }
+                                                if (!isItemDeleted(item) && !item.id.startsWith("pl_")) {
+                                                    items.add(item)
+                                                }
                                             }
                                         }
                                     }
@@ -2064,7 +2219,7 @@ class MediaRepository(private val context: Context) {
                 e.printStackTrace()
             }
         }
-        items.distinctBy { it.id }.filterNot { deleted.contains(it.id) || it.id.startsWith("pl_") }
+        items.distinctBy { it.id }.filterNot { isItemDeleted(it) || it.id.startsWith("pl_") }
     }
 
     suspend fun pushToFirebase(

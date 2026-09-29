@@ -167,6 +167,8 @@ fun AdminControlAppScreen(
     var updateScore1 by remember { mutableStateOf("") }
     var updateScore2 by remember { mutableStateOf("") }
     var itemToDelete by remember { mutableStateOf<MediaItem?>(null) }
+    var locallyDeletedIds by remember { mutableStateOf(setOf<String>()) }
+    var locallyDeletedTitles by remember { mutableStateOf(setOf<String>()) }
 
     // Channel Form State
     var channelName by remember { mutableStateOf("") }
@@ -2177,7 +2179,11 @@ fun AdminControlAppScreen(
                 }
 
                 // Sports Items List
-                val visibleSports = sportsList.filterNot { repository.isItemDeleted(it) }
+                val visibleSports = sportsList.filterNot { item ->
+                    item.id in locallyDeletedIds ||
+                    locallyDeletedTitles.contains(item.title.trim().lowercase()) ||
+                    repository.isItemDeleted(item)
+                }
                 items(visibleSports, key = { it.id }) { item ->
                     Card(
                         shape = RoundedCornerShape(14.dp),
@@ -2533,8 +2539,11 @@ fun AdminControlAppScreen(
 
                 // Search & Filter Header for Channels
                 val customTvChannels = (repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV } + liveTvList.filter { it.id.startsWith("tv_") || it.id.startsWith("channel_") || it.id.startsWith("c_") }).distinctBy { it.id }
+                    .filterNot { it.id in locallyDeletedIds || locallyDeletedTitles.contains(it.title.trim().lowercase()) || repository.isItemDeleted(it) }
 
-                val filteredTvChannels = (customTvChannels + liveTvList).distinctBy { it.id }.filter { item ->
+                val filteredTvChannels = (customTvChannels + liveTvList).distinctBy { it.id }
+                    .filterNot { it.id in locallyDeletedIds || locallyDeletedTitles.contains(it.title.trim().lowercase()) || repository.isItemDeleted(it) }
+                    .filter { item ->
                     val matchesSearch = channelAdminSearchQuery.isBlank() ||
                         item.title.contains(channelAdminSearchQuery, ignoreCase = true) ||
                         item.category.contains(channelAdminSearchQuery, ignoreCase = true) ||
@@ -2742,7 +2751,9 @@ fun AdminControlAppScreen(
             // -------------------------------------------------------------
             if (selectedAdminTab == AdminTab.MOVIES) {
                 val customMovies = repository.getCustomStreams().filter { it.type == MediaType.MOVIE }
+                    .filterNot { it.id in locallyDeletedIds || locallyDeletedTitles.contains(it.title.trim().lowercase()) || repository.isItemDeleted(it) }
                 val allMovies = (customMovies + moviesList).distinctBy { it.id }
+                    .filterNot { it.id in locallyDeletedIds || locallyDeletedTitles.contains(it.title.trim().lowercase()) || repository.isItemDeleted(it) }
                 val filteredMovies = allMovies.filter { mov ->
                     val matchesSearch = moviesAdminSearchQuery.isBlank() ||
                         mov.title.contains(moviesAdminSearchQuery, ignoreCase = true) ||
@@ -6749,6 +6760,8 @@ fun AdminControlAppScreen(
                 Button(
                     onClick = {
                         val toRemove = target
+                        locallyDeletedIds = locallyDeletedIds + toRemove.id
+                        locallyDeletedTitles = locallyDeletedTitles + toRemove.title.trim().lowercase()
                         itemToDelete = null
                         coroutineScope.launch {
                             repository.deleteMediaItem(toRemove)
