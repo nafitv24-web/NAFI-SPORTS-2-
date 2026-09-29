@@ -87,7 +87,6 @@ fun MoviesTabScreen(
     favoriteIds: Set<String>,
     isLoading: Boolean = false,
     isTvMode: Boolean = false,
-    isFamilyModeEnabled: Boolean = true,
     repository: com.example.data.MediaRepository? = null,
     onSelectMedia: (MediaItem) -> Unit,
     onSelectMediaWithPlaylist: ((MediaItem, List<MediaItem>) -> Unit)? = null,
@@ -99,22 +98,6 @@ fun MoviesTabScreen(
     var selectedTypeFilter by remember { mutableStateOf("ALL") }
     var selectedSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
 
-    val safeMovies = remember(movies, isFamilyModeEnabled) {
-        if (isFamilyModeEnabled) {
-            movies.filterNot { item ->
-                repository?.isAdultContent(item) == true ||
-                item.category.contains("adult", ignoreCase = true) ||
-                item.category.contains("xxx", ignoreCase = true) ||
-                item.category.contains("18+", ignoreCase = true) ||
-                item.title.contains("xxx", ignoreCase = true) ||
-                item.title.contains("18+", ignoreCase = true) ||
-                item.title.contains("erotic", ignoreCase = true)
-            }
-        } else {
-            movies
-        }
-    }
-
     val handleItemSelect: (MediaItem) -> Unit = { item ->
         if ((item.isSeries || item.type == com.example.model.MediaType.SERIES) && repository != null) {
             selectedSeriesForDialog = item
@@ -123,11 +106,11 @@ fun MoviesTabScreen(
         }
     }
 
-    val typeFilteredMovies = remember(safeMovies, selectedTypeFilter) {
+    val typeFilteredMovies = remember(movies, selectedTypeFilter) {
         when (selectedTypeFilter) {
-            "MOVIE" -> safeMovies.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
-            "SERIES" -> safeMovies.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
-            else -> safeMovies
+            "MOVIE" -> movies.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
+            "SERIES" -> movies.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+            else -> movies
         }
     }
 

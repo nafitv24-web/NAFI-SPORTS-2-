@@ -94,7 +94,6 @@ fun LiveTvTabScreen(
     favoriteIds: Set<String>,
     isLoading: Boolean = false,
     isTvMode: Boolean = false,
-    isFamilyModeEnabled: Boolean = true,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onAddChannel: (MediaItem) -> Unit = {}
@@ -106,27 +105,10 @@ fun LiveTvTabScreen(
     val statusTick by ChannelStatusManager.statusUpdateTick.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    val displayChannels = remember(channels, isFamilyModeEnabled) {
-        if (isFamilyModeEnabled) {
-            channels.filterNot { ch ->
-                val title = ch.title.lowercase()
-                val cat = ch.category.lowercase()
-                cat.contains("adult") || cat.contains("xxx") || cat.contains("18+") || cat.contains("erotic") || cat.contains("porn") ||
-                cat.contains("for adults") ||
-                title.startsWith("xxx") || title.contains("xxx:") || title.contains("18+") || title.contains("erotic") ||
-                title.contains("brazzer") || title.contains("fake taxi") || title.contains("dorcel") || title.contains("blue hustler") ||
-                title.contains("playboy") || title.contains("hustler") || title.contains("penthouse") || title.contains("redlight") ||
-                title.contains("sensual") || title.contains("stripper") || title.contains("naked") || title.contains("babes")
-            }
-        } else {
-            channels
-        }
-    }
-
     // Trigger non-blocking background health check on unverified channels ONLY if user turned on showOnlyActive filter
-    LaunchedEffect(displayChannels, showOnlyActive) {
-        if (showOnlyActive && displayChannels.isNotEmpty()) {
-            ChannelStatusManager.enqueueChannelsForProbing(displayChannels)
+    LaunchedEffect(channels, showOnlyActive) {
+        if (showOnlyActive && channels.isNotEmpty()) {
+            ChannelStatusManager.enqueueChannelsForProbing(channels)
         }
     }
 
@@ -134,21 +116,12 @@ fun LiveTvTabScreen(
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    val categories = remember(displayChannels, isFamilyModeEnabled) {
-        val cats = displayChannels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
-        val safeCats = if (isFamilyModeEnabled) {
-            cats.filterNot { c ->
-                val lower = c.lowercase()
-                lower.contains("adult") || lower.contains("xxx") || lower.contains("18+") || lower.contains("erotic") || lower.contains("porn") || lower.contains("for adults")
-            }
-        } else {
-            cats
-        }
-        listOf("ALL", "FAVORITE") + safeCats
+    val categories = remember(channels) {
+        listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
     }
 
-    val filteredChannels = remember(displayChannels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
-        displayChannels.filter { channel ->
+    val filteredChannels = remember(channels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
+        channels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true

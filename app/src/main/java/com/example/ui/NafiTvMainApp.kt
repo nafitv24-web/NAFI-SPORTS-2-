@@ -254,7 +254,6 @@ fun NafiTvMainApp(
     var breakingNewsText by remember { mutableStateOf(repository.getMarqueeTickerText()) }
     var isRefreshing by remember { mutableStateOf(false) }
     var currentLoadingStage by remember { mutableStateOf(LoadingStage.IDLE) }
-    var isFamilyModeEnabled by remember { mutableStateOf(repository.isFamilyModeEnabled()) }
 
     fun checkForUpdates(isManualCheck: Boolean = false) {
         coroutineScope.launch {
@@ -1101,17 +1100,14 @@ fun NafiTvMainApp(
                             )
 
                             AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList, isFamilyModeEnabled) {
-                                val allTv = liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
-                                val safeTv = if (isFamilyModeEnabled) allTv.filterNot { repository.isAdultContent(it) } else allTv
-                                mergeChannelsWithServers(safeTv)
+                            val mergedTvList = remember(liveTvList, customList, m3uList) {
+                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
                             }
                             LiveTvTabScreen(
                                 channels = mergedTvList,
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
-                                isFamilyModeEnabled = isFamilyModeEnabled,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
@@ -1124,59 +1120,42 @@ fun NafiTvMainApp(
                             )
                         }
 
-                            AppTab.MOVIES -> {
-                                val safeMoviesList = remember(moviesList, isFamilyModeEnabled) {
-                                    if (isFamilyModeEnabled) moviesList.filterNot { repository.isAdultContent(it) } else moviesList
-                                }
-                                MoviesTabScreen(
-                                    movies = safeMoviesList,
-                                    favoriteIds = favoriteIds,
-                                    isLoading = isRefreshing,
-                                    isTvMode = isTvMode,
-                                    isFamilyModeEnabled = isFamilyModeEnabled,
-                                    repository = repository,
-                                    onSelectMedia = { item ->
-                                        selectedMediaItem = item
-                                        activePlaybackPlaylist = safeMoviesList
-                                    },
-                                    onSelectMediaWithPlaylist = { item, epPlaylist ->
-                                        selectedMediaItem = item
-                                        activePlaybackPlaylist = epPlaylist
-                                    },
-                                    onToggleFavorite = { id ->
-                                        repository.toggleFavorite(id)
-                                        favoriteIds = repository.getFavoriteIds()
-                                    },
-                                    onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
-                                )
-                            }
+                            AppTab.MOVIES -> MoviesTabScreen(
+                                movies = moviesList,
+                                favoriteIds = favoriteIds,
+                                isLoading = isRefreshing,
+                                isTvMode = isTvMode,
+                                repository = repository,
+                                onSelectMedia = { item ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = moviesList
+                                },
+                                onSelectMediaWithPlaylist = { item, epPlaylist ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = epPlaylist
+                                },
+                                onToggleFavorite = { id ->
+                                    repository.toggleFavorite(id)
+                                    favoriteIds = repository.getFavoriteIds()
+                                },
+                                onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
+                            )
 
-                            AppTab.PLAYLIST -> {
-                                val safePlaylists = remember(playlistsList, isFamilyModeEnabled) {
-                                    if (isFamilyModeEnabled) {
-                                        playlistsList.filterNot { repository.isAdultCategory(it.title) || repository.isAdultCategory(it.description) }
-                                    } else {
-                                        playlistsList
-                                    }
-                                }
-                                PlaylistTabScreen(
-                                    playlists = safePlaylists,
-                                    repository = repository,
-                                    isTvMode = isTvMode,
-                                    onSelectMedia = { item, playlist ->
-                                        selectedMediaItem = item
-                                        activePlaybackPlaylist = playlist
-                                    },
-                                    onPlaylistsChanged = { refreshAllData() }
-                                )
-                            }
+                            AppTab.PLAYLIST -> PlaylistTabScreen(
+                                playlists = playlistsList,
+                                repository = repository,
+                                isTvMode = isTvMode,
+                                onSelectMedia = { item, playlist ->
+                                    selectedMediaItem = item
+                                    activePlaybackPlaylist = playlist
+                                },
+                                onPlaylistsChanged = { refreshAllData() }
+                            )
 
                             AppTab.MENU -> MenuScreen(
                                 repository = repository,
                                 customList = customList,
                                 isTvMode = true,
-                                isFamilyModeEnabled = isFamilyModeEnabled,
-                                onFamilyModeChanged = { isFamilyModeEnabled = it },
                                 onSwitchToMobileMode = {
                                     isTvMode = false
                                     activeUserMode = AppUserMode.MOBILE
@@ -1513,17 +1492,14 @@ fun NafiTvMainApp(
                         )
 
                         AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList, isFamilyModeEnabled) {
-                                val allTv = liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
-                                val safeTv = if (isFamilyModeEnabled) allTv.filterNot { repository.isAdultContent(it) } else allTv
-                                mergeChannelsWithServers(safeTv)
+                            val mergedTvList = remember(liveTvList, customList, m3uList) {
+                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
                             }
                             LiveTvTabScreen(
                                 channels = mergedTvList,
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
-                                isFamilyModeEnabled = isFamilyModeEnabled,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
@@ -1536,59 +1512,42 @@ fun NafiTvMainApp(
                             )
                         }
 
-                        AppTab.MOVIES -> {
-                            val safeMoviesList = remember(moviesList, isFamilyModeEnabled) {
-                                if (isFamilyModeEnabled) moviesList.filterNot { repository.isAdultContent(it) } else moviesList
-                            }
-                            MoviesTabScreen(
-                                movies = safeMoviesList,
-                                favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
-                                isTvMode = isTvMode,
-                                isFamilyModeEnabled = isFamilyModeEnabled,
-                                repository = repository,
-                                onSelectMedia = { item ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = safeMoviesList
-                                },
-                                onSelectMediaWithPlaylist = { item, epPlaylist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = epPlaylist
-                                },
-                                onToggleFavorite = { id ->
-                                    repository.toggleFavorite(id)
-                                    favoriteIds = repository.getFavoriteIds()
-                                },
-                                onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
-                            )
-                        }
+                        AppTab.MOVIES -> MoviesTabScreen(
+                            movies = moviesList,
+                            favoriteIds = favoriteIds,
+                            isLoading = isRefreshing,
+                            isTvMode = isTvMode,
+                            repository = repository,
+                            onSelectMedia = { item ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = moviesList
+                            },
+                            onSelectMediaWithPlaylist = { item, epPlaylist ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = epPlaylist
+                            },
+                            onToggleFavorite = { id ->
+                                repository.toggleFavorite(id)
+                                favoriteIds = repository.getFavoriteIds()
+                            },
+                            onOpenOfflineDownloads = { isOfflineDownloadsActive = true }
+                        )
 
-                        AppTab.PLAYLIST -> {
-                            val safePlaylists = remember(playlistsList, isFamilyModeEnabled) {
-                                if (isFamilyModeEnabled) {
-                                    playlistsList.filterNot { repository.isAdultCategory(it.title) || repository.isAdultCategory(it.description) }
-                                } else {
-                                    playlistsList
-                                }
-                            }
-                            PlaylistTabScreen(
-                                playlists = safePlaylists,
-                                repository = repository,
-                                isTvMode = isTvMode,
-                                onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = playlist
-                                },
-                                onPlaylistsChanged = { refreshAllData() }
-                            )
-                        }
+                        AppTab.PLAYLIST -> PlaylistTabScreen(
+                            playlists = playlistsList,
+                            repository = repository,
+                            isTvMode = isTvMode,
+                            onSelectMedia = { item, playlist ->
+                                selectedMediaItem = item
+                                activePlaybackPlaylist = playlist
+                            },
+                            onPlaylistsChanged = { refreshAllData() }
+                        )
 
                         AppTab.MENU -> MenuScreen(
                             repository = repository,
                             customList = customList,
                             isTvMode = false,
-                            isFamilyModeEnabled = isFamilyModeEnabled,
-                            onFamilyModeChanged = { isFamilyModeEnabled = it },
                             onSwitchToMobileMode = {
                                 isTvMode = false
                                 activeUserMode = AppUserMode.MOBILE
@@ -1816,8 +1775,6 @@ fun MenuScreen(
     repository: MediaRepository,
     customList: List<MediaItem>,
     isTvMode: Boolean = false,
-    isFamilyModeEnabled: Boolean = true,
-    onFamilyModeChanged: (Boolean) -> Unit = {},
     onSwitchToMobileMode: () -> Unit = {},
     onSwitchToTvMode: () -> Unit = {},
     onResetModeSelection: () -> Unit = {},
@@ -1833,10 +1790,6 @@ fun MenuScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
-    // Family Mode State (Default is ALWAYS ON/True)
-    var isFamilyMode by remember(isFamilyModeEnabled) { mutableStateOf(isFamilyModeEnabled) }
-    var showDisableFamilyConfirmDialog by remember { mutableStateOf(false) }
 
     // 1. Direct Stream State
     var directUrl by remember { mutableStateOf("") }
@@ -1983,109 +1936,6 @@ fun MenuScreen(
                             Text("মোড চয়েস পেজ", fontSize = 12.sp)
                         }
                     }
-                }
-            }
-        }
-
-        // CARD: Family Mode (ফ্যামিলি মোড / প্যারেন্টাল সেফ গার্ড - সর্বদা ডিফল্ট সক্রিয়)
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (isFamilyMode) Color(0xFF10B981).copy(alpha = 0.8f) else Color(0xFFF59E0B).copy(alpha = 0.6f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isFamilyMode) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.15f),
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (isFamilyMode) Icons.Rounded.Security else Icons.Rounded.LockOpen,
-                                        contentDescription = "Family Mode",
-                                        tint = if (isFamilyMode) Color(0xFF10B981) else Color(0xFFF59E0B),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "ফ্যামিলি মোড (Family Mode)",
-                                        color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (isFamilyMode) Color(0xFF065F46) else Color(0xFF78350F)
-                                    ) {
-                                        Text(
-                                            text = if (isFamilyMode) "সুরক্ষিত" else "উন্মুক্ত",
-                                            color = if (isFamilyMode) Color(0xFF34D399) else Color(0xFFFBBF24),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = if (isFamilyMode) "১৮+ ও অ্যাডাল্ট কন্টেন্ট সম্পূর্ণ গোপন রয়েছে" else "১৮+ কন্টেন্ট প্রদর্শিত হচ্ছে",
-                                    color = if (isFamilyMode) Color(0xFF34D399) else Color(0xFFFBBF24),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        Switch(
-                            checked = isFamilyMode,
-                            onCheckedChange = { checked ->
-                                if (!checked) {
-                                    showDisableFamilyConfirmDialog = true
-                                } else {
-                                    isFamilyMode = true
-                                    repository.setFamilyModeEnabled(true)
-                                    onFamilyModeChanged(true)
-                                    Toast.makeText(context, "ফ্যামিলি মোড সক্রিয় করা হয়েছে! ১৮+ কন্টেন্ট সফলভাবে লুকানো হয়েছে।", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFF10B981),
-                                uncheckedThumbColor = Color(0xFF94A3B8),
-                                uncheckedTrackColor = Color(0xFF334155)
-                            )
-                        )
-                    }
-
-                    Text(
-                        text = "পরিবার ও শিশুদের নিরাপদ ব্যবহারের জন্য ফ্যামিলি মোড অ্যাপে সার্বক্ষণিক চালু থাকে। যতক্ষণ না আপনি নিজে এই অপশনটি অফ করছেন, ততক্ষণ কোনো প্রকার অ্যাডাল্ট বা ১৮+ মুভি এবং টিভি চ্যানেল অ্যাপের সামনে আসবে না।",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
                 }
             }
         }
@@ -2819,64 +2669,6 @@ fun MenuScreen(
             dismissButton = {
                 TextButton(onClick = { showAdminLoginDialog = false }) {
                     Text("বাতিল", color = Color.White)
-                }
-            }
-        )
-    }
-
-    // DIALOG: Family Mode Disable Confirmation
-    if (showDisableFamilyConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showDisableFamilyConfirmDialog = false },
-            containerColor = Color(0xFF1E293B),
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.Warning,
-                        contentDescription = null,
-                        tint = Color(0xFFF59E0B),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "ফ্যামিলি মোড বন্ধ করতে চান?",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            text = {
-                Text(
-                    text = "ফ্যামিলি মোড বন্ধ করলে অ্যাপের লাইভ টিভি ও মুভি সেকশনে ১৮+ বা অ্যাডাল্ট (Adults) চ্যানেল ও মুভি প্রদর্শিত হতে পারে। আপনি কি নিশ্চিত যে আপনি এটি বন্ধ করতে চান?",
-                    color = Color(0xFFCBD5E1),
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDisableFamilyConfirmDialog = false
-                        isFamilyMode = false
-                        repository.setFamilyModeEnabled(false)
-                        onFamilyModeChanged(false)
-                        Toast.makeText(context, "ফ্যামিলি মোড বন্ধ করা হয়েছে।", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("হ্যাঁ, বন্ধ করুন", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showDisableFamilyConfirmDialog = false },
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF10B981))
-                ) {
-                    Text("না, চালু রাখুন", fontWeight = FontWeight.Bold)
                 }
             }
         )
