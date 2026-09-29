@@ -63,21 +63,34 @@ jobs:
       - name: Restore or Generate Debug Keystore
         run: |
           if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+            base64 -d debug.keystore.base64 > debug.keystore || true
           fi
-          if [ ! -f "debug.keystore" ]; then
+          if [ ! -s "debug.keystore" ]; then
+            rm -f debug.keystore
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses & Setup Platforms
         run: |
           yes | sdkmanager --licenses 2>/dev/null || true
+          sdkmanager "platforms;android-36" || true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.3.1
 
       - name: Build APK with Gradle
         run: |
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --stacktrace
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build_output.log || {
+            STATUS=$?
+            echo "=========================================================="
+            echo "                 BUILD ERROR DETAILS                      "
+            echo "=========================================================="
+            grep -E -C 3 "(e: |FAILURE:|What went wrong:|Compilation error)" build_output.log | tail -n 50 || cat build_output.log | tail -n 60
+            echo "=========================================================="
+            exit $STATUS
+          }
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
