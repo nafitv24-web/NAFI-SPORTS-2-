@@ -29,14 +29,37 @@ class NafiTvApp : Application(), ImageLoaderFactory {
             Log.w("NafiTvApp", "Coil image loader init error", e)
         }
 
-        // 2. Global crash protection: Intercepts background decoder / OkHttp / coroutine crashes
-        // preventing unexpected process termination on low-spec devices and TV boxes
+        // 2. Global crash protection: Intercepts decoder, GPU, network & memory crashes
+        // preventing unexpected process termination on normal & low-spec devices
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e("NafiTvApp", "Intercepted crash on thread: ${thread.name}", throwable)
-            if (thread != Looper.getMainLooper().thread) {
-                // Background thread error (e.g. MediaCodec, DNS resolution, Coil decoding) -> ignore & recover
-                Log.w("NafiTvApp", "Suppressed background thread exception: ${throwable.message}")
+            val msg = throwable.message ?: ""
+            val isRecoverable = throwable is java.lang.OutOfMemoryError ||
+                    throwable is android.view.WindowManager.BadTokenException ||
+                    throwable is android.os.DeadObjectException ||
+                    throwable is android.media.MediaCodec.CodecException ||
+                    throwable is java.util.concurrent.TimeoutException ||
+                    throwable is java.net.SocketTimeoutException ||
+                    throwable is java.io.IOException ||
+                    msg.contains("MediaCodec", ignoreCase = true) ||
+                    msg.contains("Surface", ignoreCase = true) ||
+                    msg.contains("DeadObject", ignoreCase = true) ||
+                    msg.contains("OutOfMemory", ignoreCase = true) ||
+                    msg.contains("EGL", ignoreCase = true) ||
+                    msg.contains("GLES", ignoreCase = true) ||
+                    msg.contains("TextureView", ignoreCase = true) ||
+                    msg.contains("ViewRootImpl", ignoreCase = true)
+
+            if (thread != Looper.getMainLooper().thread || isRecoverable) {
+                // Recoverable / background error -> ignore & recover to keep app alive
+                Log.w("NafiTvApp", "Suppressed recoverable exception: ${throwable.javaClass.simpleName} - $msg")
+                if (throwable is java.lang.OutOfMemoryError) {
+                    try {
+                        customImageLoader?.memoryCache?.clear()
+                        System.gc()
+                    } catch (_: Throwable) {}
+                }
             } else {
                 Log.w("NafiTvApp", "Suppressed main thread uncaught exception: ${throwable.message}")
                 defaultHandler?.uncaughtException(thread, throwable)

@@ -933,18 +933,18 @@ fun VideoPlayerScreen(
                 finalCleanUrl.contains(".m3u8", ignoreCase = true)
 
         // Memory-safe, high-speed, anti-buffering LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
-        // For streams like akr4m with 10s segment sizes (4MB+ each), allocate ample buffer bytes and forward cushion
+        // Keeps memory consumption low (12-20MB) to prevent OOM/LMK process termination on normal phones
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isAkr4m) 20000 else if (isLiveStream) 6000 else 15000,
-                /* maxBufferMs = */ if (isAkr4m) 50000 else if (isLiveStream) 30000 else 50000,
-                /* bufferForPlaybackMs = */ 500,                         // Starts playing in 500ms (instant start)
-                /* bufferForPlaybackAfterRebufferMs = */ 1000            // Recovers quickly in 1s if network interrupted
+                /* minBufferMs = */ if (isAkr4m) 12000 else if (isLiveStream) 5000 else 12000,
+                /* maxBufferMs = */ if (isAkr4m) 25000 else if (isLiveStream) 18000 else 25000,
+                /* bufferForPlaybackMs = */ 400,                         // Starts playing in 400ms (instant start)
+                /* bufferForPlaybackAfterRebufferMs = */ 800             // Recovers quickly in 800ms if network interrupted
             )
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(if (isLiveStream) 0 else 10000, false)
-            .setTargetBufferBytes(if (isAkr4m) 36 * 1024 * 1024 else if (isLiveStream) 24 * 1024 * 1024 else 32 * 1024 * 1024)
+            .setBackBuffer(if (isLiveStream) 0 else 5000, false)
+            .setTargetBufferBytes(if (isAkr4m) 18 * 1024 * 1024 else if (isLiveStream) 12 * 1024 * 1024 else 16 * 1024 * 1024)
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
@@ -1215,16 +1215,18 @@ fun VideoPlayerScreen(
                         val isIoError = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
                                 error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
 
-                        if (playerRetryKey < 2 && (is403Or401 || isIoError)) {
-                            // Automatically attempt next User-Agent / Referer fallback profile
-                            playerRetryKey++
-                            errorMessage = "বিকল্প সংযোগ কনফিগারেশন পরীক্ষা করা হচ্ছে (${playerRetryKey + 1}/3)..."
-                        } else if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
+                        if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
+                            // Immediately switch to next available server
                             selectedServerIndex++
                             val targetServer = currentServers[selectedServerIndex]
                             currentUrl = targetServer.url
+                            playerRetryKey = 0
                             errorMessage = "সার্ভার পরিবর্তন হচ্ছে: ${targetServer.name}..."
                             channelOsdKey = System.currentTimeMillis()
+                        } else if (playerRetryKey < 2 && (is403Or401 || isIoError)) {
+                            // Automatically attempt next User-Agent / Referer fallback profile
+                            playerRetryKey++
+                            errorMessage = "বিকল্প সংযোগ কনফিগারেশন পরীক্ষা করা হচ্ছে (${playerRetryKey + 1}/3)..."
                         } else if (isWebEmbedUrl) {
                             forceWebEngine = true
                             errorMessage = null

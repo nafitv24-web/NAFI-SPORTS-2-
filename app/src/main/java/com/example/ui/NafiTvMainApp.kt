@@ -99,8 +99,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 enum class AppTab(val title: String, val englishLabel: String) {
-    EVENTS("ম্যাচ", "Events"),
     LIVE_TV("টিভি", "Live TV"),
+    EVENTS("লাইভ ইভেন্ট", "Live Events"),
     MOVIES("মুভি", "Movies"),
     PLAYLIST("প্লেলিস্ট", "Playlist"),
     MENU("মেনু", "Menu")
@@ -108,8 +108,8 @@ enum class AppTab(val title: String, val englishLabel: String) {
 
 enum class LoadingStage(val title: String, val shortLabel: String, val step: Int, val totalSteps: Int = 4) {
     IDLE("প্রস্তুত", "Ready", 0),
-    LIVE_EVENTS("১. লাইভ ইভেন্ট লোড হচ্ছে...", "লাইভ ইভেন্ট", 1),
-    LIVE_TV("২. লাইভ টিভি চ্যানেল লোড হচ্ছে...", "লাইভ টিভি", 2),
+    LIVE_TV("১. লাইভ টিভি চ্যানেল লোড হচ্ছে...", "লাইভ টিভি", 1),
+    LIVE_EVENTS("২. লাইভ ইভেন্ট লোড হচ্ছে...", "লাইভ ইভেন্ট", 2),
     MOVIES("৩. মুভি ও সিরিজ লোড হচ্ছে...", "মুভি ও সিরিজ", 3),
     PLAYLISTS("৪. প্লেলিস্ট ও ক্লাউডস্ট্রিম লোড হচ্ছে...", "প্লেলিস্ট", 4),
     COMPLETED("সকল ডেটা সফলভাবে লোড সম্পন্ন!", "সম্পন্ন", 4)
@@ -150,7 +150,7 @@ fun NafiTvMainApp(
     val repository = remember { MediaRepository(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf(AppTab.EVENTS) }
+    var currentTab by remember { mutableStateOf(AppTab.LIVE_TV) }
     var selectedMediaItem by remember { mutableStateOf<MediaItem?>(null) }
     var activePlaybackPlaylist by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     val initialSavedMode = remember {
@@ -277,12 +277,12 @@ fun NafiTvMainApp(
         }
     }
 
-    // Auto-fetch data: Sequential Staged Loading (1. Events -> 2. Live TV -> 3. Movies -> 4. Playlists & Cloud)
+    // Auto-fetch data: Sequential Staged Loading (1. Live TV -> 2. Live Events -> 3. Movies -> 4. Playlists & Cloud)
     fun refreshAllData() {
         coroutineScope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) {
                 isRefreshing = true
-                currentLoadingStage = LoadingStage.LIVE_EVENTS
+                currentLoadingStage = LoadingStage.LIVE_TV
             }
             try {
                 val deleted = repository.getDeletedIds()
@@ -295,8 +295,64 @@ fun NafiTvMainApp(
                 }
 
                 // -------------------------------------------------------------
-                // ধাপ ১: প্রথমে লাইভ ইভেন্ট / খেলাধুলা লোড হবে (First: Live Events)
+                // ধাপ ১: সবার প্রথমে লাইভ টিভি অপশন গুলো লোড হবে (First: Live TV Channels)
                 // -------------------------------------------------------------
+                try {
+                    val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
+                    val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
+                        try {
+                            repository.parseM3uFromUrl(liveTvM3uUrl).map {
+                                it.copy(type = MediaType.LIVE_TV, isLive = true)
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            emptyList()
+                        }
+                    } else emptyList()
+
+                    val xtreamLiveChannels = try {
+                        repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
+                    val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
+                    val combinedTv = mutableListOf<MediaItem>()
+                    combinedTv.addAll(customTv)
+                    combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
+                    combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
+
+                    val sourceTvList = if (combinedTv.isNotEmpty()) combinedTv else repository.getDefaultBuiltinLiveTv()
+
+                    // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
+                    // Preserve every single channel even with duplicate names, ensuring unique IDs for Compose
+                    val seenTvIds = HashSet<String>()
+                    val updatedTv = sourceTvList.filterNot { repository.isDemoChannel(it) }.mapIndexed { idx, ch ->
+                        var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
+                        if (seenTvIds.contains(uid)) {
+                            uid = "${uid}_$idx"
+                        }
+                        seenTvIds.add(uid)
+                        ch.copy(id = uid)
+                    }
+
+                    if (updatedTv.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            liveTvList = updatedTv
+                        }
+                        repository.saveCachedLiveTvChannels(liveTvList)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                delay(100) // Smooth yield
+
+                // -------------------------------------------------------------
+                // ধাপ ২: তারপর লাইভ ইভেন্ট / খেলাধুলা লোড হবে (Second: Live Events)
+                // -------------------------------------------------------------
+                withContext(Dispatchers.Main) {
+                    currentLoadingStage = LoadingStage.LIVE_EVENTS
+                }
                 try {
                     val adminEvents = try {
                         repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
@@ -344,61 +400,7 @@ fun NafiTvMainApp(
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(120) // Smooth yield to prevent UI frame drop
-
-                // -------------------------------------------------------------
-                // ধাপ ২: তারপর লাইভ টিভি অপশন গুলো লোড হবে (Second: Live TV Channels)
-                // -------------------------------------------------------------
-                withContext(Dispatchers.Main) {
-                    currentLoadingStage = LoadingStage.LIVE_TV
-                }
-                try {
-                    val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
-                    val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
-                        try {
-                            repository.parseM3uFromUrl(liveTvM3uUrl).map {
-                                it.copy(type = MediaType.LIVE_TV, isLive = true)
-                            }.filterNot { deleted.contains(it.id) }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            emptyList()
-                        }
-                    } else emptyList()
-
-                    val xtreamLiveChannels = try {
-                        repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
-                    val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
-                    val combinedTv = mutableListOf<MediaItem>()
-                    combinedTv.addAll(customTv)
-                    combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
-                    combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
-
-                    // User requirement: "লাইভ টিভি অপশনে সকল চ্যানেল আসবে এক নামে দুটি চ্যানেল থাকলেও"
-                    // Preserve every single channel even with duplicate names, ensuring unique IDs for Compose
-                    val seenTvIds = HashSet<String>()
-                    val updatedTv = combinedTv.filterNot { repository.isDemoChannel(it) }.mapIndexed { idx, ch ->
-                        var uid = ch.id.ifBlank { "tv_${idx}_${Math.abs(ch.title.hashCode())}" }
-                        if (seenTvIds.contains(uid)) {
-                            uid = "${uid}_$idx"
-                        }
-                        seenTvIds.add(uid)
-                        ch.copy(id = uid)
-                    }
-
-                    if (updatedTv.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            liveTvList = updatedTv
-                        }
-                        repository.saveCachedLiveTvChannels(liveTvList)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                delay(120) // Smooth yield
+                delay(100) // Smooth yield to prevent UI frame drop
 
                 // -------------------------------------------------------------
                 // ধাপ ৩: তারপর মুভি ও সিরিজ অপশন গুলো লোড হবে (Third: Movies & Series)
@@ -711,8 +713,8 @@ fun NafiTvMainApp(
     } else {
         // Intercept back press when at root screens to show Exit Confirmation Dialog
         BackHandler {
-            if (currentTab != AppTab.EVENTS) {
-                currentTab = AppTab.EVENTS
+            if (currentTab != AppTab.LIVE_TV) {
+                currentTab = AppTab.LIVE_TV
             } else {
                 showExitConfirmationDialog = true
             }
@@ -848,7 +850,14 @@ fun NafiTvMainApp(
                                     contentScale = ContentScale.Fit
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
-                                if (currentTab == AppTab.EVENTS) {
+                                if (currentTab == AppTab.LIVE_TV) {
+                                    Text(
+                                        text = "Live TV",
+                                        color = Color.White,
+                                        fontSize = 19.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else if (currentTab == AppTab.EVENTS) {
                                     Text(
                                         text = "Live Events",
                                         color = Color.White,
@@ -1227,7 +1236,14 @@ fun NafiTvMainApp(
                                     contentScale = ContentScale.Fit
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
-                                if (currentTab == AppTab.EVENTS) {
+                                if (currentTab == AppTab.LIVE_TV) {
+                                    Text(
+                                        text = "Live TV",
+                                        color = Color.White,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else if (currentTab == AppTab.EVENTS) {
                                     Text(
                                         text = "Live Events",
                                         color = Color.White,

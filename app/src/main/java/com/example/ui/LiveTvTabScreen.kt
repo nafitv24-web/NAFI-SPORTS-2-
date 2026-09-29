@@ -46,25 +46,12 @@ fun mergeChannelsWithServers(channels: List<MediaItem>): List<MediaItem> {
         val url = item.streamUrl.lowercase()
         val allUrls = (item.servers.map { it.url.lowercase() } + listOf(url)).joinToString(" ")
 
-        id.startsWith("tv_tsports") ||
-                id.startsWith("tv_asports") ||
-                id.startsWith("tv_gtv") ||
-                id.startsWith("tv_star_sports") ||
-                id.startsWith("tv_sony_ten") ||
-                id.startsWith("tv_somoy") ||
-                id.startsWith("tv_jamuna") ||
-                id.startsWith("tv_channel_i") ||
-                id.startsWith("tv_btv") ||
-                id.startsWith("demo_") ||
-                id.contains("demo") ||
-                id.contains("sample") ||
-                title.contains("demo") ||
-                title.contains("ডেমো") ||
-                title.contains("sample") ||
-                title.contains("test channel") ||
-                title.contains("পরীক্ষামূলক") ||
-                cat.contains("demo") ||
-                cat.contains("ডেমো") ||
+        id.startsWith("demo_") ||
+                id.contains("demo_sample") ||
+                title.contains("demo channel") ||
+                title.contains("ডেমো চ্যানেল") ||
+                title.contains("test stream") ||
+                title.contains("পরীক্ষামূলক টেস্ট") ||
                 allUrls.contains("test-streams.mux.dev") ||
                 allUrls.contains("akamaized.net/hls/live/2000341/test") ||
                 allUrls.contains("bitdash-a.akamaihd.net") ||
@@ -324,8 +311,13 @@ fun LiveTvTabScreen(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 if (!channel.logoUrl.isNullOrBlank()) {
+                                    val context = LocalContext.current
                                     AsyncImage(
-                                        model = channel.logoUrl,
+                                        model = coil.request.ImageRequest.Builder(context)
+                                            .data(channel.logoUrl)
+                                            .crossfade(false)
+                                            .size(128, 128)
+                                            .build(),
                                         contentDescription = channel.title,
                                         contentScale = ContentScale.Fit,
                                         modifier = Modifier

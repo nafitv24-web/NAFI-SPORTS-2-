@@ -393,30 +393,12 @@ class MediaRepository(private val context: Context) {
         val url = item.streamUrl.lowercase()
         val allUrls = (item.servers.map { it.url.lowercase() } + listOf(url)).joinToString(" ")
 
-        return id.startsWith("tv_tsports") ||
-                id.startsWith("tv_asports") ||
-                id.startsWith("tv_gtv") ||
-                id.startsWith("tv_star_sports") ||
-                id.startsWith("tv_sony_ten") ||
-                id.startsWith("tv_somoy") ||
-                id.startsWith("tv_jamuna") ||
-                id.startsWith("tv_channel_i") ||
-                id.startsWith("tv_btv") ||
-                id.startsWith("demo_") ||
-                id.contains("demo") ||
-                id.contains("sample") ||
-                id.startsWith("mov_toofan") ||
-                id.startsWith("mov_mohanagar") ||
-                id.startsWith("mov_kalki") ||
-                id.startsWith("mov_jawan") ||
-                id.startsWith("mov_panchayat") ||
-                title.contains("demo") ||
-                title.contains("ডেমো") ||
-                title.contains("sample") ||
-                title.contains("test channel") ||
-                title.contains("পরীক্ষামূলক") ||
-                cat.contains("demo") ||
-                cat.contains("ডেমো") ||
+        return id.startsWith("demo_") ||
+                id.contains("demo_sample") ||
+                title.contains("demo channel") ||
+                title.contains("ডেমো চ্যানেল") ||
+                title.contains("test stream") ||
+                title.contains("পরীক্ষামূলক টেস্ট") ||
                 allUrls.contains("test-streams.mux.dev") ||
                 allUrls.contains("akamaized.net/hls/live/2000341/test") ||
                 allUrls.contains("bitdash-a.akamaihd.net") ||
@@ -450,7 +432,165 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getDefaultBuiltinLiveTv(): List<MediaItem> {
-        return emptyList()
+        return listOf(
+            MediaItem(
+                id = "tv_builtin_nagorik",
+                title = "Nagorik TV",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "http://livetv.akr4m.com:8080/bdtv/restrem/38.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT-kb5MBvGaZ-CVtpYi2vM2Zy0LERvZSRlKNgyT1Zl3zw&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "http://livetv.akr4m.com:8080/bdtv/restrem/38.m3u8"),
+                    StreamServer("সার্ভার ২", "https://box.bbaria.net:8083/Nagorik_TV/video.m3u8"),
+                    StreamServer("সার্ভার ৩", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/38.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_btv",
+                title = "BTV",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "http://livetv.akr4m.com:8080/bdtv/restrem/12.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSq4Nf65aW9h3D6_0iE5c7x1O7A_5U9J&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "http://livetv.akr4m.com:8080/bdtv/restrem/12.m3u8"),
+                    StreamServer("সার্ভার ২", "https://btv.hridoytv-channel.workers.dev/btv.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_somoy",
+                title = "Somoy Tv",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen5.aynascope.net/somoytv/mono.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_x7J&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen5.aynascope.net/somoytv/mono.m3u8"),
+                    StreamServer("সার্ভার ২", "http://103.165.93.31:8095/somoyTv/tracks-v1a1/mono.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_channel24",
+                title = "Channel 24",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/YrVDF8gujkdh/tracks-v1a1/mono.ts.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT7P_Channel24&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen6.aynaott.com/YrVDF8gujkdh/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/14.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_tsports",
+                title = "T Sports NF",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "http://103.151.60.162:2122/play/a030/index.m3u8?hls",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_tsports&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "http://103.151.60.162:2122/play/a030/index.m3u8?hls"),
+                    StreamServer("সার্ভার ২", "https://robitv.com/rn/http://103.141.70.136:8080//bdtv/restrem/2.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_gtv",
+                title = "GTV",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/P7XpTdQ8mR/tracks-v1a1/mono.ts.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_gtv&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen6.aynaott.com/P7XpTdQ8mR/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২", "http://livetv.akr4m.com:8080/bdtv/restrem/16.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_asports",
+                title = "A Sports HD",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_asports&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২", "http://103.151.60.162:2122/play/a02z/index.m3u8?hls")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_tencricket",
+                title = "Ten Cricket",
+                category = "Sports",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://drk6xq0vhn.gpcdn.net/live/ten_cricket_hd_abr/live/ten_cricket_hd_720/chunks.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_tencricket&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://drk6xq0vhn.gpcdn.net/live/ten_cricket_hd_abr/live/ten_cricket_hd_720/chunks.m3u8"),
+                    StreamServer("সার্ভার ২", "https://robitv.com/lps/https://ml-pull-dvc-myco.io:2096/TENSPORTS_HD/mono.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_maasranga",
+                title = "Maasranga TV",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/KqW4vP9yXz/tracks-v1a1/mono.ts.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_maasranga&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen6.aynaott.com/KqW4vP9yXz/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২", "http://livetv.akr4m.com:8080/bdtv/restrem/17.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_jamuna",
+                title = "Jamuna TV",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen5.aynascope.net/jamunatv/mono.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_jamuna&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen5.aynascope.net/jamunatv/mono.m3u8"),
+                    StreamServer("সার্ভার ২", "http://livetv.akr4m.com:8080/bdtv/restrem/18.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_ekattor",
+                title = "Ekattor TV",
+                category = "BANGLADESH",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen6.aynaott.com/L8pQmN3kRt/tracks-v1a1/mono.ts.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_ekattor&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen6.aynaott.com/L8pQmN3kRt/tracks-v1a1/mono.ts.m3u8"),
+                    StreamServer("সার্ভার ২", "http://livetv.akr4m.com:8080/bdtv/restrem/19.m3u8")
+                )
+            ),
+            MediaItem(
+                id = "tv_builtin_dbc",
+                title = "DBC News",
+                category = "News",
+                type = MediaType.LIVE_TV,
+                streamUrl = "https://tvsen5.aynascope.net/dbcnews/mono.m3u8",
+                logoUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_dbc&s",
+                isLive = true,
+                servers = listOf(
+                    StreamServer("সার্ভার ১", "https://tvsen5.aynascope.net/dbcnews/mono.m3u8"),
+                    StreamServer("সার্ভার ২", "http://livetv.akr4m.com:8080/bdtv/restrem/20.m3u8")
+                )
+            )
+        )
     }
 
     fun getDefaultBuiltinMovies(): List<MediaItem> {
@@ -475,10 +615,11 @@ class MediaRepository(private val context: Context) {
         val deleted = getDeletedIds()
         val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
         val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinLiveTv()
 
         val combined = mutableListOf<MediaItem>()
         combined.addAll(customTv)
-        combined.addAll(cached)
+        combined.addAll(baseList)
 
         val seen = HashSet<String>()
         return combined.mapIndexed { idx, ch ->
