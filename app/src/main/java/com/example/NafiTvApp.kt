@@ -1,6 +1,8 @@
 package com.example
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Looper
 import android.util.Log
@@ -10,6 +12,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.size.Precision
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -30,7 +33,7 @@ class NafiTvApp : Application(), ImageLoaderFactory {
         }
 
         // 2. Global crash protection: Intercepts decoder, GPU, network & memory crashes
-        // preventing unexpected process termination on normal & low-spec devices
+        // preventing unexpected process termination on normal & low-spec (512MB RAM) devices
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e("NafiTvApp", "Intercepted crash on thread: ${thread.name}", throwable)
@@ -57,6 +60,8 @@ class NafiTvApp : Application(), ImageLoaderFactory {
                 if (throwable is java.lang.OutOfMemoryError) {
                     try {
                         customImageLoader?.memoryCache?.clear()
+                        sharedOkHttpClient.connectionPool.evictAll()
+                        System.runFinalization()
                         System.gc()
                     } catch (_: Throwable) {}
                 }
@@ -67,6 +72,12 @@ class NafiTvApp : Application(), ImageLoaderFactory {
         }
     }
 
+    fun isLowRamEnvironment(): Boolean {
+        val actManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val maxHeapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+        return actManager?.isLowRamDevice == true || maxHeapMb <= 128
+    }
+
     override fun newImageLoader(): ImageLoader {
         return customImageLoader ?: synchronized(this) {
             customImageLoader ?: buildOptimizedImageLoader().also { customImageLoader = it }
@@ -74,23 +85,28 @@ class NafiTvApp : Application(), ImageLoaderFactory {
     }
 
     private fun buildOptimizedImageLoader(): ImageLoader {
+        val isLowRam = isLowRamEnvironment()
+        // On 512MB RAM phones, keep memory cache to 5% of heap to prevent LMK kills
+        val memCachePercent = if (isLowRam) 0.05 else 0.10
+        val diskCacheMaxBytes = if (isLowRam) 20L * 1024 * 1024 else 35L * 1024 * 1024
+
         return ImageLoader.Builder(this)
             .okHttpClient(sharedOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.12) // Safe 12% memory limit prevents Low Memory Killer (LMK) on 1-2GB RAM phones
+                    .maxSizePercent(memCachePercent)
                     .strongReferencesEnabled(true)
-                    .weakReferencesEnabled(true)
+                    .weakReferencesEnabled(!isLowRam)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(File(cacheDir, "nafitv_image_cache"))
-                    .maxSizeBytes(35L * 1024 * 1024) // 35 MB disk cache limit
+                    .maxSizeBytes(diskCacheMaxBytes)
                     .build()
             }
             .bitmapConfig(Bitmap.Config.RGB_565) // 50% memory saving on all channel logos & posters
-            .allowHardware(false) // Disables hardware bitmaps for 100% crash-free stability on TV boxes & low-RAM Mali/PowerVR GPUs
+            .allowHardware(false) // Disables hardware bitmaps for 100% crash-free stability on TV boxes & low-RAM GPUs
             .allowRgb565(true)
             .crossfade(false) // Saves GPU compositing passes on low-RAM devices
             .precision(Precision.INEXACT) // Automatically downsamples posters and logos to target UI size (huge memory savings!)
@@ -105,7 +121,9 @@ class NafiTvApp : Application(), ImageLoaderFactory {
         super.onTrimMemory(level)
         try {
             customImageLoader?.memoryCache?.clear()
-            if (level >= TRIM_MEMORY_MODERATE) {
+            if (level >= TRIM_MEMORY_MODERATE || isLowRamEnvironment()) {
+                sharedOkHttpClient.connectionPool.evictAll()
+                System.runFinalization()
                 System.gc()
             }
         } catch (e: Exception) {
@@ -117,6 +135,8 @@ class NafiTvApp : Application(), ImageLoaderFactory {
         super.onLowMemory()
         try {
             customImageLoader?.memoryCache?.clear()
+            sharedOkHttpClient.connectionPool.evictAll()
+            System.runFinalization()
             System.gc()
         } catch (e: Exception) {
             Log.w("NafiTvApp", "Error on low memory", e)
@@ -128,10 +148,19 @@ class NafiTvApp : Application(), ImageLoaderFactory {
             private set
 
         val sharedOkHttpClient: OkHttpClient by lazy {
+            val isLowRam = try {
+                instance.isLowRamEnvironment()
+            } catch (_: Exception) {
+                false
+            }
+            // Keep connection pool tiny (3 connections, 30s) on 512MB RAM to conserve socket buffers
+            val maxIdle = if (isLowRam) 3 else 6
+            val keepAliveDuration = if (isLowRam) 30L else 90L
+
             OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .connectionPool(okhttp3.ConnectionPool(8, 2, TimeUnit.MINUTES))
+                .connectTimeout(12, TimeUnit.SECONDS)
+                .readTimeout(18, TimeUnit.SECONDS)
+                .connectionPool(ConnectionPool(maxIdle, keepAliveDuration, TimeUnit.SECONDS))
                 .retryOnConnectionFailure(true)
                 .build()
         }

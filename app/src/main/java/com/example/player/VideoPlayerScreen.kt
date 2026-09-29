@@ -932,19 +932,32 @@ fun VideoPlayerScreen(
                 isTsStream ||
                 finalCleanUrl.contains(".m3u8", ignoreCase = true)
 
-        // Memory-safe, high-speed, anti-buffering LoadControl optimized for all devices (Mobile & Low-RAM Android TVs)
-        // Keeps memory consumption low (12-20MB) to prevent OOM/LMK process termination on normal phones
+        val actManager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val isLowRamDevice = actManager?.isLowRamDevice == true || (Runtime.getRuntime().maxMemory() / (1024 * 1024)) <= 128
+
+        // Memory-safe, high-speed, anti-buffering LoadControl tuned for all devices down to 512MB RAM
+        // On 512MB devices: buffers 4MB-6MB max and uses 32KB allocation chunks to avoid memory fragmentation
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, 64 * 1024))
+            .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, if (isLowRamDevice) 32 * 1024 else 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isAkr4m) 12000 else if (isLiveStream) 5000 else 12000,
-                /* maxBufferMs = */ if (isAkr4m) 25000 else if (isLiveStream) 18000 else 25000,
-                /* bufferForPlaybackMs = */ 400,                         // Starts playing in 400ms (instant start)
-                /* bufferForPlaybackAfterRebufferMs = */ 800             // Recovers quickly in 800ms if network interrupted
+                /* minBufferMs = */ if (isLowRamDevice) 2500 else if (isAkr4m) 12000 else if (isLiveStream) 5000 else 12000,
+                /* maxBufferMs = */ if (isLowRamDevice) 6000 else if (isAkr4m) 25000 else if (isLiveStream) 18000 else 25000,
+                /* bufferForPlaybackMs = */ 350,                         // Starts playing in 350ms (instant start)
+                /* bufferForPlaybackAfterRebufferMs = */ 700             // Recovers quickly in 700ms if network interrupted
             )
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(if (isLiveStream) 0 else 5000, false)
-            .setTargetBufferBytes(if (isAkr4m) 18 * 1024 * 1024 else if (isLiveStream) 12 * 1024 * 1024 else 16 * 1024 * 1024)
+            .setBackBuffer(if (isLiveStream || isLowRamDevice) 0 else 5000, false)
+            .setTargetBufferBytes(
+                if (isLowRamDevice) {
+                    if (isLiveStream) 4 * 1024 * 1024 else 6 * 1024 * 1024
+                } else if (isAkr4m) {
+                    18 * 1024 * 1024
+                } else if (isLiveStream) {
+                    12 * 1024 * 1024
+                } else {
+                    16 * 1024 * 1024
+                }
+            )
             .build()
 
         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
