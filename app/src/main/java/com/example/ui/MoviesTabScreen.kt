@@ -80,6 +80,8 @@ import coil.compose.AsyncImage
 import com.example.model.MediaItem
 
 import com.example.ui.components.NafiLogoLoadingView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MoviesTabScreen(
@@ -107,71 +109,90 @@ fun MoviesTabScreen(
         }
     }
 
-    // Adult / 18+ Content Filter (Safe Mode by default)
-    val adultFilteredMovies = remember(movies, isAdultHidden, repository) {
-        if (isAdultHidden && repository != null) {
-            movies.filterNot { repository.isAdultMedia(it) }
-        } else if (isAdultHidden) {
-            val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
-            movies.filterNot { m ->
-                val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
-                adultWords.any { txt.contains(it) }
+    // Asynchronous background preparation so tab switch is 0ms instantaneous without UI freeze
+    var isAsyncPreparing by remember { mutableStateOf(movies.isNotEmpty()) }
+    var preparedMovies by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var preparedCategories by remember { mutableStateOf<List<String>>(listOf("All", "ডাউনলোডসমূহ")) }
+    var preparedCategorizedMovies by remember { mutableStateOf<List<Pair<String, List<MediaItem>>>>(emptyList()) }
+    var preparedFeaturedMovies by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+
+    LaunchedEffect(movies, isAdultHidden, selectedTypeFilter, repository) {
+        if (movies.isEmpty()) {
+            preparedMovies = emptyList()
+            preparedCategories = listOf("All", "ডাউনলোডসমূহ")
+            preparedCategorizedMovies = emptyList()
+            preparedFeaturedMovies = emptyList()
+            isAsyncPreparing = false
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.Default) {
+            val adultFiltered = if (isAdultHidden && repository != null) {
+                movies.filterNot { repository.isAdultMedia(it) }
+            } else if (isAdultHidden) {
+                val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
+                movies.filterNot { m ->
+                    val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
+                    adultWords.any { txt.contains(it) }
+                }
+            } else {
+                movies
             }
-        } else {
-            movies
-        }
-    }
 
-    val typeFilteredMovies = remember(adultFilteredMovies, selectedTypeFilter) {
-        when (selectedTypeFilter) {
-            "MOVIE" -> adultFilteredMovies.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
-            "SERIES" -> adultFilteredMovies.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
-            else -> adultFilteredMovies
-        }
-    }
-
-    val categories = remember(typeFilteredMovies) {
-        val unique = typeFilteredMovies.map { it.category.trim() }
-            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
-            .distinct()
-
-        val priorityList = listOf(
-            "STAR JALSHA", "HUM TV", "PAKISTANI DRAMA", "ZEE BANGLA", "SUN BANGLA",
-            "COLORS BANGLA", "HOICHOI", "Chorki/Bangla", "HINDI TV SERIES", "STAR PLUS",
-            "STAR BHARAT", "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR"
-        )
-        val highPriority = unique.filter { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }
-            .sortedBy { cat ->
-                val idx = priorityList.indexOfFirst { cat.equals(it, ignoreCase = true) }
-                if (idx != -1) idx else 999
+            val typeFiltered = when (selectedTypeFilter) {
+                "MOVIE" -> adultFiltered.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
+                "SERIES" -> adultFiltered.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+                else -> adultFiltered
             }
-        val others = unique.filterNot { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }.sorted()
-        listOf("All", "ডাউনলোডসমূহ") + highPriority + others
-    }
 
-    // Identify Featured Spotlight Movies (Trending & new movies with posters that slide horizontally to the left)
-    val featuredMovies = remember(typeFilteredMovies) {
-        val withLogos = typeFilteredMovies.filter { !it.logoUrl.isNullOrBlank() }
-        if (withLogos.isNotEmpty()) withLogos.take(10) else typeFilteredMovies.take(8)
-    }
+            // High performance O(N) grouping in a single pass instead of N * M iterations!
+            val groupedMap = LinkedHashMap<String, MutableList<MediaItem>>()
+            for (m in typeFiltered) {
+                val cat = m.category.trim()
+                if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true)) {
+                    groupedMap.getOrPut(cat) { mutableListOf() }.add(m)
+                }
+            }
+            val catPairs = groupedMap.map { (cat, list) ->
+                cat to list.distinctBy { it.id }
+            }
 
-    // Group movies by category for the categorized carousels view (guarantee unique IDs to prevent list jank)
-    val categorizedMovies = remember(typeFilteredMovies) {
-        val uniqueCats = typeFilteredMovies.map { it.category.trim() }
-            .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
-            .distinct()
-        uniqueCats.map { cat ->
-            val catMovies = typeFilteredMovies.filter { it.category.trim().equals(cat, ignoreCase = true) }.distinctBy { it.id }
-            cat to catMovies
+            val uniqueCats = catPairs.map { it.first }
+            val priorityList = listOf(
+                "STAR JALSHA", "HUM TV", "PAKISTANI DRAMA", "ZEE BANGLA", "SUN BANGLA",
+                "COLORS BANGLA", "HOICHOI", "Chorki/Bangla", "HINDI TV SERIES", "STAR PLUS",
+                "STAR BHARAT", "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR"
+            )
+            val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }
+                .sortedBy { cat ->
+                    val idx = priorityList.indexOfFirst { cat.equals(it, ignoreCase = true) }
+                    if (idx != -1) idx else 999
+                }
+            val others = uniqueCats.filterNot { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }.sorted()
+            val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
+
+            val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }
+            val featured = if (withLogos.isNotEmpty()) withLogos.take(10) else typeFiltered.take(8)
+
+            withContext(Dispatchers.Main) {
+                preparedMovies = typeFiltered
+                preparedCategories = allCats
+                preparedCategorizedMovies = catPairs
+                preparedFeaturedMovies = featured
+                isAsyncPreparing = false
+            }
         }
     }
+
+    val categories = preparedCategories
+    val featuredMovies = preparedFeaturedMovies
+    val categorizedMovies = preparedCategorizedMovies
 
     // Filtered movies when search query is active or a single category is selected
-    val filteredMovies = remember(typeFilteredMovies, searchQuery, selectedCategory, favoriteIds) {
+    val filteredMovies = remember(preparedMovies, searchQuery, selectedCategory, favoriteIds) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
         } else {
-            typeFilteredMovies.filter { movie ->
+            preparedMovies.filter { movie ->
                 val matchesSearch = if (searchQuery.isBlank()) true else {
                     movie.title.contains(searchQuery, ignoreCase = true) ||
                             movie.category.contains(searchQuery, ignoreCase = true) ||
@@ -374,13 +395,13 @@ fun MoviesTabScreen(
         }
 
         // MAIN CONTENT AREA
-        if (isLoading && movies.isEmpty()) {
+        if ((isLoading || isAsyncPreparing) && preparedMovies.isEmpty()) {
             NafiLogoLoadingView(
                 title = "মুভি ও ওয়েব সিরিজ লোড হচ্ছে...",
                 subtitle = "অনুগ্রহ করে অপেক্ষা করুন, মুভি ক্যাটালগ প্রস্তুত হচ্ছে...",
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (movies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank()) {
+        } else if (preparedMovies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

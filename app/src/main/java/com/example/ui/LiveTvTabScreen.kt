@@ -36,7 +36,9 @@ import com.example.model.MediaServer
 import androidx.compose.ui.platform.LocalContext
 import com.example.ui.components.NafiLogoLoadingView
 import com.example.util.ChannelStatusManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private val SERVER_CLEAN_REGEX = Regex("^(?i)(server|সার্ভার)\\s*\\d*.*")
 
@@ -98,25 +100,45 @@ fun LiveTvTabScreen(
     val coroutineScope = rememberCoroutineScope()
     val firstChannelFocusRequester = remember { FocusRequester() }
 
-    // Adult / 18+ Content Filter (Safe Mode by default)
-    val adultFilteredChannels = remember(channels, isAdultHidden, repository) {
-        if (isAdultHidden && repository != null) {
-            channels.filterNot { repository.isAdultMedia(it) }
-        } else if (isAdultHidden) {
-            val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature")
-            channels.filterNot { ch ->
-                val txt = "${ch.title} ${ch.category} ${ch.genre ?: ""}".lowercase()
-                adultWords.any { txt.contains(it) }
+    // Asynchronous background preparation so tab switch is 0ms instantaneous without UI lag
+    var isAsyncPreparing by remember { mutableStateOf(channels.isNotEmpty()) }
+    var preparedChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var preparedCategories by remember { mutableStateOf<List<String>>(listOf("ALL")) }
+
+    LaunchedEffect(channels, isAdultHidden, repository) {
+        if (channels.isEmpty()) {
+            preparedChannels = emptyList()
+            preparedCategories = listOf("ALL")
+            isAsyncPreparing = false
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.Default) {
+            val merged = mergeChannelsWithServers(channels)
+            val adultFiltered = if (isAdultHidden && repository != null) {
+                merged.filterNot { repository.isAdultMedia(it) }
+            } else if (isAdultHidden) {
+                val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature")
+                merged.filterNot { ch ->
+                    val txt = "${ch.title} ${ch.category} ${ch.genre ?: ""}".lowercase()
+                    adultWords.any { txt.contains(it) }
+                }
+            } else {
+                merged
             }
-        } else {
-            channels
+            val cats = listOf("ALL", "FAVORITE") + adultFiltered.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
+
+            withContext(Dispatchers.Main) {
+                preparedChannels = adultFiltered
+                preparedCategories = cats
+                isAsyncPreparing = false
+            }
         }
     }
 
     // Trigger non-blocking background health check on unverified channels ONLY if user turned on showOnlyActive filter
-    LaunchedEffect(adultFilteredChannels, showOnlyActive) {
-        if (showOnlyActive && adultFilteredChannels.isNotEmpty()) {
-            ChannelStatusManager.enqueueChannelsForProbing(adultFilteredChannels)
+    LaunchedEffect(preparedChannels, showOnlyActive) {
+        if (showOnlyActive && preparedChannels.isNotEmpty()) {
+            ChannelStatusManager.enqueueChannelsForProbing(preparedChannels)
         }
     }
 
@@ -125,8 +147,8 @@ fun LiveTvTabScreen(
     }
 
     // Auto-focus first channel in TV mode so D-Pad lands on the channel list instead of stealing focus to Search field
-    LaunchedEffect(isTvMode, adultFilteredChannels.isNotEmpty()) {
-        if (isTvMode && adultFilteredChannels.isNotEmpty()) {
+    LaunchedEffect(isTvMode, preparedChannels.isNotEmpty()) {
+        if (isTvMode && preparedChannels.isNotEmpty()) {
             delay(180)
             try {
                 firstChannelFocusRequester.requestFocus()
@@ -134,12 +156,10 @@ fun LiveTvTabScreen(
         }
     }
 
-    val categories = remember(adultFilteredChannels) {
-        listOf("ALL", "FAVORITE") + adultFilteredChannels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
-    }
+    val categories = preparedCategories
 
-    val filteredChannels = remember(adultFilteredChannels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
-        adultFilteredChannels.filter { channel ->
+    val filteredChannels = remember(preparedChannels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
+        preparedChannels.filter { channel ->
             val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true
@@ -268,7 +288,7 @@ fun LiveTvTabScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Channels Grid or Loading View
-        if (isLoading && channels.isEmpty()) {
+        if ((isLoading || isAsyncPreparing) && preparedChannels.isEmpty()) {
             NafiLogoLoadingView(
                 title = "লাইভ টিভি চ্যানেল লোড হচ্ছে...",
                 subtitle = "অনুগ্রহ করে অপেক্ষা করুন, টিভি চ্যানেল ও সার্ভার প্রস্তুত হচ্ছে...",

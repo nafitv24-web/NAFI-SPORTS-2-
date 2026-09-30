@@ -1097,27 +1097,26 @@ fun NafiTvMainApp(
                             )
 
                             AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList) {
-                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
+                                LiveTvTabScreen(
+                                    channels = remember(liveTvList, customList, m3uList) {
+                                        liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
+                                    },
+                                    favoriteIds = favoriteIds,
+                                    isLoading = isRefreshing,
+                                    isTvMode = isTvMode,
+                                    isAdultHidden = isAdultHidden,
+                                    repository = repository,
+                                    onSelectMedia = { item, playlist ->
+                                        selectedMediaItem = item
+                                        activePlaybackPlaylist = playlist
+                                    },
+                                    onToggleFavorite = { id ->
+                                        repository.toggleFavorite(id)
+                                        favoriteIds = repository.getFavoriteIds()
+                                    },
+                                    onAddChannel = handleAddCustomMedia
+                                )
                             }
-                            LiveTvTabScreen(
-                                channels = mergedTvList,
-                                favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
-                                isTvMode = isTvMode,
-                                isAdultHidden = isAdultHidden,
-                                repository = repository,
-                                onSelectMedia = { item, playlist ->
-                                    selectedMediaItem = item
-                                    activePlaybackPlaylist = playlist
-                                },
-                                onToggleFavorite = { id ->
-                                    repository.toggleFavorite(id)
-                                    favoriteIds = repository.getFavoriteIds()
-                                },
-                                onAddChannel = handleAddCustomMedia
-                            )
-                        }
 
                             AppTab.MOVIES -> MoviesTabScreen(
                                 movies = moviesList,
@@ -1510,11 +1509,10 @@ fun NafiTvMainApp(
                         )
 
                         AppTab.LIVE_TV -> {
-                            val mergedTvList = remember(liveTvList, customList, m3uList) {
-                                mergeChannelsWithServers(liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive })
-                            }
                             LiveTvTabScreen(
-                                channels = mergedTvList,
+                                channels = remember(liveTvList, customList, m3uList) {
+                                    liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
+                                },
                                 favoriteIds = favoriteIds,
                                 isLoading = isRefreshing,
                                 isTvMode = isTvMode,
