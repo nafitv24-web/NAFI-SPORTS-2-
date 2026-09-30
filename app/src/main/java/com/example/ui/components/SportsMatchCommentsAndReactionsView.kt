@@ -367,8 +367,7 @@ fun SportsMatchCommentsAndReactionsView(
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .heightIn(min = 180.dp, max = 290.dp)
+                    .height(230.dp)
             ) {
                 if (comments.isEmpty()) {
                     Box(

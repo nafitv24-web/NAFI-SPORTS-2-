@@ -17,6 +17,8 @@ import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -3228,11 +3230,15 @@ fun VideoPlayerScreen(
                 }
             }
 
+            val isLiveEvent = (currentMedia.type == MediaType.LIVE_EVENT)
+            val liveEventScrollState = rememberScrollState()
+
             // Below Player Content in Portrait: Info, Servers, and Media Switcher
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .then(if (isLiveEvent) Modifier.verticalScroll(liveEventScrollState) else Modifier)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 // Live TV check: All Live TV channels (including movie channels like Zee Cinema, Sony Max, Star Movies) must remain in Live TV layout
                 val isLiveTvChannel = currentMedia.type == MediaType.LIVE_TV ||
@@ -3627,8 +3633,6 @@ fun VideoPlayerScreen(
                 }
 
                 // Related / Other Items in Portrait Mode
-                val isLiveEvent = (currentMedia.type == MediaType.LIVE_EVENT)
-
                 if (isLiveEvent) {
                     // Breaking News Bar situated right above the match fan interaction section
                     BreakingNewsTickerBar(

@@ -242,7 +242,28 @@ object SportsInteractionManager {
                 if (list.isNotEmpty()) return list
             } catch (_: Exception) {}
         }
-        return emptyList()
+        val starterComments = listOf(
+            SportComment(
+                id = "init_1_${matchId.hashCode()}",
+                userName = "সরাসরি ফ্যান",
+                text = "লাইভ চ্যাটে স্বাগতম! সবাই মিলে একসাথে খেলা উপভোগ করি 🔥",
+                timestamp = "১ মি. আগে",
+                avatarBgColorHex = "#0284C7",
+                likesCount = 4,
+                badge = "🔥 LIVE FAN"
+            ),
+            SportComment(
+                id = "init_2_${matchId.hashCode()}",
+                userName = "নাফি স্পোর্টস ফ্যান",
+                text = "আজকের ম্যাচটি খুবই জমজমাট হচ্ছে! কে জিতবে বলে মনে হয়? 🏆",
+                timestamp = "এখনই",
+                avatarBgColorHex = "#10B981",
+                likesCount = 2,
+                badge = "TOP FAN"
+            )
+        )
+        saveComments(matchId, starterComments)
+        return starterComments
     }
 
     /**
