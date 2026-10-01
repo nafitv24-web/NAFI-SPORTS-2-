@@ -122,21 +122,10 @@ object StreamExtractor {
             }
 
             // 7. If it's already a direct video stream
-            if (lower.contains(".m3u8") || lower.contains(".mpd") || lower.contains(".mp4") || lower.contains(".mkv") ||
-                lower.contains(".ts") || lower.contains("video/mp2t") || lower.contains("/live/")
-            ) {
-                val isXtreamOrTs = lower.contains(".ts") || lower.contains("/live/") || lower.contains("video/mp2t")
+            if (lower.contains(".m3u8") || lower.contains(".mpd") || lower.contains(".mp4") || lower.contains(".mkv")) {
                 return@withContext ExtractedStreamResult(
                     streamUrl = cleanUrl,
-                    headers = if (isXtreamOrTs) {
-                        mapOf(
-                            "User-Agent" to "VLC/3.0.18 LibVLC/3.0.18",
-                            "Accept" to "*/*",
-                            "Connection" to "keep-alive"
-                        )
-                    } else {
-                        mapOf("User-Agent" to DEFAULT_UA)
-                    }
+                    headers = mapOf("User-Agent" to DEFAULT_UA)
                 )
             }
 
