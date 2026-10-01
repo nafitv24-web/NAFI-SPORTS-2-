@@ -6909,14 +6909,74 @@ class MediaRepository(private val context: Context) {
         return prefs.getStringSet("admin_hidden_keywords", emptySet()) ?: emptySet()
     }
 
+    fun getHiddenItemIds(): Set<String> {
+        return prefs.getStringSet("admin_hidden_media_ids", emptySet()) ?: emptySet()
+    }
+
+    fun hideMultipleItems(ids: Collection<String>) {
+        val current = getHiddenItemIds().toMutableSet()
+        current.addAll(ids)
+        prefs.edit().putStringSet("admin_hidden_media_ids", current).apply()
+    }
+
+    fun toggleItemHidden(id: String): Boolean {
+        val current = getHiddenItemIds().toMutableSet()
+        val isNowHidden = if (current.contains(id)) {
+            current.remove(id)
+            false
+        } else {
+            current.add(id)
+            true
+        }
+        prefs.edit().putStringSet("admin_hidden_media_ids", current).apply()
+        return isNowHidden
+    }
+
+    fun unhideAllItems() {
+        prefs.edit().remove("admin_hidden_media_ids").apply()
+    }
+
+    fun addHiddenKeyword(keyword: String) {
+        val trimmed = keyword.trim()
+        if (trimmed.isBlank()) return
+        val current = getHiddenKeywords().toMutableSet()
+        current.add(trimmed)
+        prefs.edit().putStringSet("admin_hidden_keywords", current).apply()
+    }
+
+    fun removeHiddenKeyword(keyword: String) {
+        val current = getHiddenKeywords().toMutableSet()
+        current.remove(keyword.trim())
+        prefs.edit().putStringSet("admin_hidden_keywords", current).apply()
+    }
+
+    fun getFastPriorityChannelIds(): Set<String> {
+        return prefs.getStringSet("admin_fast_priority_channel_ids", emptySet()) ?: emptySet()
+    }
+
     fun isFastPriorityChannel(channel: MediaItem): Boolean {
         val priorityKeywords = listOf("star sports", "t sports", "willow", "sony ten", "ptv sports", "sky sports", "bein sports", "live", "ipl", "bpl", "icc", "cricket")
         val titleLower = channel.title.lowercase()
         return priorityKeywords.any { titleLower.contains(it) }
     }
 
-    fun isStalkerFastChannelsEnabled(): Boolean = false
-    fun getStalkerFastChannelLimit(): Int = 50
+    fun isStalkerFastChannelsEnabled(): Boolean = prefs.getBoolean("stalker_fast_channels_enabled", false)
+    fun setStalkerFastChannelsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("stalker_fast_channels_enabled", enabled).apply()
+    }
+    fun getStalkerFastChannelLimit(): Int = prefs.getInt("stalker_fast_channel_limit", 50)
+    fun setStalkerFastChannelLimit(limit: Int) {
+        prefs.edit().putInt("stalker_fast_channel_limit", limit).apply()
+    }
+    fun getStalkerAccounts(): List<com.example.model.StalkerPortalAccount> = emptyList()
+    fun getActiveStalkerAccounts(): List<com.example.model.StalkerPortalAccount> = emptyList()
+    fun saveStalkerAccount(account: com.example.model.StalkerPortalAccount) {}
+    fun saveStalkerAccountsList(accounts: List<com.example.model.StalkerPortalAccount>) {}
+    fun deleteStalkerAccount(id: String) {}
+    suspend fun testStalkerPortal(url: String, mac: String): Boolean = false
+    suspend fun fetchAllStalkerLiveChannels(): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerMovies(): List<MediaItem> = emptyList()
+    suspend fun fetchStalkerFastChannels(): List<MediaItem> = emptyList()
     suspend fun fetchFastChannels(): List<MediaItem> = emptyList()
     suspend fun fetchGenresList(): List<String> = emptyList()
     suspend fun fetchChannelsByGenre(genre: String): List<MediaItem> = emptyList()
