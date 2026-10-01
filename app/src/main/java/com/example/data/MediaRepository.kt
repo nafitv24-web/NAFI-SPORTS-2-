@@ -6892,6 +6892,34 @@ class MediaRepository(private val context: Context) {
             textToScan.contains(keyword)
         }
     }
+
+    fun isMediaHidden(item: MediaItem): Boolean {
+        if (isAdultContentHidden() && isAdultMedia(item)) return true
+        val hiddenIds = prefs.getStringSet("admin_hidden_media_ids", emptySet()) ?: emptySet()
+        if (hiddenIds.contains(item.id)) return true
+        val hiddenKeywords = getHiddenKeywords()
+        if (hiddenKeywords.isNotEmpty()) {
+            val textToScan = "${item.title} ${item.category} ${item.genre ?: ""} ${item.description ?: ""}".lowercase()
+            if (hiddenKeywords.any { textToScan.contains(it.lowercase()) }) return true
+        }
+        return false
+    }
+
+    fun getHiddenKeywords(): Set<String> {
+        return prefs.getStringSet("admin_hidden_keywords", emptySet()) ?: emptySet()
+    }
+
+    fun isFastPriorityChannel(channel: MediaItem): Boolean {
+        val priorityKeywords = listOf("star sports", "t sports", "willow", "sony ten", "ptv sports", "sky sports", "bein sports", "live", "ipl", "bpl", "icc", "cricket")
+        val titleLower = channel.title.lowercase()
+        return priorityKeywords.any { titleLower.contains(it) }
+    }
+
+    fun isStalkerFastChannelsEnabled(): Boolean = false
+    fun getStalkerFastChannelLimit(): Int = 50
+    suspend fun fetchFastChannels(): List<MediaItem> = emptyList()
+    suspend fun fetchGenresList(): List<String> = emptyList()
+    suspend fun fetchChannelsByGenre(genre: String): List<MediaItem> = emptyList()
 }
 
 
