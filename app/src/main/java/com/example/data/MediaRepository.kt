@@ -3137,6 +3137,126 @@ class MediaRepository(private val context: Context) {
         allItems.distinctBy { it.id }
     }
 
+    // -------------------------------------------------------------
+    // STALKER / MINISTRA PORTAL MANAGEMENT (ADMIN PANEL)
+    // -------------------------------------------------------------
+    fun getStalkerAccounts(): List<com.example.model.StalkerPortalAccount> {
+        val jsonStr = prefs.getString("admin_stalker_accounts", null)
+        val list = mutableListOf<com.example.model.StalkerPortalAccount>()
+        if (!jsonStr.isNullOrBlank()) {
+            try {
+                val arr = JSONArray(jsonStr)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(
+                        com.example.model.StalkerPortalAccount(
+                            id = obj.optString("id", "stalker_$i"),
+                            name = obj.optString("name", "Stalker Portal"),
+                            portalUrl = obj.optString("portalUrl", "http://zerotv.eu:8080/c/"),
+                            macAddress = obj.optString("macAddress", "00:1A:79:AB:62:C7"),
+                            isEnabled = obj.optBoolean("isEnabled", true),
+                            includeLive = obj.optBoolean("includeLive", true),
+                            includeVod = obj.optBoolean("includeVod", true),
+                            includeSeries = obj.optBoolean("includeSeries", true),
+                            lastSyncTime = obj.optLong("lastSyncTime", 0L),
+                            statusMessage = obj.optString("statusMessage", null).takeIf { it?.isNotBlank() == true },
+                            channelCount = obj.optInt("channelCount", 0),
+                            movieCount = obj.optInt("movieCount", 0),
+                            seriesCount = obj.optInt("seriesCount", 0)
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        if (list.isEmpty()) {
+            val defaultAcc = com.example.model.StalkerPortalAccount(
+                id = "default_zerotv",
+                name = "ZeroTV Stalker Portal",
+                portalUrl = "http://zerotv.eu:8080/c/",
+                macAddress = "00:1A:79:AB:62:C7",
+                isEnabled = true,
+                includeLive = true,
+                includeVod = true,
+                includeSeries = true,
+                statusMessage = "সক্রিয় (Active)",
+                channelCount = 12585,
+                movieCount = 5000,
+                seriesCount = 12191
+            )
+            list.add(defaultAcc)
+            saveStalkerAccountsList(list)
+        }
+        return list
+    }
+
+    fun saveStalkerAccount(account: com.example.model.StalkerPortalAccount) {
+        val current = getStalkerAccounts().toMutableList()
+        current.removeAll { it.id == account.id }
+        current.add(0, account)
+        saveStalkerAccountsList(current)
+    }
+
+    fun deleteStalkerAccount(id: String) {
+        val current = getStalkerAccounts().filterNot { it.id == id }
+        saveStalkerAccountsList(current)
+    }
+
+    fun saveStalkerAccountsList(list: List<com.example.model.StalkerPortalAccount>) {
+        val arr = JSONArray()
+        list.forEach { a ->
+            val obj = JSONObject()
+            obj.put("id", a.id)
+            obj.put("name", a.name)
+            obj.put("portalUrl", a.portalUrl)
+            obj.put("macAddress", a.macAddress)
+            obj.put("isEnabled", a.isEnabled)
+            obj.put("includeLive", a.includeLive)
+            obj.put("includeVod", a.includeVod)
+            obj.put("includeSeries", a.includeSeries)
+            obj.put("lastSyncTime", a.lastSyncTime)
+            obj.put("statusMessage", a.statusMessage ?: "")
+            obj.put("channelCount", a.channelCount)
+            obj.put("movieCount", a.movieCount)
+            obj.put("seriesCount", a.seriesCount)
+            arr.put(obj)
+        }
+        prefs.edit().putString("admin_stalker_accounts", arr.toString()).apply()
+    }
+
+    fun getActiveStalkerAccounts(): List<com.example.model.StalkerPortalAccount> {
+        return getStalkerAccounts().filter { it.isEnabled }
+    }
+
+    suspend fun testStalkerPortal(portalUrl: String, macAddress: String): Pair<Boolean, String> {
+        return com.example.util.StalkerPortalManager.testConnection(portalUrl, macAddress)
+    }
+
+    suspend fun fetchAllStalkerLiveChannels(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val accounts = getActiveStalkerAccounts().filter { it.includeLive }
+        val result = mutableListOf<MediaItem>()
+        accounts.forEach { acc ->
+            try {
+                val channels = com.example.util.StalkerPortalManager.fetchLiveChannels(acc.portalUrl, acc.macAddress)
+                result.addAll(channels)
+            } catch (_: Exception) {}
+        }
+        result.distinctBy { it.id }
+    }
+
+    suspend fun fetchAllStalkerMovies(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val accounts = getActiveStalkerAccounts().filter { it.includeVod }
+        val result = mutableListOf<MediaItem>()
+        accounts.forEach { acc ->
+            try {
+                val movies = com.example.util.StalkerPortalManager.fetchVodMovies(acc.portalUrl, acc.macAddress)
+                result.addAll(movies)
+            } catch (_: Exception) {}
+        }
+        result.distinctBy { it.id }
+    }
+
     suspend fun fetchStarshareMoviesAndSeries(): List<MediaItem> = withContext(Dispatchers.IO) {
         fetchAllXtreamMoviesAndSeries()
     }

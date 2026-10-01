@@ -692,6 +692,22 @@ fun VideoPlayerScreen(
             if (extractedUa.isNullOrBlank()) extractedUa = "IPTVSmartersPro"
         }
 
+        // Stalker / Ministra Portal smart cookie & headers
+        val isStalkerStream = finalCleanUrl.contains("/play/live.php", ignoreCase = true) ||
+                finalCleanUrl.contains("/play/movie.php", ignoreCase = true) ||
+                (finalCleanUrl.contains("mac=", ignoreCase = true) && finalCleanUrl.contains(":8080")) ||
+                finalCleanUrl.contains("zerotv", ignoreCase = true)
+        if (isStalkerStream) {
+            val macMatch = Regex("mac=([0-9A-Fa-f:]+)", RegexOption.IGNORE_CASE).find(finalCleanUrl)?.groupValues?.getOrNull(1)
+            val mac = macMatch ?: "00:1A:79:AB:62:C7"
+            if (extractedCookie.isNullOrBlank()) {
+                extractedCookie = "mac=$mac; stb_lang=en; timezone=Europe/Kiev;"
+            }
+            if (extractedUa.isNullOrBlank()) {
+                extractedUa = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
+            }
+        }
+
         val pathBeforeQuery = finalCleanUrl.substringBefore('?').lowercase()
         val isM3u8Pattern = pathBeforeQuery.endsWith(".m3u8") ||
                 finalCleanUrl.contains(".m3u8", ignoreCase = true) ||

@@ -329,6 +329,22 @@ data class XtreamAccount(
     val statusMessage: String? = null
 )
 
+data class StalkerPortalAccount(
+    val id: String = "stalker_${System.currentTimeMillis()}",
+    val name: String = "ZeroTV Stalker Portal",
+    val portalUrl: String = "http://zerotv.eu:8080/c/",
+    val macAddress: String = "00:1A:79:AB:62:C7",
+    val isEnabled: Boolean = true,
+    val includeLive: Boolean = true,
+    val includeVod: Boolean = true,
+    val includeSeries: Boolean = true,
+    val lastSyncTime: Long = 0L,
+    val statusMessage: String? = null,
+    val channelCount: Int = 0,
+    val movieCount: Int = 0,
+    val seriesCount: Int = 0
+)
+
 data class MatchComment(
     val id: String = "",
     val matchId: String = "",
