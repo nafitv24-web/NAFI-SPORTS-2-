@@ -707,31 +707,40 @@ fun VideoPlayerScreen(
                 currentMedia.type == MediaType.MOVIE ||
                 currentMedia.type == MediaType.SERIES
 
+        val isXtreamStream = finalCleanUrl.contains("/live/", ignoreCase = true) ||
+                finalCleanUrl.contains("/movie/", ignoreCase = true) ||
+                finalCleanUrl.contains("/series/", ignoreCase = true) ||
+                finalCleanUrl.contains("fixtv123", ignoreCase = true) ||
+                finalCleanUrl.contains("rgkkw", ignoreCase = true) ||
+                finalCleanUrl.contains("my-king", ignoreCase = true) ||
+                finalCleanUrl.contains("zerotv", ignoreCase = true) ||
+                isRgkkw
+
         val isTsStream = !isM3u8Pattern && !isMovieFormat && (pathBeforeQuery.endsWith(".ts") ||
                 finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
-                (isRgkkw && finalCleanUrl.contains("/live/")))
+                (isXtreamStream && !finalCleanUrl.contains(".m3u8", ignoreCase = true)))
 
         val primaryUa = when {
             !extractedUa.isNullOrBlank() -> extractedUa!!
             isToffee -> "Toffee (Linux;Android 14)"
-            isTsStream || isAkr4m || isRgkkw -> "IPTVSmartersPro"
+            isTsStream || isAkr4m || isXtreamStream -> "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)"
             else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         }
 
         // Multi-Agent fallback list for maximum online stream compatibility
         val fallbackUserAgents = listOf(
             primaryUa,
-            "Toffee (Linux;Android 14)",
-            "IPTVSmartersPro/3.1.5.1",
-            "VLC/3.0.18 LibVLC/3.0.18",
+            "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)",
             "TiviMate/4.7.0 (Android TV)",
+            "VLC/3.0.18 LibVLC/3.0.18",
+            "Toffee (Linux;Android 14)",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         ).distinct()
         val finalUserAgent = fallbackUserAgents[playerRetryKey.coerceAtLeast(0) % fallbackUserAgents.size]
 
         val uriHost = try { android.net.Uri.parse(finalCleanUrl).host } catch (_: Exception) { null }
-        val streamHostReferer = if (!uriHost.isNullOrBlank() && !isRgkkw && !isToffee) "https://$uriHost/" else null
-        val streamHostOrigin = if (!uriHost.isNullOrBlank() && !isRgkkw && !isToffee) "https://$uriHost" else null
+        val streamHostReferer = if (!uriHost.isNullOrBlank() && !isXtreamStream && !isToffee) "https://$uriHost/" else null
+        val streamHostOrigin = if (!uriHost.isNullOrBlank() && !isXtreamStream && !isToffee) "https://$uriHost" else null
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
@@ -739,16 +748,18 @@ fun VideoPlayerScreen(
             !extractedReferer.isNullOrBlank() -> extractedReferer
             isToffee -> "https://toffeelive.com/"
             isTapmad -> "https://www.tapmad.com/"
+            isXtreamStream -> null
             else -> streamHostReferer
         }
         val finalOrigin = when {
             !extractedOrigin.isNullOrBlank() -> extractedOrigin
             isToffee -> "https://toffeelive.com"
             isTapmad -> "https://www.tapmad.com"
+            isXtreamStream -> null
             else -> streamHostOrigin
         }
 
-        val suppressReferer = (playerRetryKey == 1) || isRgkkw
+        val suppressReferer = (playerRetryKey == 1) || isXtreamStream
         if (!finalReferer.isNullOrBlank() && !suppressReferer) {
             requestHeaders["Referer"] = finalReferer
         }
@@ -769,6 +780,9 @@ fun VideoPlayerScreen(
         requestHeaders["Accept"] = "*/*"
         requestHeaders["Connection"] = "keep-alive"
         requestHeaders["Cache-Control"] = "no-cache"
+        if (isTsStream || isXtreamStream) {
+            requestHeaders["Accept-Encoding"] = "identity"
+        }
         requestHeaders.putAll(dynamicHeaders)
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -785,16 +799,24 @@ fun VideoPlayerScreen(
             httpDataSourceFactory
         )
 
-        // Ultra-fast retry error policy: retries dropped packets within 400ms instead of long backoff pauses
-        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(4) {
+        val isLiveStream = currentMedia.isLive ||
+                currentMedia.type == MediaType.LIVE_TV ||
+                currentMedia.type == MediaType.LIVE_EVENT ||
+                isTsStream ||
+                isXtreamStream ||
+                finalCleanUrl.contains(".m3u8", ignoreCase = true)
+
+        // Ultra-fast retry error policy: retries dropped packets within 350ms instead of long backoff pauses
+        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(10) {
             override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                return 400L
+                return 350L
+            }
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int {
+                return if (isLiveStream || isTsStream || isXtreamStream) 15 else 4
             }
         }
 
         // TS Extractor Flags for IPTV streams (MP2, AC3, AAC in MPEG-TS with PES packet size variations)
-        // Note: Do NOT use FLAG_DETECT_ACCESS_UNITS as it fragments H.264 NAL units (AUD/SEI) into separate samples,
-        // preventing MediaCodec from detecting keyframes and causing video to stay blank while audio plays.
         val tsPayloadReaderFlags = androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
@@ -802,7 +824,8 @@ fun VideoPlayerScreen(
         val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(false) // Never force CBR seeking on live continuous streams
             .setTsExtractorFlags(tsPayloadReaderFlags)
-            .setTsExtractorMode(androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
+            .setTsExtractorMode(if (isTsStream || isXtreamStream) androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT else androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
+            .setTsExtractorTimestampSearchBytes(androidx.media3.extractor.ts.TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 4)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -928,24 +951,17 @@ fun VideoPlayerScreen(
             )
         }
 
-        val isLiveStream = currentMedia.isLive ||
-                currentMedia.type == MediaType.LIVE_TV ||
-                currentMedia.type == MediaType.LIVE_EVENT ||
-                isTsStream ||
-                finalCleanUrl.contains(".m3u8", ignoreCase = true)
-
         val actManager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
         val isLowRamDevice = actManager?.isLowRamDevice == true || (Runtime.getRuntime().maxMemory() / (1024 * 1024)) <= 128
 
         // Memory-safe, high-speed, anti-buffering LoadControl tuned for all devices down to 512MB RAM
-        // On 512MB devices: buffers 4MB-6MB max and uses 32KB allocation chunks to avoid memory fragmentation
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, if (isLowRamDevice) 32 * 1024 else 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isLowRamDevice) 2500 else if (isAkr4m) 12000 else if (isLiveStream) 5000 else 12000,
-                /* maxBufferMs = */ if (isLowRamDevice) 6000 else if (isAkr4m) 25000 else if (isLiveStream) 18000 else 25000,
-                /* bufferForPlaybackMs = */ 350,                         // Starts playing in 350ms (instant start)
-                /* bufferForPlaybackAfterRebufferMs = */ 700             // Recovers quickly in 700ms if network interrupted
+                /* minBufferMs = */ if (isLowRamDevice) 2500 else if (isAkr4m) 12000 else if (isTsStream || isXtreamStream) 6000 else if (isLiveStream) 5000 else 12000,
+                /* maxBufferMs = */ if (isLowRamDevice) 6000 else if (isAkr4m) 25000 else if (isTsStream || isXtreamStream) 28000 else if (isLiveStream) 18000 else 25000,
+                /* bufferForPlaybackMs = */ if (isTsStream || isXtreamStream) 300 else 350,
+                /* bufferForPlaybackAfterRebufferMs = */ if (isTsStream || isXtreamStream) 600 else 700
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(if (isLiveStream || isLowRamDevice) 0 else 5000, false)
@@ -954,8 +970,8 @@ fun VideoPlayerScreen(
                     if (isLiveStream) 4 * 1024 * 1024 else 6 * 1024 * 1024
                 } else if (isAkr4m) {
                     18 * 1024 * 1024
-                } else if (isLiveStream) {
-                    12 * 1024 * 1024
+                } else if (isLiveStream || isTsStream || isXtreamStream) {
+                    16 * 1024 * 1024
                 } else {
                     16 * 1024 * 1024
                 }
@@ -1080,6 +1096,16 @@ fun VideoPlayerScreen(
                                 isPlaying = false
                                 if (currentMedia.isSeries || currentMedia.episodes.isNotEmpty()) {
                                     playNextEpisode()
+                                } else if (isLiveStream || isTs || isTsStream || isXtreamStream) {
+                                    // Seamless live stream auto-reconnect: IPTV servers may disconnect TCP after a few seconds or on micro-packet drops.
+                                    // A live broadcast never has an EOF! Reconnect in 250ms without freezing or stopping.
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        try {
+                                            seekToDefaultPosition()
+                                            prepare()
+                                            playWhenReady = true
+                                        } catch (_: Exception) {}
+                                    }, 250L)
                                 }
                             }
                             Player.STATE_IDLE -> {
@@ -1205,13 +1231,21 @@ fun VideoPlayerScreen(
                         val currentServers = currentMedia.getAllServers()
                         val httpEx = error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
                         val is405 = httpEx?.responseCode == 405
+                        val is403Or401 = httpEx?.responseCode == 403 || httpEx?.responseCode == 401
+                        val isIoError = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
                         val isProtectHls = currentUrl.contains("toffeelive.com", ignoreCase = true) ||
                                 currentUrl.contains("toffee", ignoreCase = true) ||
                                 currentUrl.contains("akamaized.net", ignoreCase = true) ||
                                 currentUrl.contains("tapmad", ignoreCase = true)
-                        if (!isProtectHls && (is405 || currentUrl.contains("rgkkw.live", ignoreCase = true)) && currentUrl.contains("/live/") && currentUrl.contains(".m3u8")) {
-                            currentUrl = currentUrl.replace(".m3u8", ".ts")
-                            playerRetryKey = 0
+                        if (!isProtectHls && currentUrl.contains("/live/") && currentUrl.contains(".ts", ignoreCase = true) && playerRetryKey == 0 && (isIoError || httpEx?.responseCode == 502 || httpEx?.responseCode == 404)) {
+                            currentUrl = currentUrl.replace(".ts", ".m3u8", ignoreCase = true)
+                            playerRetryKey = 1
+                            errorMessage = "বিকল্প HLS (.m3u8) সংযোগে রূপান্তর করা হচ্ছে..."
+                            return
+                        } else if (!isProtectHls && currentUrl.contains("/live/") && currentUrl.contains(".m3u8", ignoreCase = true) && (is405 || (isIoError && playerRetryKey == 0))) {
+                            currentUrl = currentUrl.replace(".m3u8", ".ts", ignoreCase = true)
+                            playerRetryKey = 1
                             errorMessage = "MPEG-TS সংযোগে রূপান্তর করা হচ্ছে..."
                             return
                         }
@@ -1226,9 +1260,19 @@ fun VideoPlayerScreen(
                             errorMessage = "বিকল্প সংযোগে রূপান্তর করা হচ্ছে..."
                             return
                         }
-                        val is403Or401 = httpEx?.responseCode == 403 || httpEx?.responseCode == 401
-                        val isIoError = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+
+                        if ((isLiveStream || isTsStream || isXtreamStream) && playerRetryKey < 3 && !is403Or401) {
+                            playerRetryKey++
+                            errorMessage = "পুনরায় লাইভ সংযোগ স্থাপন করা হচ্ছে ($playerRetryKey/3)..."
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                try {
+                                    seekToDefaultPosition()
+                                    prepare()
+                                    playWhenReady = true
+                                } catch (_: Exception) {}
+                            }, 400L)
+                            return
+                        }
 
                         if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
                             // Immediately switch to next available server
@@ -1257,21 +1301,51 @@ fun VideoPlayerScreen(
             }
     }
 
-    // Periodic time progress tracker - only runs when controls are visible or for non-live VOD items
+    // Periodic time progress tracker & Live Stream Anti-Stall Auto-Recovery Watchdog
     val isCurrentItemLive = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
     LaunchedEffect(exoPlayer, isCurrentItemLive, showControls) {
-        if (!isCurrentItemLive || showControls) {
-            while (true) {
-                val cur = exoPlayer.currentPosition.coerceAtLeast(0L)
-                val dur = exoPlayer.duration
-                if (dur > 0 && dur != C.TIME_UNSET) {
-                    durationMs = dur
-                }
-                if (!isDraggingSlider) {
-                    currentPositionMs = cur
-                }
-                delay(500)
+        var lastPlayPos = -1L
+        var frozenTicks = 0
+        while (true) {
+            val cur = try { exoPlayer.currentPosition.coerceAtLeast(0L) } catch (_: Exception) { 0L }
+            val dur = try { exoPlayer.duration } catch (_: Exception) { C.TIME_UNSET }
+            if (dur > 0 && dur != C.TIME_UNSET) {
+                durationMs = dur
             }
+            if (!isDraggingSlider) {
+                currentPositionMs = cur
+            }
+
+            // Live Stream Anti-Buffering & Anti-Stall Watchdog:
+            // Detects if server stopped sending packets after a few seconds and automatically resumes playback
+            if (isCurrentItemLive && hasStartedPlaying) {
+                val isBuff = try { exoPlayer.playbackState == Player.STATE_BUFFERING } catch (_: Exception) { false }
+                val isPlay = try { exoPlayer.isPlaying } catch (_: Exception) { false }
+                val isEnded = try { exoPlayer.playbackState == Player.STATE_ENDED } catch (_: Exception) { false }
+
+                if (isEnded) {
+                    try {
+                        exoPlayer.seekToDefaultPosition()
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    } catch (_: Exception) {}
+                } else if (isBuff || (isPlay && cur == lastPlayPos && cur > 0)) {
+                    frozenTicks++
+                    if (frozenTicks >= 6) { // 3 seconds of freeze detected
+                        frozenTicks = 0
+                        try {
+                            exoPlayer.seekToDefaultPosition()
+                            exoPlayer.prepare()
+                            exoPlayer.playWhenReady = true
+                        } catch (_: Exception) {}
+                    }
+                } else {
+                    frozenTicks = 0
+                }
+                lastPlayPos = cur
+            }
+
+            delay(500)
         }
     }
 
