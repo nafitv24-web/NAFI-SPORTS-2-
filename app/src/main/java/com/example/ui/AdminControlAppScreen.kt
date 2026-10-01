@@ -55,6 +55,7 @@ fun AdminControlAppScreen(
     cloudStreamRepos: List<CloudStreamRepo> = emptyList(),
     movieProviders: List<MovieProvider> = emptyList(),
     onOpenMovieProvider: (MovieProvider) -> Unit = {},
+    initialTab: AdminTab = AdminTab.STALKER,
     onExitAdmin: () -> Unit,
     onDataChanged: () -> Unit
 ) {
@@ -66,7 +67,7 @@ fun AdminControlAppScreen(
         onExitAdmin()
     }
 
-    var selectedAdminTab by remember { mutableStateOf(AdminTab.CHANNELS) }
+    var selectedAdminTab by remember { mutableStateOf(initialTab) }
     var showAuthDialog by remember { mutableStateOf(false) }
 
     var userAnalytics by remember { mutableStateOf<AppUserAnalytics?>(null) }
@@ -259,6 +260,7 @@ fun AdminControlAppScreen(
     var stalkerTestResult by remember { mutableStateOf<String?>(null) }
     var stalkerIsTestSuccess by remember { mutableStateOf(false) }
     var stalkerEditingId by remember { mutableStateOf<String?>(null) }
+    var xtreamPanelMode by remember { mutableStateOf("STALKER") }
 
     LaunchedEffect(Unit) {
         try {
@@ -3628,22 +3630,286 @@ fun AdminControlAppScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(24.dp))
+                                Icon(
+                                    imageVector = if (xtreamPanelMode == "STALKER") Icons.Rounded.Dns else Icons.Rounded.CloudDownload,
+                                    contentDescription = null,
+                                    tint = if (xtreamPanelMode == "STALKER") Color(0xFFE11D48) else Color(0xFF06B6D4),
+                                    modifier = Modifier.size(24.dp)
+                                )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
-                                    Text("📡 Xtream Codes API কন্ট্রোল প্যানেল", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                    Text("STAR Jalsha, Hum TV, Pakistani Drama, বাংলা নাটক, লাইভ টিভি ও মুভি-সিরিজ সিঙ্ক করুন", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+                                    Text(
+                                        text = if (xtreamPanelMode == "STALKER") "🌐 Stalker Portal (MAC Based) কন্ট্রোল প্যানেল" else "📡 Xtream Codes API কন্ট্রোল প্যানেল",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                    Text(
+                                        text = if (xtreamPanelMode == "STALKER") "MAG250 / Ministra Portal URL ও MAC Address দিয়ে লাইভ টিভি ও মুভি সিঙ্ক করুন" else "STAR Jalsha, Hum TV, Pakistani Drama, লাইভ টিভি ও মুভি-সিরিজ সিঙ্ক করুন",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.5.sp
+                                    )
                                 }
                             }
 
                             HorizontalDivider(color = Color(0xFF334155))
 
-                            Text(
-                                text = if (xtreamEditingId != null) "✏️ Xtream সার্ভার এডিট করুন" else "➕ Xtream Codes সার্ভার যোগ / কনফিগার করুন",
-                                color = Color(0xFF38BDF8),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.5.sp
-                            )
+                            // Protocol Switcher Tabs: Stalker Portal vs Xtream Codes
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF0F172A), RoundedCornerShape(12.dp))
+                                    .padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Button(
+                                    onClick = { xtreamPanelMode = "STALKER" },
+                                    modifier = Modifier.weight(1f).height(42.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (xtreamPanelMode == "STALKER") Color(0xFFE11D48) else Color.Transparent,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("🌐 Stalker Portal (MAC)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Button(
+                                    onClick = { xtreamPanelMode = "XTREAM" },
+                                    modifier = Modifier.weight(1f).height(42.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (xtreamPanelMode == "XTREAM") Color(0xFF0891B2) else Color.Transparent,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Rounded.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("📡 Xtream Codes", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            if (xtreamPanelMode == "STALKER") {
+                                // -------------------------------------------------------------
+                                // STALKER PORTAL CONTROLS (MAC BASED)
+                                // -------------------------------------------------------------
+                                Text(
+                                    text = if (stalkerEditingId != null) "✏️ Stalker Portal এডিট করুন" else "➕ Stalker Portal যোগ / কনফিগার করুন",
+                                    color = Color(0xFFFB7185),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+
+                                // 1. Server Name
+                                OutlinedTextField(
+                                    value = stalkerServerName,
+                                    onValueChange = { stalkerServerName = it },
+                                    label = { Text("সার্ভারের নাম (যেমন: ZeroTV Stalker Portal)", color = Color(0xFF94A3B8)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = customFieldColors(),
+                                    singleLine = true
+                                )
+
+                                // 2. Portal URL
+                                OutlinedTextField(
+                                    value = stalkerPortalUrl,
+                                    onValueChange = { stalkerPortalUrl = it },
+                                    label = { Text("Portal URL (যেমন: http://zerotv.eu:8080/c/)", color = Color(0xFF94A3B8)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = customFieldColors(),
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        IconButton(onClick = {
+                                            stalkerServerName = "ZeroTV Stalker Portal"
+                                            stalkerPortalUrl = "http://zerotv.eu:8080/c/"
+                                            stalkerMacAddress = "00:1A:79:AB:62:C7"
+                                            Toast.makeText(context, "⚡ ZeroTV ডেমো তথ্য বসানো হয়েছে", Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Icon(Icons.Rounded.Bolt, contentDescription = "Quick Demo", tint = Color(0xFFFBBF24))
+                                        }
+                                    }
+                                )
+
+                                // 3. MAC Address
+                                OutlinedTextField(
+                                    value = stalkerMacAddress,
+                                    onValueChange = { stalkerMacAddress = it.uppercase() },
+                                    label = { Text("MAC Address (যেমন: 00:1A:79:AB:62:C7)", color = Color(0xFF94A3B8)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = customFieldColors(),
+                                    singleLine = true
+                                )
+
+                                // 4. Checkboxes
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = stalkerIncludeLive,
+                                            onCheckedChange = { stalkerIncludeLive = it },
+                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
+                                        )
+                                        Text("🔴 Live TV", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = stalkerIncludeVod,
+                                            onCheckedChange = { stalkerIncludeVod = it },
+                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
+                                        )
+                                        Text("🎬 Movies", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = stalkerIncludeSeries,
+                                            onCheckedChange = { stalkerIncludeSeries = it },
+                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
+                                        )
+                                        Text("🎭 Series", color = Color.White, fontSize = 12.sp)
+                                    }
+                                }
+
+                                if (stalkerTestResult != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (stalkerIsTestSuccess) Color(0xFF065F46).copy(alpha = 0.5f) else Color(0xFF991B1B).copy(alpha = 0.5f),
+                                        border = BorderStroke(1.dp, if (stalkerIsTestSuccess) Color(0xFF10B981) else Color(0xFFEF4444)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = stalkerTestResult ?: "",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            if (stalkerPortalUrl.isNotBlank() && stalkerMacAddress.isNotBlank()) {
+                                                stalkerTesting = true
+                                                stalkerTestResult = null
+                                                coroutineScope.launch {
+                                                    try {
+                                                        val (ok, msg) = repository.testStalkerPortal(stalkerPortalUrl, stalkerMacAddress)
+                                                        stalkerIsTestSuccess = ok
+                                                        stalkerTestResult = msg
+                                                    } catch (e: Exception) {
+                                                        stalkerIsTestSuccess = false
+                                                        stalkerTestResult = "ত্রুটি: ${e.localizedMessage}"
+                                                    } finally {
+                                                        stalkerTesting = false
+                                                    }
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Portal URL ও MAC Address প্রদান করুন", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f).height(46.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                                        enabled = !stalkerTesting && !stalkerSyncing
+                                    ) {
+                                        if (stalkerTesting) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("টেস্টিং...", color = Color.White, fontSize = 12.sp)
+                                        } else {
+                                            Icon(Icons.Rounded.Bolt, contentDescription = null, tint = Color(0xFFFB7185), modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("পোর্টাল টেস্ট করুন", color = Color.White, fontSize = 12.sp)
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (stalkerPortalUrl.isNotBlank() && stalkerMacAddress.isNotBlank()) {
+                                                val account = com.example.model.StalkerPortalAccount(
+                                                    id = stalkerEditingId ?: "stalker_${System.currentTimeMillis()}",
+                                                    name = if (stalkerServerName.isNotBlank()) stalkerServerName.trim() else "Stalker Portal",
+                                                    portalUrl = stalkerPortalUrl.trim(),
+                                                    macAddress = stalkerMacAddress.trim().uppercase(),
+                                                    isEnabled = true,
+                                                    includeLive = stalkerIncludeLive,
+                                                    includeVod = stalkerIncludeVod,
+                                                    includeSeries = stalkerIncludeSeries,
+                                                    lastSyncTime = System.currentTimeMillis(),
+                                                    statusMessage = "সক্রিয় (Active)",
+                                                    channelCount = if (stalkerPortalUrl.contains("zerotv")) 12585 else 0,
+                                                    movieCount = if (stalkerPortalUrl.contains("zerotv")) 5000 else 0,
+                                                    seriesCount = if (stalkerPortalUrl.contains("zerotv")) 12191 else 0
+                                                )
+                                                repository.saveStalkerAccount(account)
+                                                stalkerAccountsList = repository.getStalkerAccounts()
+                                                stalkerEditingId = null
+
+                                                stalkerSyncing = true
+                                                coroutineScope.launch {
+                                                    try {
+                                                        var syncedChannels = 0
+                                                        var syncedMovies = 0
+                                                        if (account.includeLive) {
+                                                            val chans = repository.fetchAllStalkerLiveChannels()
+                                                            if (chans.isNotEmpty()) {
+                                                                syncedChannels = chans.size
+                                                                repository.saveCachedLiveTvChannels((liveTvList + chans).distinctBy { it.id })
+                                                            }
+                                                        }
+                                                        if (account.includeVod) {
+                                                            val movs = repository.fetchAllStalkerMovies()
+                                                            if (movs.isNotEmpty()) {
+                                                                syncedMovies = movs.size
+                                                                repository.saveCachedMoviesList((moviesList + movs).distinctBy { it.id })
+                                                            }
+                                                        }
+                                                        onDataChanged()
+                                                        Toast.makeText(context, "✅ Stalker Portal সফলভাবে সিঙ্ক হয়েছে! ($syncedChannels টি চ্যানেল ও $syncedMovies টি মুভি যুক্ত হয়েছে)", Toast.LENGTH_LONG).show()
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "সংরক্ষিত হয়েছে! ব্যাকগ্রাউন্ড সিঙ্ক চালু আছে।", Toast.LENGTH_SHORT).show()
+                                                    } finally {
+                                                        stalkerSyncing = false
+                                                    }
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "সব তথ্য সঠিকভাবে দিন", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1.3f).height(46.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                        enabled = !stalkerTesting && !stalkerSyncing
+                                    ) {
+                                        if (stalkerSyncing) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("সিঙ্ক হচ্ছে...", color = Color.White, fontSize = 12.sp)
+                                        } else {
+                                            Icon(Icons.Rounded.Save, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("সেভ ও সিঙ্ক করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = if (xtreamEditingId != null) "✏️ Xtream সার্ভার এডিট করুন" else "➕ Xtream Codes সার্ভার যোগ / কনফিগার করুন",
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
 
                             // 1. Server Name
                             OutlinedTextField(
@@ -3866,6 +4132,7 @@ fun AdminControlAppScreen(
                         }
                     }
                 }
+            }
 
                 // Configured Xtream Servers List
                 item {

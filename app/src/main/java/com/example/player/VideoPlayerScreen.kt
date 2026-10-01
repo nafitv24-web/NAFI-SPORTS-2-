@@ -165,6 +165,33 @@ fun VideoPlayerScreen(
         }
     }
 
+    // Automatically resolve Stalker Portal create_link tokenized stream URLs in the background
+    LaunchedEffect(currentMedia.id, currentUrl) {
+        val portal = currentMedia.stalkerPortalUrl
+        val mac = currentMedia.stalkerMacAddress
+        val cmd = currentMedia.stalkerCmd
+        val isStalker = !portal.isNullOrBlank() || currentMedia.tournament == "Stalker Portal" || currentUrl.contains("/play/live.php", ignoreCase = true) || currentUrl.contains("/play/movie.php", ignoreCase = true)
+        if (isStalker && !currentUrl.contains("play_token=", ignoreCase = true)) {
+            val pUrl = portal?.takeIf { it.isNotBlank() } ?: "http://zerotv.eu:8080/c/"
+            val pMac = mac?.takeIf { it.isNotBlank() } ?: "00:1A:79:AB:62:C7"
+            val pCmd = cmd?.takeIf { it.isNotBlank() } ?: (if (currentUrl.contains("stream=")) {
+                val streamId = Regex("stream=([0-9]+)").find(currentUrl)?.groupValues?.getOrNull(1)
+                if (streamId != null) "ffmpeg http://localhost/ch/${streamId}_" else null
+            } else null)
+
+            if (!pCmd.isNullOrBlank()) {
+                val resolved = if (currentMedia.type == MediaType.MOVIE) {
+                    com.example.util.StalkerPortalManager.resolveVodUrl(pUrl, pMac, pCmd)
+                } else {
+                    com.example.util.StalkerPortalManager.resolveStreamUrl(pUrl, pMac, pCmd)
+                }
+                if (!resolved.isNullOrBlank() && resolved != currentUrl) {
+                    currentUrl = resolved
+                }
+            }
+        }
+    }
+
     // Record user live presence & streaming activity
     LaunchedEffect(currentMedia.id, currentMedia.title) {
         try {

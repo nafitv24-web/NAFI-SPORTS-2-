@@ -143,6 +143,9 @@ data class MediaItem(
     val xtreamServerUrl: String? = null,
     val xtreamUsername: String? = null,
     val xtreamPassword: String? = null,
+    val stalkerPortalUrl: String? = null,
+    val stalkerMacAddress: String? = null,
+    val stalkerCmd: String? = null,
     val isAdminAdded: Boolean = false
 ) {
     val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty() || id.startsWith("xtream_series_") || id.startsWith("series_") || category.contains("JALSHA", ignoreCase = true) || category.contains("SERIAL", ignoreCase = true) || category.contains("DRAMA", ignoreCase = true) || category.contains("SERIES", ignoreCase = true)

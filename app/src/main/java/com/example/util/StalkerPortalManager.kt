@@ -242,11 +242,11 @@ object StalkerPortalManager {
                 val categoryName = genres[genreId] ?: "Stalker Live TV"
 
                 // Direct streaming link pattern for Stalker / Ministra live streams
-                // http://zerotv.eu:8080/play/live.php?mac=00:1A:79:AB:62:C7&stream=2&extension=ts
+                val fullCmd = obj.optString("cmd", "")
                 val streamUrl = "$baseHost/play/live.php?mac=$mac&stream=$chId&extension=ts"
 
                 // Additional server option with raw cmd if available
-                val rawCmd = obj.optString("cmd", "").replace("ffmpeg ", "").replace("ffrt ", "").trim()
+                val rawCmd = fullCmd.replace("ffmpeg ", "").replace("ffrt ", "").trim()
                 val servers = mutableListOf(StreamServer(name = "সার্ভার ১ (TS Stream)", url = streamUrl))
                 if (rawCmd.isNotBlank() && rawCmd.startsWith("http", ignoreCase = true)) {
                     servers.add(StreamServer(name = "সার্ভার ২ (Direct)", url = rawCmd))
@@ -262,7 +262,12 @@ object StalkerPortalManager {
                         tournament = "Stalker Portal",
                         type = MediaType.LIVE_TV,
                         isLive = true,
-                        servers = servers
+                        servers = servers,
+                        stalkerPortalUrl = portalUrl,
+                        stalkerMacAddress = macAddress,
+                        stalkerCmd = fullCmd,
+                        userAgent = STALKER_USER_AGENT,
+                        cookie = "mac=$mac; stb_lang=en; timezone=Europe/Kiev;"
                     )
                 )
             }
@@ -270,6 +275,40 @@ object StalkerPortalManager {
             e.printStackTrace()
         }
         items
+    }
+
+    /**
+     * Resolves a dynamic live streaming token and direct URL for a Stalker channel
+     */
+    suspend fun resolveStreamUrl(portalUrl: String, macAddress: String, cmd: String): String? = withContext(Dispatchers.IO) {
+        if (portalUrl.isBlank() || macAddress.isBlank() || cmd.isBlank()) return@withContext null
+        try {
+            val handshakeRes = handshake(portalUrl, macAddress)
+            val token = handshakeRes.getOrNull() ?: return@withContext null
+            val endpoint = normalizeLoadPhpUrl(portalUrl)
+            val mac = macAddress.trim().uppercase()
+            val linkUrl = "$endpoint?type=itv&action=create_link&cmd=${URLEncoder.encode(cmd, "UTF-8")}&JsHttpRequest=1-xml"
+
+            val req = Request.Builder()
+                .url(linkUrl)
+                .header("User-Agent", STALKER_USER_AGENT)
+                .header("Authorization", "Bearer $token")
+                .header("Cookie", "mac=$mac; stb_lang=en; timezone=Europe/Kiev;")
+                .get()
+                .build()
+
+            val res = httpClient.newCall(req).execute()
+            val body = res.body?.string().orEmpty()
+            val json = JSONObject(body)
+            val js = json.optJSONObject("js") ?: return@withContext null
+            val generatedCmd = js.optString("cmd", "").replace("ffmpeg ", "").replace("ffrt ", "").trim()
+            if (generatedCmd.startsWith("http", ignoreCase = true)) {
+                generatedCmd
+            } else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     /**
@@ -309,6 +348,7 @@ object StalkerPortalManager {
                 val pic = obj.optString("pic", "")
                 val year = obj.optString("year", "")
                 val rating = obj.optString("rating_imdb", "")
+                val cmd = obj.optString("cmd", "")
 
                 // Standard VOD streaming link
                 val streamUrl = "$baseHost/play/movie.php?mac=$mac&stream=$movId.mkv&type=movie"
@@ -324,7 +364,12 @@ object StalkerPortalManager {
                         type = MediaType.MOVIE,
                         isLive = false,
                         description = obj.optString("description", ""),
-                        servers = listOf(StreamServer(name = "এইচডি প্লেয়ার", url = streamUrl))
+                        servers = listOf(StreamServer(name = "এইচডি প্লেয়ার", url = streamUrl)),
+                        stalkerPortalUrl = portalUrl,
+                        stalkerMacAddress = macAddress,
+                        stalkerCmd = cmd,
+                        userAgent = STALKER_USER_AGENT,
+                        cookie = "mac=$mac; stb_lang=en; timezone=Europe/Kiev;"
                     )
                 )
             }
@@ -332,5 +377,39 @@ object StalkerPortalManager {
             e.printStackTrace()
         }
         items
+    }
+
+    /**
+     * Resolves dynamic VOD stream link with token
+     */
+    suspend fun resolveVodUrl(portalUrl: String, macAddress: String, cmd: String): String? = withContext(Dispatchers.IO) {
+        if (portalUrl.isBlank() || macAddress.isBlank() || cmd.isBlank()) return@withContext null
+        try {
+            val handshakeRes = handshake(portalUrl, macAddress)
+            val token = handshakeRes.getOrNull() ?: return@withContext null
+            val endpoint = normalizeLoadPhpUrl(portalUrl)
+            val mac = macAddress.trim().uppercase()
+            val linkUrl = "$endpoint?type=vod&action=create_link&cmd=${URLEncoder.encode(cmd, "UTF-8")}&JsHttpRequest=1-xml"
+
+            val req = Request.Builder()
+                .url(linkUrl)
+                .header("User-Agent", STALKER_USER_AGENT)
+                .header("Authorization", "Bearer $token")
+                .header("Cookie", "mac=$mac; stb_lang=en; timezone=Europe/Kiev;")
+                .get()
+                .build()
+
+            val res = httpClient.newCall(req).execute()
+            val body = res.body?.string().orEmpty()
+            val json = JSONObject(body)
+            val js = json.optJSONObject("js") ?: return@withContext null
+            val generatedCmd = js.optString("cmd", "").replace("ffmpeg ", "").replace("ffrt ", "").trim()
+            if (generatedCmd.startsWith("http", ignoreCase = true)) {
+                generatedCmd
+            } else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }
