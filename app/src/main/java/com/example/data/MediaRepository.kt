@@ -6973,10 +6973,44 @@ class MediaRepository(private val context: Context) {
     fun saveStalkerAccount(account: com.example.model.StalkerPortalAccount) {}
     fun saveStalkerAccountsList(accounts: List<com.example.model.StalkerPortalAccount>) {}
     fun deleteStalkerAccount(id: String) {}
-    suspend fun testStalkerPortal(url: String, mac: String): Boolean = false
+    fun deleteStalkerAccount(account: com.example.model.StalkerPortalAccount) {}
+    suspend fun testStalkerPortal(url: String = "", mac: String = ""): Boolean = false
+    suspend fun testStalkerPortal(account: com.example.model.StalkerPortalAccount): Boolean = false
+
+    suspend fun fetchAllStalkerLiveChannels(
+        account: com.example.model.StalkerPortalAccount? = null,
+        portalUrl: String? = null,
+        macAddress: String? = null,
+        forceRefresh: Boolean = false
+    ): List<MediaItem> = emptyList()
     suspend fun fetchAllStalkerLiveChannels(): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerLiveChannels(forceRefresh: Boolean): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerLiveChannels(account: com.example.model.StalkerPortalAccount): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerLiveChannels(portalUrl: String, macAddress: String): List<MediaItem> = emptyList()
+
+    suspend fun fetchAllStalkerMovies(
+        account: com.example.model.StalkerPortalAccount? = null,
+        portalUrl: String? = null,
+        macAddress: String? = null,
+        forceRefresh: Boolean = false
+    ): List<MediaItem> = emptyList()
     suspend fun fetchAllStalkerMovies(): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerMovies(forceRefresh: Boolean): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerMovies(account: com.example.model.StalkerPortalAccount): List<MediaItem> = emptyList()
+    suspend fun fetchAllStalkerMovies(portalUrl: String, macAddress: String): List<MediaItem> = emptyList()
+
+    suspend fun fetchStalkerFastChannels(
+        account: com.example.model.StalkerPortalAccount? = null,
+        portalUrl: String? = null,
+        macAddress: String? = null,
+        limit: Int = 50,
+        forceRefresh: Boolean = false
+    ): List<MediaItem> = emptyList()
     suspend fun fetchStalkerFastChannels(): List<MediaItem> = emptyList()
+    suspend fun fetchStalkerFastChannels(forceRefresh: Boolean): List<MediaItem> = emptyList()
+    suspend fun fetchStalkerFastChannels(limit: Int): List<MediaItem> = emptyList()
+    suspend fun fetchStalkerFastChannels(account: com.example.model.StalkerPortalAccount): List<MediaItem> = emptyList()
+    suspend fun fetchStalkerFastChannels(portalUrl: String, macAddress: String): List<MediaItem> = emptyList()
     suspend fun fetchFastChannels(): List<MediaItem> = emptyList()
     suspend fun fetchGenresList(): List<String> = emptyList()
     suspend fun fetchChannelsByGenre(genre: String): List<MediaItem> = emptyList()
