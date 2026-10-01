@@ -165,33 +165,6 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Automatically resolve Stalker Portal create_link tokenized stream URLs in the background
-    LaunchedEffect(currentMedia.id, currentUrl) {
-        val portal = currentMedia.stalkerPortalUrl
-        val mac = currentMedia.stalkerMacAddress
-        val cmd = currentMedia.stalkerCmd
-        val isStalker = !portal.isNullOrBlank() || currentMedia.tournament == "Stalker Portal" || currentUrl.contains("/play/live.php", ignoreCase = true) || currentUrl.contains("/play/movie.php", ignoreCase = true)
-        if (isStalker && !currentUrl.contains("play_token=", ignoreCase = true)) {
-            val pUrl = portal?.takeIf { it.isNotBlank() } ?: "http://zerotv.eu:8080/c/"
-            val pMac = mac?.takeIf { it.isNotBlank() } ?: "00:1A:79:AB:62:C7"
-            val pCmd = cmd?.takeIf { it.isNotBlank() } ?: (if (currentUrl.contains("stream=")) {
-                val streamId = Regex("stream=([0-9]+)").find(currentUrl)?.groupValues?.getOrNull(1)
-                if (streamId != null) "ffmpeg http://localhost/ch/${streamId}_" else null
-            } else null)
-
-            if (!pCmd.isNullOrBlank()) {
-                val resolved = if (currentMedia.type == MediaType.MOVIE) {
-                    com.example.util.StalkerPortalManager.resolveVodUrl(pUrl, pMac, pCmd)
-                } else {
-                    com.example.util.StalkerPortalManager.resolveStreamUrl(pUrl, pMac, pCmd)
-                }
-                if (!resolved.isNullOrBlank() && resolved != currentUrl) {
-                    currentUrl = resolved
-                }
-            }
-        }
-    }
-
     // Record user live presence & streaming activity
     LaunchedEffect(currentMedia.id, currentMedia.title) {
         try {
@@ -717,22 +690,6 @@ fun VideoPlayerScreen(
             if (extractedUa.isNullOrBlank()) extractedUa = "VLC/3.0.18 LibVLC/3.0.18"
         } else if (isRgkkw) {
             if (extractedUa.isNullOrBlank()) extractedUa = "IPTVSmartersPro"
-        }
-
-        // Stalker / Ministra Portal smart cookie & headers
-        val isStalkerStream = finalCleanUrl.contains("/play/live.php", ignoreCase = true) ||
-                finalCleanUrl.contains("/play/movie.php", ignoreCase = true) ||
-                (finalCleanUrl.contains("mac=", ignoreCase = true) && finalCleanUrl.contains(":8080")) ||
-                finalCleanUrl.contains("zerotv", ignoreCase = true)
-        if (isStalkerStream) {
-            val macMatch = Regex("mac=([0-9A-Fa-f:]+)", RegexOption.IGNORE_CASE).find(finalCleanUrl)?.groupValues?.getOrNull(1)
-            val mac = macMatch ?: "00:1A:79:AB:62:C7"
-            if (extractedCookie.isNullOrBlank()) {
-                extractedCookie = "mac=$mac; stb_lang=en; timezone=Europe/Kiev;"
-            }
-            if (extractedUa.isNullOrBlank()) {
-                extractedUa = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
-            }
         }
 
         val pathBeforeQuery = finalCleanUrl.substringBefore('?').lowercase()

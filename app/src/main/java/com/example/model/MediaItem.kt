@@ -143,9 +143,6 @@ data class MediaItem(
     val xtreamServerUrl: String? = null,
     val xtreamUsername: String? = null,
     val xtreamPassword: String? = null,
-    val stalkerPortalUrl: String? = null,
-    val stalkerMacAddress: String? = null,
-    val stalkerCmd: String? = null,
     val isAdminAdded: Boolean = false
 ) {
     val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty() || id.startsWith("xtream_series_") || id.startsWith("series_") || category.contains("JALSHA", ignoreCase = true) || category.contains("SERIAL", ignoreCase = true) || category.contains("DRAMA", ignoreCase = true) || category.contains("SERIES", ignoreCase = true)
@@ -330,22 +327,6 @@ data class XtreamAccount(
     val includeSeries: Boolean = true,
     val lastSyncTime: Long = 0L,
     val statusMessage: String? = null
-)
-
-data class StalkerPortalAccount(
-    val id: String = "stalker_${System.currentTimeMillis()}",
-    val name: String = "ZeroTV Stalker Portal",
-    val portalUrl: String = "http://zerotv.eu:8080/c/",
-    val macAddress: String = "00:1A:79:AB:62:C7",
-    val isEnabled: Boolean = true,
-    val includeLive: Boolean = true,
-    val includeVod: Boolean = true,
-    val includeSeries: Boolean = true,
-    val lastSyncTime: Long = 0L,
-    val statusMessage: String? = null,
-    val channelCount: Int = 0,
-    val movieCount: Int = 0,
-    val seriesCount: Int = 0
 )
 
 data class MatchComment(

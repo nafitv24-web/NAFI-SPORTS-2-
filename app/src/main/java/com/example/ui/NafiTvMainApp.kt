@@ -117,13 +117,12 @@ enum class LoadingStage(val title: String, val shortLabel: String, val step: Int
 }
 
 enum class AdminTab(val label: String) {
-    STALKER("🌐 Stalker Portal (MAC)"),
-    XTREAM("📡 Xtream Codes API"),
     ANALYTICS("👥 ইউজার ও ট্রাফিক"),
     TICKER("ব্রেকিং নিউজ বার"),
     CHANNELS("Live TV Channels"),
     MOVIES("Movies"),
     PLAYLISTS("Playlists"),
+    XTREAM("Xtream Codes API"),
     SPORTS("Sports Matches"),
     BROADCAST("নোটিফিকেশন পাঠান"),
     REPOSITORIES("CloudStream Repos"),
@@ -319,18 +318,11 @@ fun NafiTvMainApp(
                         emptyList()
                     }
 
-                    val stalkerLiveChannels = try {
-                        repository.fetchAllStalkerLiveChannels().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
                     val combinedTv = mutableListOf<MediaItem>()
                     combinedTv.addAll(customTv)
                     combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
                     combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
-                    combinedTv.addAll(stalkerLiveChannels.filterNot { repository.isDemoChannel(it) })
 
                     val sourceTvList = if (combinedTv.isNotEmpty()) combinedTv else repository.getDefaultBuiltinLiveTv()
 
@@ -464,14 +456,8 @@ fun NafiTvMainApp(
                         emptyList()
                     }
 
-                    val stalkerMov = try {
-                        repository.fetchAllStalkerMovies().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies + stalkerMov).distinctBy { it.id }
+                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies).distinctBy { it.id }
 
                     if (updatedMov.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
@@ -713,7 +699,6 @@ fun NafiTvMainApp(
             cloudStreamRepos = cloudStreamRepos,
             movieProviders = allMovieProviders,
             onOpenMovieProvider = { activeMovieBrowserProvider = it },
-            initialTab = AdminTab.STALKER,
             onExitAdmin = { isAdminViewActive = false },
             onDataChanged = {
                 cloudStreamRepos = repository.getSavedCloudStreamRepos()
@@ -2775,14 +2760,14 @@ fun MenuScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "এডমিন প্যানেলে প্রবেশ করার জন্য পাসওয়ার্ড দিন (ডিফল্ট: 40541273):",
+                        text = "এডমিন প্যানেলে প্রবেশ করার জন্য গোপন পাসওয়ার্ড দিন:",
                         color = Color(0xFF94A3B8),
-                        fontSize = 12.5.sp
+                        fontSize = 13.sp
                     )
                     OutlinedTextField(
                         value = adminPinInput,
                         onValueChange = { adminPinInput = it },
-                        placeholder = { Text("40541273", color = Color(0xFF64748B)) },
+                        placeholder = { Text("••••••••", color = Color(0xFF64748B)) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
