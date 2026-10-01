@@ -114,18 +114,23 @@ fun LiveTvTabScreen(
         }
         withContext(Dispatchers.Default) {
             val merged = mergeChannelsWithServers(channels)
+            val adminFiltered = if (repository != null) {
+                merged.filterNot { repository.isMediaHidden(it) }
+            } else {
+                merged
+            }
             val adultFiltered = if (isAdultHidden && repository != null) {
-                merged.filterNot { repository.isAdultMedia(it) }
+                adminFiltered.filterNot { repository.isAdultMedia(it) }
             } else if (isAdultHidden) {
                 val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature")
-                merged.filterNot { ch ->
+                adminFiltered.filterNot { ch ->
                     val txt = "${ch.title} ${ch.category} ${ch.genre ?: ""}".lowercase()
                     adultWords.any { txt.contains(it) }
                 }
             } else {
-                merged
+                adminFiltered
             }
-            val cats = listOf("ALL", "FAVORITE") + adultFiltered.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
+            val cats = listOf("ALL", "FAST", "FAVORITE") + adultFiltered.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
 
             withContext(Dispatchers.Main) {
                 preparedChannels = adultFiltered
@@ -164,6 +169,7 @@ fun LiveTvTabScreen(
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true
                 "FAVORITE" -> favoriteIds.contains(channel.id)
+                "FAST" -> repository?.isFastPriorityChannel(channel.id) == true || channel.isFastChannel || channel.category.contains("fast", ignoreCase = true) || channel.category.contains("spor", ignoreCase = true) || channel.id.startsWith("stalker_")
                 else -> channel.category.equals(selectedCategory, ignoreCase = true)
             }
             val matchesActive = if (showOnlyActive) ChannelStatusManager.isChannelActive(channel) else true
@@ -263,6 +269,7 @@ fun LiveTvTabScreen(
                 val label = when (cat) {
                     "ALL" -> if (isLoading && channels.isEmpty()) "সকল চ্যানেল (লোড হচ্ছে...)" else "সকল চ্যানেল (${channels.size})"
                     "FAVORITE" -> "⭐ প্রিয় (${favoriteIds.size})"
+                    "FAST" -> "⚡ দ্রুত চ্যানেলসমূহ"
                     else -> cat
                 }
                 Surface(

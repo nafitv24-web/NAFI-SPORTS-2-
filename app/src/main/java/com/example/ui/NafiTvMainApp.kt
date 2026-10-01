@@ -2155,7 +2155,7 @@ fun MenuScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Play Direct Stream Link (HLS / DASH / MP4)",
+                            text = "Play Direct Stream (MPEG-TS / HLS / Xtream / MP4)",
                             color = Color.White,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
@@ -2165,7 +2165,7 @@ fun MenuScreen(
                     OutlinedTextField(
                         value = directUrl,
                         onValueChange = { directUrl = it },
-                        placeholder = { Text("Enter stream URL (e.g. https://.../stream.m3u8)", color = Color(0xFF64748B), fontSize = 13.sp) },
+                        placeholder = { Text("Stream URL (e.g. .ts, .m3u8, Xtream live / direct link)", color = Color(0xFF64748B), fontSize = 13.sp) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = customFieldColors(),
                         singleLine = true,

@@ -2555,7 +2555,7 @@ class MediaRepository(private val context: Context) {
                     val catName = obj.optString("category_name", "Live TV")
                     val isRgkkw = cleanServer.contains("rgkkw.live", ignoreCase = true)
                     val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.ts"
-                    val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                    val altServer = if (cleanServer.endsWith(":80")) cleanServer.removeSuffix(":80") else if (!cleanServer.contains("://[^/]+:[0-9]+".toRegex())) "$cleanServer:80" else cleanServer
                     val altPlayUrl = "$altServer/live/$cleanUser/$cleanPass/$streamId.ts"
                     val sList = mutableListOf(
                         StreamServer("সার্ভার ১ (TS Stream)", playUrl),
@@ -2711,7 +2711,7 @@ class MediaRepository(private val context: Context) {
 
                                 val isRgkkw = cleanServer.contains("rgkkw.live", ignoreCase = true)
                                 val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.ts"
-                                val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                                val altServer = if (cleanServer.endsWith(":80")) cleanServer.removeSuffix(":80") else if (!cleanServer.contains("://[^/]+:[0-9]+".toRegex())) "$cleanServer:80" else cleanServer
                                 val altPlayUrl = "$altServer/live/$cleanUser/$cleanPass/$streamId.ts"
                                 val sList = mutableListOf(
                                     StreamServer("সার্ভার ১ (TS Stream)", playUrl),
@@ -3081,7 +3081,7 @@ class MediaRepository(private val context: Context) {
                     val icon = sObj.optString("stream_icon").takeIf { it.isNotBlank() }
 
                     val playUrl = "$cleanServer/live/$cleanUser/$cleanPass/$streamId.ts"
-                    val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                    val altServer = if (cleanServer.endsWith(":80")) cleanServer.removeSuffix(":80") else if (!cleanServer.contains("://[^/]+:[0-9]+".toRegex())) "$cleanServer:80" else cleanServer
                     val altPlayUrl = "$altServer/live/$cleanUser/$cleanPass/$streamId.ts"
                     val sList = mutableListOf(
                         StreamServer("সার্ভার ১ (TS Stream)", playUrl),
