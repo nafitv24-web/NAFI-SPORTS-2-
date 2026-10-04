@@ -6881,17 +6881,33 @@ class MediaRepository(private val context: Context) {
         prefs.edit().putBoolean("hide_adult_content", hidden).apply()
     }
 
-    fun isAdultMedia(item: MediaItem): Boolean {
-        val adultKeywords = listOf(
+    fun getHiddenKeywords(): List<String> {
+        val stored = prefs.getString("hidden_keywords", null)
+        if (!stored.isNullOrBlank()) {
+            return stored.split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
+        }
+        return listOf(
             "adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "erotica", "porn", "sex", "sensual",
             "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx", "chikoo",
             "boomx", "cinemadosti", "cinema dosti", "redprime", "gupchup", "hunt", "feneo",
             "fliz", "voovi", "feelit", "unrated hot", "softcore", "nuefliks", "hotshots"
         )
+    }
+
+    fun setHiddenKeywords(keywords: List<String>) {
+        prefs.edit().putString("hidden_keywords", keywords.joinToString(",")).apply()
+    }
+
+    fun isMediaHidden(item: MediaItem): Boolean {
+        val keywords = getHiddenKeywords()
         val textToScan = "${item.title} ${item.category} ${item.genre ?: ""} ${item.description ?: ""}".lowercase()
-        return adultKeywords.any { keyword ->
+        return keywords.any { keyword ->
             textToScan.contains(keyword)
         }
+    }
+
+    fun isAdultMedia(item: MediaItem): Boolean {
+        return isMediaHidden(item)
     }
 }
 
