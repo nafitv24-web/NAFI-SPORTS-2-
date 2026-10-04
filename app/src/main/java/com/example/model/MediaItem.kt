@@ -146,7 +146,10 @@ data class MediaItem(
     val isAdminAdded: Boolean = false,
     val stalkerCmd: String? = null,
     val stalkerPortalUrl: String? = null,
-    val stalkerMac: String? = null
+    val stalkerMac: String? = null,
+    val stalkerMacAddress: String? = null,
+    val isFastChannel: Boolean = false,
+    val posterUrl: String? = null
 ) {
     val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty() || id.startsWith("xtream_series_") || id.startsWith("series_") || category.contains("JALSHA", ignoreCase = true) || category.contains("SERIAL", ignoreCase = true) || category.contains("DRAMA", ignoreCase = true) || category.contains("SERIES", ignoreCase = true)
     val resolvedSeriesId: String? get() = seriesId?.takeIf { it.isNotBlank() } ?: if (id.startsWith("xtream_series_")) id.removePrefix("xtream_series_") else null
@@ -338,6 +341,24 @@ data class MatchComment(
     val userName: String = "",
     val text: String = "",
     val timestamp: Long = System.currentTimeMillis()
+)
+
+data class StalkerPortalAccount(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String = "",
+    val portalUrl: String = "",
+    val macAddress: String = "",
+    val token: String? = null,
+    val isActive: Boolean = true,
+    val isEnabled: Boolean = true,
+    val includeLive: Boolean = true,
+    val includeVod: Boolean = true,
+    val includeSeries: Boolean = true,
+    val channelCount: Int = 0,
+    val movieCount: Int = 0,
+    val seriesCount: Int = 0,
+    val lastSyncTime: Long = 0L,
+    val statusMessage: String? = null
 )
 
 

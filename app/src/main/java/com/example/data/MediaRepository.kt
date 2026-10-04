@@ -6881,12 +6881,16 @@ class MediaRepository(private val context: Context) {
         prefs.edit().putBoolean("hide_adult_content", hidden).apply()
     }
 
-    fun getHiddenKeywords(): List<String> {
-        val stored = prefs.getString("hidden_keywords", null)
-        if (!stored.isNullOrBlank()) {
-            return stored.split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
+    fun getHiddenKeywords(): Set<String> {
+        val stored = prefs.getStringSet("admin_hidden_keywords", null)
+        if (!stored.isNullOrEmpty()) {
+            return stored
         }
-        return listOf(
+        val legacy = prefs.getString("hidden_keywords", null)
+        if (!legacy.isNullOrBlank()) {
+            return legacy.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
+        return setOf(
             "adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "erotica", "porn", "sex", "sensual",
             "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx", "chikoo",
             "boomx", "cinemadosti", "cinema dosti", "redprime", "gupchup", "hunt", "feneo",
@@ -6894,21 +6898,228 @@ class MediaRepository(private val context: Context) {
         )
     }
 
-    fun setHiddenKeywords(keywords: List<String>) {
-        prefs.edit().putString("hidden_keywords", keywords.joinToString(",")).apply()
+    fun setHiddenKeywords(keywords: Collection<String>) {
+        prefs.edit().putStringSet("admin_hidden_keywords", keywords.toSet()).apply()
+    }
+
+    fun getHiddenItemIds(): Set<String> {
+        return prefs.getStringSet("admin_hidden_media_ids", emptySet()) ?: emptySet()
+    }
+
+    fun hideMultipleItems(ids: Collection<String>) {
+        val current = getHiddenItemIds().toMutableSet()
+        current.addAll(ids)
+        prefs.edit().putStringSet("admin_hidden_media_ids", current).apply()
+    }
+
+    fun toggleItemHidden(id: String): Boolean {
+        val current = getHiddenItemIds().toMutableSet()
+        val isNowHidden = if (current.contains(id)) {
+            current.remove(id)
+            false
+        } else {
+            current.add(id)
+            true
+        }
+        prefs.edit().putStringSet("admin_hidden_media_ids", current).apply()
+        return isNowHidden
+    }
+
+    fun unhideAllItems() {
+        prefs.edit().remove("admin_hidden_media_ids").apply()
+    }
+
+    fun addHiddenKeyword(keyword: String) {
+        val trimmed = keyword.trim()
+        if (trimmed.isBlank()) return
+        val current = getHiddenKeywords().toMutableSet()
+        current.add(trimmed)
+        prefs.edit().putStringSet("admin_hidden_keywords", current).apply()
+    }
+
+    fun removeHiddenKeyword(keyword: String) {
+        val current = getHiddenKeywords().toMutableSet()
+        current.remove(keyword.trim())
+        prefs.edit().putStringSet("admin_hidden_keywords", current).apply()
     }
 
     fun isMediaHidden(item: MediaItem): Boolean {
-        val keywords = getHiddenKeywords()
+        if (isAdultContentHidden() && isAdultMedia(item)) return true
+        val hiddenIds = getHiddenItemIds()
+        if (hiddenIds.contains(item.id)) return true
+        val hiddenKeywords = getHiddenKeywords()
+        if (hiddenKeywords.isNotEmpty()) {
+            val textToScan = "${item.title} ${item.category} ${item.genre ?: ""} ${item.description ?: ""}".lowercase()
+            if (hiddenKeywords.any { textToScan.contains(it.lowercase()) }) return true
+        }
+        return false
+    }
+
+    fun isAdultMedia(item: MediaItem): Boolean {
+        val adultKeywords = listOf(
+            "adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "erotica", "porn", "sex", "sensual",
+            "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx", "chikoo",
+            "boomx", "cinemadosti", "cinema dosti", "redprime", "gupchup", "hunt", "feneo",
+            "fliz", "voovi", "feelit", "unrated hot", "softcore", "nuefliks", "hotshots"
+        )
         val textToScan = "${item.title} ${item.category} ${item.genre ?: ""} ${item.description ?: ""}".lowercase()
-        return keywords.any { keyword ->
+        return adultKeywords.any { keyword ->
             textToScan.contains(keyword)
         }
     }
 
-    fun isAdultMedia(item: MediaItem): Boolean {
-        return isMediaHidden(item)
+    // -------------------------------------------------------------
+    // STALKER / MINISTRA PORTAL REPOSITORY ADAPTER METHODS
+    // -------------------------------------------------------------
+    fun getFastPriorityChannelIds(): Set<String> {
+        return prefs.getStringSet("admin_fast_priority_channel_ids", emptySet()) ?: emptySet()
     }
+
+    fun isFastPriorityChannel(channel: MediaItem): Boolean {
+        val priorityKeywords = listOf("star sports", "t sports", "willow", "sony ten", "ptv sports", "sky sports", "bein sports", "live", "ipl", "bpl", "icc", "cricket")
+        val titleLower = channel.title.lowercase()
+        return priorityKeywords.any { titleLower.contains(it) }
+    }
+
+    fun isStalkerFastChannelsEnabled(): Boolean = prefs.getBoolean("stalker_fast_channels_enabled", false)
+    fun setStalkerFastChannelsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("stalker_fast_channels_enabled", enabled).apply()
+    }
+
+    fun getStalkerFastChannelLimit(): Int = prefs.getInt("stalker_fast_channel_limit", 50)
+    fun setStalkerFastChannelLimit(limit: Int) {
+        prefs.edit().putInt("stalker_fast_channel_limit", limit).apply()
+    }
+
+    fun getStalkerAccounts(): List<com.example.model.StalkerPortalAccount> {
+        val raw = prefs.getString("saved_stalker_accounts_json", null) ?: return emptyList()
+        return try {
+            val arr = org.json.JSONArray(raw)
+            val list = mutableListOf<com.example.model.StalkerPortalAccount>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    com.example.model.StalkerPortalAccount(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        name = obj.optString("name", "Stalker Portal"),
+                        portalUrl = obj.optString("portalUrl", ""),
+                        macAddress = obj.optString("macAddress", ""),
+                        token = obj.optString("token", "").takeIf { it.isNotBlank() },
+                        isActive = obj.optBoolean("isActive", true),
+                        isEnabled = obj.optBoolean("isEnabled", true),
+                        includeLive = obj.optBoolean("includeLive", true),
+                        includeVod = obj.optBoolean("includeVod", true),
+                        includeSeries = obj.optBoolean("includeSeries", true)
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun getActiveStalkerAccounts(): List<com.example.model.StalkerPortalAccount> {
+        return getStalkerAccounts().filter { it.isActive && it.isEnabled }
+    }
+
+    fun saveStalkerAccount(account: com.example.model.StalkerPortalAccount) {
+        val current = getStalkerAccounts().toMutableList()
+        val idx = current.indexOfFirst { it.id == account.id }
+        if (idx >= 0) {
+            current[idx] = account
+        } else {
+            current.add(account)
+        }
+        saveStalkerAccountsList(current)
+    }
+
+    fun saveStalkerAccountsList(accounts: List<com.example.model.StalkerPortalAccount>) {
+        val arr = org.json.JSONArray()
+        for (acc in accounts) {
+            val obj = org.json.JSONObject()
+            obj.put("id", acc.id)
+            obj.put("name", acc.name)
+            obj.put("portalUrl", acc.portalUrl)
+            obj.put("macAddress", acc.macAddress)
+            obj.put("token", acc.token ?: "")
+            obj.put("isActive", acc.isActive)
+            obj.put("isEnabled", acc.isEnabled)
+            obj.put("includeLive", acc.includeLive)
+            obj.put("includeVod", acc.includeVod)
+            obj.put("includeSeries", acc.includeSeries)
+            arr.put(obj)
+        }
+        prefs.edit().putString("saved_stalker_accounts_json", arr.toString()).apply()
+    }
+
+    fun deleteStalkerAccount(id: String) {
+        val current = getStalkerAccounts().filterNot { it.id == id }
+        saveStalkerAccountsList(current)
+    }
+
+    fun deleteStalkerAccount(account: com.example.model.StalkerPortalAccount) {
+        deleteStalkerAccount(account.id)
+    }
+
+    suspend fun testStalkerPortal(url: String = "", mac: String = ""): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (url.isBlank() || mac.isBlank()) return@withContext Pair(false, "পোর্টাল ইউআরএল ও ম্যাক অ্যাড্রেস দিন")
+        com.example.util.StalkerPortalManager.testConnection(url, mac)
+    }
+
+    suspend fun testStalkerPortal(account: com.example.model.StalkerPortalAccount): Pair<Boolean, String> {
+        return testStalkerPortal(account.portalUrl, account.macAddress)
+    }
+
+    suspend fun fetchAllStalkerLiveChannels(account: com.example.model.StalkerPortalAccount? = null, portalUrl: String? = null, macAddress: String? = null, forceRefresh: Boolean = false): List<MediaItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val pUrl = portalUrl ?: account?.portalUrl ?: return@withContext emptyList()
+        val pMac = macAddress ?: account?.macAddress ?: return@withContext emptyList()
+        com.example.util.StalkerPortalManager.fetchLiveChannels(pUrl, pMac)
+    }
+
+    suspend fun fetchAllStalkerLiveChannels(): List<MediaItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val active = getActiveStalkerAccounts()
+        val result = mutableListOf<MediaItem>()
+        for (acc in active) {
+            result.addAll(com.example.util.StalkerPortalManager.fetchLiveChannels(acc.portalUrl, acc.macAddress))
+        }
+        result
+    }
+
+    suspend fun fetchAllStalkerLiveChannels(forceRefresh: Boolean): List<MediaItem> = fetchAllStalkerLiveChannels()
+    suspend fun fetchAllStalkerLiveChannels(account: com.example.model.StalkerPortalAccount): List<MediaItem> = fetchAllStalkerLiveChannels(account = account)
+    suspend fun fetchAllStalkerLiveChannels(portalUrl: String, macAddress: String): List<MediaItem> = fetchAllStalkerLiveChannels(portalUrl = portalUrl, macAddress = macAddress)
+
+    suspend fun fetchAllStalkerMovies(account: com.example.model.StalkerPortalAccount? = null, portalUrl: String? = null, macAddress: String? = null, forceRefresh: Boolean = false): List<MediaItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val pUrl = portalUrl ?: account?.portalUrl ?: return@withContext emptyList()
+        val pMac = macAddress ?: account?.macAddress ?: return@withContext emptyList()
+        com.example.util.StalkerPortalManager.fetchVodMovies(pUrl, pMac)
+    }
+
+    suspend fun fetchAllStalkerMovies(): List<MediaItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val active = getActiveStalkerAccounts()
+        val result = mutableListOf<MediaItem>()
+        for (acc in active) {
+            result.addAll(com.example.util.StalkerPortalManager.fetchVodMovies(acc.portalUrl, acc.macAddress))
+        }
+        result
+    }
+
+    suspend fun fetchAllStalkerMovies(forceRefresh: Boolean): List<MediaItem> = fetchAllStalkerMovies()
+    suspend fun fetchAllStalkerMovies(account: com.example.model.StalkerPortalAccount): List<MediaItem> = fetchAllStalkerMovies(account = account)
+    suspend fun fetchAllStalkerMovies(portalUrl: String, macAddress: String): List<MediaItem> = fetchAllStalkerMovies(portalUrl = portalUrl, macAddress = macAddress)
+
+    suspend fun fetchStalkerFastChannels(account: com.example.model.StalkerPortalAccount? = null, portalUrl: String? = null, macAddress: String? = null, limit: Int = 50, forceRefresh: Boolean = false): List<MediaItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val all = if (account != null) fetchAllStalkerLiveChannels(account = account) else fetchAllStalkerLiveChannels()
+        all.take(limit)
+    }
+
+    suspend fun fetchStalkerFastChannels(): List<MediaItem> = fetchStalkerFastChannels(limit = getStalkerFastChannelLimit())
+    suspend fun fetchStalkerFastChannels(forceRefresh: Boolean): List<MediaItem> = fetchStalkerFastChannels()
+    suspend fun fetchStalkerFastChannels(limit: Int): List<MediaItem> = fetchStalkerFastChannels(null, null, null, limit)
+    suspend fun fetchStalkerFastChannels(account: com.example.model.StalkerPortalAccount): List<MediaItem> = fetchStalkerFastChannels(account = account)
+    suspend fun fetchStalkerFastChannels(portalUrl: String, macAddress: String): List<MediaItem> = fetchStalkerFastChannels(portalUrl = portalUrl, macAddress = macAddress)
+    suspend fun fetchFastChannels(): List<MediaItem> = fetchStalkerFastChannels()
 }
 
 

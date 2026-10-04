@@ -123,6 +123,7 @@ enum class AdminTab(val label: String) {
     MOVIES("Movies"),
     PLAYLISTS("Playlists"),
     XTREAM("Xtream Codes API"),
+    STALKER("Stalker / Ministra"),
     SPORTS("Sports Matches"),
     BROADCAST("নোটিফিকেশন পাঠান"),
     REPOSITORIES("CloudStream Repos"),
