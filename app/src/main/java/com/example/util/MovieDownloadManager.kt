@@ -382,6 +382,12 @@ object MovieDownloadManager {
                     mediaItem.origin?.let { requestBuilder.addHeader("Origin", it) }
                     mediaItem.customHeaders?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
 
+                    if (targetUrl.contains("movielinkbd", ignoreCase = true) || (targetUrl.contains("/media/") && targetUrl.contains("token="))) {
+                        val host = try { Uri.parse(targetUrl).host } catch (_: Exception) { "fast.movielinkbd.app" }
+                        if (mediaItem.referrer == null) requestBuilder.header("Referer", "https://$host/")
+                        if (mediaItem.origin == null) requestBuilder.header("Origin", "https://$host")
+                    }
+
                     // Send Range header if we have existing partial bytes
                     if (currentPartLength > 0L) {
                         requestBuilder.addHeader("Range", "bytes=$currentPartLength-")

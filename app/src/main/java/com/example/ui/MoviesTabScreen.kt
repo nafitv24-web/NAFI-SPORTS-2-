@@ -127,7 +127,7 @@ fun MoviesTabScreen(
         }
         withContext(Dispatchers.Default) {
             val adultFiltered = if (isAdultHidden && repository != null) {
-                movies.filterNot { repository.isAdultMedia(it) }
+                movies.filterNot { repository.isMediaHidden(it) || repository.isAdultMedia(it) }
             } else if (isAdultHidden) {
                 val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
                 movies.filterNot { m ->

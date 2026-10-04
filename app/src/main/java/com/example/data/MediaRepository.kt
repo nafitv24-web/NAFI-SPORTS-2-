@@ -4242,7 +4242,8 @@ class MediaRepository(private val context: Context) {
         "hdtoday" to "https://hdtoday.tv",
         "sflix" to "https://sflix.to",
         "superstream" to "https://superstream.media",
-        "vidsrc" to "https://vidsrc.to"
+        "vidsrc" to "https://vidsrc.to",
+        "movielinkbd" to "https://movielinkbd.app"
     )
 
     fun cleanRepoUrl(url: String): String {

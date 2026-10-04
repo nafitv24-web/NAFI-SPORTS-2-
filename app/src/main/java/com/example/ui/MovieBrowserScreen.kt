@@ -1074,13 +1074,22 @@ fun MovieBrowserScreen(
                                         val url = request?.url?.toString() ?: return null
                                         if (url.contains(".m3u8", ignoreCase = true) ||
                                             url.contains(".mpd", ignoreCase = true) ||
+                                            url.contains(".mkv", ignoreCase = true) ||
+                                            url.contains("movielinkbd", ignoreCase = true) ||
+                                            (url.contains("/media/", ignoreCase = true) && url.contains("token=", ignoreCase = true)) ||
                                             (url.contains(".mp4", ignoreCase = true) && !url.contains("thumb") && !url.contains("preview")) ||
                                             url.contains("/master.m3u8", ignoreCase = true) ||
                                             url.contains("/playlist.m3u8", ignoreCase = true) ||
                                             url.contains("/index.m3u8", ignoreCase = true)) {
                                             if (!adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
                                                 detectedStreamUrl = url
-                                                detectedStreamType = if (url.contains(".m3u8")) "HLS Live Stream (M3U8)" else if (url.contains(".mpd")) "DASH Stream (MPD)" else "MP4 Direct Video"
+                                                detectedStreamType = when {
+                                                    url.contains("movielinkbd", true) || (url.contains("/media/", true) && url.contains("token=")) -> "MovieLinkBD Movie (MKV/HD)"
+                                                    url.contains(".mkv", true) -> "MKV High-Definition Video"
+                                                    url.contains(".m3u8", true) -> "HLS Live Stream (M3U8)"
+                                                    url.contains(".mpd", true) -> "DASH Stream (MPD)"
+                                                    else -> "MP4 Direct Video"
+                                                }
                                             }
                                         }
                                         if (adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {

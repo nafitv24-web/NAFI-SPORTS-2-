@@ -173,6 +173,50 @@ fun VideoPlayerScreen(
         } catch (_: Exception) {}
     }
 
+    // Auto-detect clean movie title from Content-Disposition header for MovieLinkBD and direct stream links
+    LaunchedEffect(currentUrl) {
+        val rawTitle = currentMedia.title.trim()
+        if (rawTitle.isBlank() || rawTitle.equals("Direct Stream", ignoreCase = true) ||
+            rawTitle.equals("MovieLinkBD Video", ignoreCase = true) || rawTitle.startsWith("direct_")) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .followRedirects(true)
+                        .build()
+                    val host = try { android.net.Uri.parse(currentUrl).host } catch (_: Exception) { "fast.movielinkbd.app" }
+                    val req = okhttp3.Request.Builder()
+                        .url(currentUrl)
+                        .head()
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                        .header("Referer", "https://$host/")
+                        .header("Accept", "*/*")
+                        .build()
+                    val resp = client.newCall(req).execute()
+                    val disp = resp.header("Content-Disposition")
+                    if (!disp.isNullOrBlank()) {
+                        val match = Regex("filename\\*?=['\"]?(?:UTF-8'')?([^;'\"]+)", RegexOption.IGNORE_CASE).find(disp)
+                        val rawName = match?.groupValues?.getOrNull(1)
+                        if (!rawName.isNullOrBlank()) {
+                            val decoded = try { java.net.URLDecoder.decode(rawName, "UTF-8") } catch (_: Exception) { rawName }
+                            val cleanName = decoded
+                                .replace(Regex("movielinkbd\\.com\\s*-\\s*", RegexOption.IGNORE_CASE), "")
+                                .replace(Regex("\\.(?:mkv|mp4|webm|avi)$", RegexOption.IGNORE_CASE), "")
+                                .replace(".", " ")
+                                .trim()
+                            if (cleanName.isNotBlank()) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    currentMedia = currentMedia.copy(title = cleanName)
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     var isFullscreen by rememberSaveable { mutableStateOf(isScreenLandscape || isTvMode) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isPlaying by remember { mutableStateOf(true) }
@@ -692,6 +736,10 @@ fun VideoPlayerScreen(
             if (extractedUa.isNullOrBlank()) extractedUa = "IPTVSmartersPro"
         }
 
+        val isMovieLinkBd = finalCleanUrl.contains("movielinkbd", ignoreCase = true) ||
+                finalCleanUrl.contains("mlbd", ignoreCase = true) ||
+                (finalCleanUrl.contains("/media/", ignoreCase = true) && finalCleanUrl.contains("token=", ignoreCase = true))
+
         val pathBeforeQuery = finalCleanUrl.substringBefore('?').lowercase()
         val isM3u8Pattern = pathBeforeQuery.endsWith(".m3u8") ||
                 finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
@@ -702,10 +750,12 @@ fun VideoPlayerScreen(
                 pathBeforeQuery.endsWith(".mkv") ||
                 pathBeforeQuery.endsWith(".avi") ||
                 pathBeforeQuery.endsWith(".webm") ||
+                pathBeforeQuery.endsWith(".mov") ||
                 finalCleanUrl.contains("/movie/", ignoreCase = true) ||
                 finalCleanUrl.contains("/series/", ignoreCase = true) ||
                 currentMedia.type == MediaType.MOVIE ||
-                currentMedia.type == MediaType.SERIES
+                currentMedia.type == MediaType.SERIES ||
+                isMovieLinkBd
 
         val isXtreamStream = finalCleanUrl.contains("/live/", ignoreCase = true) ||
                 finalCleanUrl.contains("/movie/", ignoreCase = true) ||
@@ -723,19 +773,28 @@ fun VideoPlayerScreen(
         val primaryUa = when {
             !extractedUa.isNullOrBlank() -> extractedUa!!
             isToffee -> "Toffee (Linux;Android 14)"
+            isMovieLinkBd -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
             isTsStream || isAkr4m || isXtreamStream -> "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)"
             else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         }
 
         // Multi-Agent fallback list for maximum online stream compatibility
-        val fallbackUserAgents = listOf(
-            primaryUa,
-            "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)",
-            "TiviMate/4.7.0 (Android TV)",
-            "VLC/3.0.18 LibVLC/3.0.18",
-            "Toffee (Linux;Android 14)",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        ).distinct()
+        val fallbackUserAgents = if (isMovieLinkBd) {
+            listOf(
+                primaryUa,
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            ).distinct()
+        } else {
+            listOf(
+                primaryUa,
+                "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)",
+                "TiviMate/4.7.0 (Android TV)",
+                "VLC/3.0.18 LibVLC/3.0.18",
+                "Toffee (Linux;Android 14)",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            ).distinct()
+        }
         val finalUserAgent = fallbackUserAgents[playerRetryKey.coerceAtLeast(0) % fallbackUserAgents.size]
 
         val uriHost = try { android.net.Uri.parse(finalCleanUrl).host } catch (_: Exception) { null }
@@ -749,6 +808,7 @@ fun VideoPlayerScreen(
             isToffee -> "https://toffeelive.com/"
             isTapmad -> "https://www.tapmad.com/"
             isXtreamStream -> null
+            isMovieLinkBd -> streamHostReferer ?: "https://fast.movielinkbd.app/"
             else -> streamHostReferer
         }
         val finalOrigin = when {
@@ -756,6 +816,7 @@ fun VideoPlayerScreen(
             isToffee -> "https://toffeelive.com"
             isTapmad -> "https://www.tapmad.com"
             isXtreamStream -> null
+            isMovieLinkBd -> streamHostOrigin ?: "https://fast.movielinkbd.app"
             else -> streamHostOrigin
         }
 
@@ -777,10 +838,21 @@ fun VideoPlayerScreen(
             if (!requestHeaders.containsKey("Origin")) requestHeaders["Origin"] = "https://pixeldrain.com"
         }
 
+        if (isMovieLinkBd) {
+            if (!requestHeaders.containsKey("Referer")) {
+                val host = uriHost ?: "fast.movielinkbd.app"
+                requestHeaders["Referer"] = "https://$host/"
+            }
+            if (!requestHeaders.containsKey("Origin")) {
+                val host = uriHost ?: "fast.movielinkbd.app"
+                requestHeaders["Origin"] = "https://$host"
+            }
+        }
+
         requestHeaders["Accept"] = "*/*"
         requestHeaders["Connection"] = "keep-alive"
         requestHeaders["Cache-Control"] = "no-cache"
-        if (isTsStream || isXtreamStream) {
+        if (isTsStream || isXtreamStream || isMovieLinkBd) {
             requestHeaders["Accept-Encoding"] = "identity"
         }
         requestHeaders.putAll(dynamicHeaders)
@@ -799,12 +871,14 @@ fun VideoPlayerScreen(
             httpDataSourceFactory
         )
 
-        val isLiveStream = currentMedia.isLive ||
+        val isLiveStream = !isMovieFormat && !isMovieLinkBd && (
+                currentMedia.isLive ||
                 currentMedia.type == MediaType.LIVE_TV ||
                 currentMedia.type == MediaType.LIVE_EVENT ||
                 isTsStream ||
                 isXtreamStream ||
                 finalCleanUrl.contains(".m3u8", ignoreCase = true)
+        )
 
         // Ultra-fast retry error policy: retries dropped packets within 350ms instead of long backoff pauses
         val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(10) {
@@ -1005,7 +1079,7 @@ fun VideoPlayerScreen(
                     .setUri(finalMediaUri)
 
                 val isMp4 = finalCleanUrl.contains(".mp4", ignoreCase = true)
-                val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true)
+                val isMkv = finalCleanUrl.contains(".mkv", ignoreCase = true) || isMovieLinkBd
                 val isWebm = finalCleanUrl.contains(".webm", ignoreCase = true)
                 val isTs = (finalCleanUrl.contains(".ts", ignoreCase = true) ||
                         finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
@@ -1015,14 +1089,15 @@ fun VideoPlayerScreen(
                         finalCleanUrl.contains("pixeldra.in", ignoreCase = true) ||
                         finalCleanUrl.contains("drive.google.com", ignoreCase = true) ||
                         finalCleanUrl.contains("dropbox.com", ignoreCase = true) ||
-                        finalCleanUrl.contains("mediafire.com", ignoreCase = true)
+                        finalCleanUrl.contains("mediafire.com", ignoreCase = true) ||
+                        isMovieLinkBd
 
                 val isMpd = finalCleanUrl.contains(".mpd", ignoreCase = true) ||
                         finalCleanUrl.contains("dash", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("mpd", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("mpd", ignoreCase = true) == true
 
-                val isM3u8 = !isFileHost && !isTs && (finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
+                val isM3u8 = !isFileHost && !isTs && !isMovieLinkBd && !isMovieFormat && (finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
                         finalCleanUrl.contains("/hls/", ignoreCase = true) ||
                         drmConfig?.manifestType?.equals("hls", ignoreCase = true) == true ||
                         currentMedia.manifestType?.equals("hls", ignoreCase = true) == true ||
@@ -1164,9 +1239,12 @@ fun VideoPlayerScreen(
                                             "hi", "hin", "hindi" -> "Hindi (হিন্দি)"
                                             "bn", "ben", "bangla", "bengali" -> "Bengali (বাংলা)"
                                             "en", "eng", "english" -> "English (ইংরেজি)"
+                                            "ja", "jpn", "japanese" -> "Japanese (জাপানি)"
+                                            "ko", "kor", "korean" -> "Korean (কোরিয়ান)"
                                             "ta", "tam", "tamil" -> "Tamil (তামিল)"
                                             "te", "tel", "telugu" -> "Telugu (তেলেগু)"
                                             "ur", "urd", "urdu" -> "Urdu (উর্দু)"
+                                            "ar", "ara", "arabic" -> "Arabic (আরবি)"
                                             else -> format.label?.ifBlank { null } ?: if (lang.isNotBlank()) lang.uppercase() else "Audio Track ${audios.size + 1}"
                                         }
                                         audios.add(AudioTrackOption(id = "$groupIndex-$trackIndex", language = lang, displayName = langName, groupIndex = groupIndex, trackIndex = trackIndex))
@@ -1291,7 +1369,11 @@ fun VideoPlayerScreen(
                             errorMessage = null
                         } else {
                             errorMessage = if (httpEx?.responseCode == 403) {
-                                "এই লাইভ স্ট্রিমটির সম্প্রচার সমাপ্ত অথবা লিঙ্কটি মেয়াদোত্তীর্ণ (403 Forbidden)। লাইভ খেলা চলাকালীন নতুন লিঙ্ক স্বয়ংক্রিয়ভাবে সক্রিয় হবে।"
+                                if (isMovieLinkBd) {
+                                    "MovieLinkBD লিঙ্কটির টোকেন মেয়াদোত্তীর্ণ হতে পারে (403 Forbidden)। ওয়েবসাইট থেকে নতুন লিঙ্ক সংগ্রহ করুন।"
+                                } else {
+                                    "এই স্ট্রিমটির সম্প্রচার সমাপ্ত অথবা লিঙ্কটি মেয়াদোত্তীর্ণ (403 Forbidden)। লাইভ খেলা চলাকালীন নতুন লিঙ্ক স্বয়ংক্রিয়ভাবে সক্রিয় হবে।"
+                                }
                             } else {
                                 "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                             }

@@ -1188,13 +1188,42 @@ fun NafiTvMainApp(
                                 onCheckForUpdates = { checkForUpdates(isManualCheck = true) },
                                 availableUpdateInfo = availableUpdateInfo,
                                 onPlayDirectStream = { url, title ->
+                                    val lowerUrl = url.lowercase().trim()
+                                    val isMovieOrVod = lowerUrl.contains("movielinkbd") ||
+                                            lowerUrl.contains("mlbd") ||
+                                            (lowerUrl.contains("/media/") && lowerUrl.contains("token=")) ||
+                                            lowerUrl.contains("pixeldrain") ||
+                                            lowerUrl.contains("drive.google") ||
+                                            lowerUrl.contains("dropbox") ||
+                                            lowerUrl.contains("mediafire") ||
+                                            lowerUrl.contains(".mp4") ||
+                                            lowerUrl.contains(".mkv") ||
+                                            lowerUrl.contains(".webm") ||
+                                            lowerUrl.contains(".avi") ||
+                                            lowerUrl.contains(".mov") ||
+                                            lowerUrl.contains("/movie/") ||
+                                            lowerUrl.contains("/series/") ||
+                                            title.contains("movie", ignoreCase = true) ||
+                                            title.contains("মুভি", ignoreCase = true) ||
+                                            title.contains("film", ignoreCase = true)
+
+                                    val cleanTitle = if (title.isNotBlank()) title else {
+                                        if (lowerUrl.contains("movielinkbd") || (lowerUrl.contains("/media/") && lowerUrl.contains("token="))) {
+                                            "MovieLinkBD Video"
+                                        } else if (isMovieOrVod) {
+                                            "Movie Stream"
+                                        } else {
+                                            "Direct Stream"
+                                        }
+                                    }
+
                                     val directItem = MediaItem(
-                                        id = "direct_${System.currentTimeMillis()}",
-                                        title = title.ifBlank { "Direct Stream" },
-                                        category = "Direct Stream",
-                                        type = MediaType.LIVE_TV,
-                                        streamUrl = url,
-                                        isLive = true
+                                         id = "direct_${System.currentTimeMillis()}",
+                                         title = cleanTitle,
+                                         category = if (isMovieOrVod) "Movies & Videos" else "Direct Stream",
+                                         type = if (isMovieOrVod) MediaType.MOVIE else MediaType.LIVE_TV,
+                                         streamUrl = url,
+                                         isLive = !isMovieOrVod
                                     )
                                     selectedMediaItem = directItem
                                     activePlaybackPlaylist = listOf(directItem)
@@ -1600,13 +1629,42 @@ fun NafiTvMainApp(
                             onCheckForUpdates = { checkForUpdates(isManualCheck = true) },
                             availableUpdateInfo = availableUpdateInfo,
                             onPlayDirectStream = { url, title ->
+                                val lowerUrl = url.lowercase().trim()
+                                val isMovieOrVod = lowerUrl.contains("movielinkbd") ||
+                                        lowerUrl.contains("mlbd") ||
+                                        (lowerUrl.contains("/media/") && lowerUrl.contains("token=")) ||
+                                        lowerUrl.contains("pixeldrain") ||
+                                        lowerUrl.contains("drive.google") ||
+                                        lowerUrl.contains("dropbox") ||
+                                        lowerUrl.contains("mediafire") ||
+                                        lowerUrl.contains(".mp4") ||
+                                        lowerUrl.contains(".mkv") ||
+                                        lowerUrl.contains(".webm") ||
+                                        lowerUrl.contains(".avi") ||
+                                        lowerUrl.contains(".mov") ||
+                                        lowerUrl.contains("/movie/") ||
+                                        lowerUrl.contains("/series/") ||
+                                        title.contains("movie", ignoreCase = true) ||
+                                        title.contains("মুভি", ignoreCase = true) ||
+                                        title.contains("film", ignoreCase = true)
+
+                                val cleanTitle = if (title.isNotBlank()) title else {
+                                    if (lowerUrl.contains("movielinkbd") || (lowerUrl.contains("/media/") && lowerUrl.contains("token="))) {
+                                        "MovieLinkBD Video"
+                                    } else if (isMovieOrVod) {
+                                        "Movie Stream"
+                                    } else {
+                                        "Direct Stream"
+                                    }
+                                }
+
                                 val directItem = MediaItem(
                                     id = "direct_${System.currentTimeMillis()}",
-                                    title = title.ifBlank { "Direct Stream" },
-                                    category = "Direct Stream",
-                                    type = MediaType.LIVE_TV,
+                                    title = cleanTitle,
+                                    category = if (isMovieOrVod) "Movies & Videos" else "Direct Stream",
+                                    type = if (isMovieOrVod) MediaType.MOVIE else MediaType.LIVE_TV,
                                     streamUrl = url,
-                                    isLive = true
+                                    isLive = !isMovieOrVod
                                 )
                                 selectedMediaItem = directItem
                                 activePlaybackPlaylist = listOf(directItem)
@@ -2155,7 +2213,7 @@ fun MenuScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Play Direct Stream Link (HLS / DASH / MP4)",
+                            text = "Play Direct Stream / Movie Link (HLS / MP4 / MKV / MovieLinkBD)",
                             color = Color.White,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
@@ -2165,7 +2223,7 @@ fun MenuScreen(
                     OutlinedTextField(
                         value = directUrl,
                         onValueChange = { directUrl = it },
-                        placeholder = { Text("Enter stream URL (e.g. https://.../stream.m3u8)", color = Color(0xFF64748B), fontSize = 13.sp) },
+                        placeholder = { Text("Enter stream or movie URL (m3u8, mp4, mkv, movielinkbd, etc.)", color = Color(0xFF64748B), fontSize = 13.sp) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = customFieldColors(),
                         singleLine = true,
@@ -2407,7 +2465,12 @@ fun MenuScreen(
                     Button(
                         onClick = {
                             if (channelName.isNotBlank() && channelStreamUrl.isNotBlank()) {
-                                val isMovie = channelCategory.equals("Movie", true) || channelCategory.equals("Cinema", true)
+                                val lowerStream = channelStreamUrl.lowercase().trim()
+                                val isMovie = channelCategory.equals("Movie", true) || channelCategory.equals("Cinema", true) ||
+                                        lowerStream.contains("movielinkbd") || lowerStream.contains("mlbd") ||
+                                        (lowerStream.contains("/media/") && lowerStream.contains("token=")) ||
+                                        lowerStream.contains(".mp4") || lowerStream.contains(".mkv") || lowerStream.contains(".webm") ||
+                                        lowerStream.contains("/movie/") || lowerStream.contains("/series/")
                                 val item = MediaItem(
                                     id = if (isMovie) "mov_${System.currentTimeMillis()}" else "tv_${System.currentTimeMillis()}",
                                     title = channelName.trim(),

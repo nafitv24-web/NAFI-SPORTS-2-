@@ -115,7 +115,7 @@ fun LiveTvTabScreen(
         withContext(Dispatchers.Default) {
             val merged = mergeChannelsWithServers(channels)
             val adultFiltered = if (isAdultHidden && repository != null) {
-                merged.filterNot { repository.isAdultMedia(it) }
+                merged.filterNot { repository.isMediaHidden(it) || repository.isAdultMedia(it) }
             } else if (isAdultHidden) {
                 val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature")
                 merged.filterNot { ch ->
