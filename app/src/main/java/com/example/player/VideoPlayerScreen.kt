@@ -165,6 +165,16 @@ fun VideoPlayerScreen(
         mutableStateOf(target)
     }
 
+    // Keep internal player state synced with parent mediaItem updates without recreating screen
+    LaunchedEffect(mediaItem.id, mediaItem.streamUrl) {
+        if (currentMedia.id != mediaItem.id || currentMedia.streamUrl != mediaItem.streamUrl) {
+            currentMedia = mediaItem
+            selectedServerIndex = 0
+            val targetServers = mediaItem.getAllServers()
+            currentUrl = targetServers.firstOrNull()?.url ?: mediaItem.streamUrl
+        }
+    }
+
     // Configure lenient SSL globally for live IPTV / HLS streams (matching VLC and Televizo behavior)
     LaunchedEffect(Unit) {
         try {
@@ -530,10 +540,22 @@ fun VideoPlayerScreen(
         isDraggingSlider = false
     }
 
+    fun toggleFullscreen() {
+        val targetLandscape = !isFullscreen
+        isFullscreen = targetLandscape
+        activity?.requestedOrientation = if (targetLandscape) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
     // Intercept system/mobile back press to safely exit player and return to previous list
     BackHandler {
         if (showQuickChannelDrawer) {
             showQuickChannelDrawer = false
+        } else if (isFullscreen && !isTvMode) {
+            toggleFullscreen()
         } else {
             onBack()
         }
@@ -657,6 +679,10 @@ fun VideoPlayerScreen(
             val nextEp = eps[nextIdx]
             val epMedia = nextEp.toMediaItem(currentMedia)
             isBuffering = true
+            isActuallyBuffering = true
+            hasStartedPlaying = false
+            durationMs = 0L
+            currentPositionMs = 0L
             currentMedia = epMedia
             selectedServerIndex = 0
             currentUrl = epMedia.streamUrl
@@ -680,6 +706,10 @@ fun VideoPlayerScreen(
             val prevEp = eps[prevIdx]
             val epMedia = prevEp.toMediaItem(currentMedia)
             isBuffering = true
+            isActuallyBuffering = true
+            hasStartedPlaying = false
+            durationMs = 0L
+            currentPositionMs = 0L
             currentMedia = epMedia
             selectedServerIndex = 0
             currentUrl = epMedia.streamUrl
@@ -1626,6 +1656,10 @@ fun VideoPlayerScreen(
 
         val targetItem = list[targetIndex]
         isBuffering = true
+        isActuallyBuffering = true
+        hasStartedPlaying = false
+        durationMs = 0L
+        currentPositionMs = 0L
         currentMedia = targetItem
         selectedServerIndex = 0
         val targetServers = targetItem.getAllServers()
@@ -1633,6 +1667,7 @@ fun VideoPlayerScreen(
         errorMessage = null
         onSelectMedia(targetItem)
         channelOsdKey = System.currentTimeMillis()
+        android.widget.Toast.makeText(context, "${targetItem.title} চালু হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(pendingServerSwitchIndex) {
@@ -1648,16 +1683,6 @@ fun VideoPlayerScreen(
             val delta = pendingChannelSwitchDelta
             pendingChannelSwitchDelta = 0
             switchChannel(delta)
-        }
-    }
-
-    fun toggleFullscreen() {
-        val targetLandscape = !isFullscreen
-        isFullscreen = targetLandscape
-        activity?.requestedOrientation = if (targetLandscape) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
 
@@ -2562,6 +2587,10 @@ fun VideoPlayerScreen(
                                                 .clickable {
                                                     val epMedia = ep.toMediaItem(currentMedia)
                                                     isBuffering = true
+                                                    isActuallyBuffering = true
+                                                    hasStartedPlaying = false
+                                                    durationMs = 0L
+                                                    currentPositionMs = 0L
                                                     currentMedia = epMedia
                                                     selectedServerIndex = 0
                                                     currentUrl = epMedia.streamUrl
@@ -2703,6 +2732,10 @@ fun VideoPlayerScreen(
                                                 .focusable()
                                                 .clickable {
                                                     isBuffering = true
+                                                    isActuallyBuffering = true
+                                                    hasStartedPlaying = false
+                                                    durationMs = 0L
+                                                    currentPositionMs = 0L
                                                     currentMedia = item
                                                     selectedServerIndex = 0
                                                     val newServers = item.getAllServers()
@@ -2711,6 +2744,9 @@ fun VideoPlayerScreen(
                                                     currentUrl = nextUrl
                                                     errorMessage = null
                                                     onSelectMedia(item)
+                                                    showQuickChannelDrawer = false
+                                                    channelOsdKey = System.currentTimeMillis()
+                                                    android.widget.Toast.makeText(context, "${item.title} চালু হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
                                                     if (oldUrl == nextUrl) {
                                                         try {
                                                             exoPlayer.seekTo(0)

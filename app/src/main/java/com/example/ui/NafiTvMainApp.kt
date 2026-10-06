@@ -653,16 +653,14 @@ fun NafiTvMainApp(
                 else -> (liveTvList + sportsList + moviesList + customList + m3uList).distinctBy { it.id }
             }
         }
-        key(selectedMediaItem?.id, selectedMediaItem?.streamUrl) {
-            VideoPlayerScreen(
-                mediaItem = selectedMediaItem!!,
-                playlist = currentPlayList,
-                isTvMode = isTvMode,
-                marqueeTickerText = breakingNewsText,
-                onSelectMedia = { selectedMediaItem = it },
-                onBack = { selectedMediaItem = null }
-            )
-        }
+        VideoPlayerScreen(
+            mediaItem = selectedMediaItem!!,
+            playlist = currentPlayList,
+            isTvMode = isTvMode,
+            marqueeTickerText = breakingNewsText,
+            onSelectMedia = { selectedMediaItem = it },
+            onBack = { selectedMediaItem = null }
+        )
     } else if (activeMovieBrowserProvider != null) {
         // IN-APP MOVIE & CLOUDSTREAM WEBSITE BROWSER WITH AD-SHIELD & STREAM DETECTOR
         MovieBrowserScreen(
