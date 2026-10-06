@@ -117,18 +117,15 @@ fun MoviesTabScreen(
     }
 
     // Asynchronous background preparation so tab switch is 0ms instantaneous without UI freeze
+    val initPriorityList = listOf(
+        "BANGLA (2026)", "BANGLA (2025)", "BANGLA (2024)", "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies", "BANGLA",
+        "STAR JALSHA", "ZEE BANGLA", "SUN BANGLA", "COLORS BANGLA", "HOICHOI", "Chorki/Bangla",
+        "HUM TV", "PAKISTANI DRAMA", "HINDI TV SERIES", "STAR PLUS", "STAR BHARAT",
+        "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR", "SONY LIV"
+    )
+
     var isAsyncPreparing by remember { mutableStateOf(false) }
     var preparedMovies by remember { mutableStateOf(effectiveSourceMovies) }
-    var preparedCategories by remember {
-        mutableStateOf<List<String>>(
-            if (effectiveSourceMovies.isNotEmpty()) {
-                val cats = effectiveSourceMovies.map { it.category.trim() }.filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }.distinct()
-                listOf("All", "ডাউনলোডসমূহ") + cats
-            } else {
-                listOf("All", "ডাউনলোডসমূহ")
-            }
-        )
-    }
     var preparedCategorizedMovies by remember {
         mutableStateOf<List<Pair<String, List<MediaItem>>>>(
             if (effectiveSourceMovies.isNotEmpty()) {
@@ -139,8 +136,27 @@ fun MoviesTabScreen(
                         grouped.getOrPut(cat) { mutableListOf() }.add(m)
                     }
                 }
-                grouped.map { (cat, list) -> cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight } }
+                val rawPairs = grouped.map { (cat, list) -> cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight } }
+                rawPairs.sortedWith(
+                    compareBy<Pair<String, List<MediaItem>>> { pair ->
+                        val cat = pair.first
+                        val idx = initPriorityList.indexOfFirst { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) }
+                        if (idx != -1) idx else 999
+                    }.thenByDescending { pair ->
+                        pair.second.firstOrNull()?.movieSortWeight ?: 0L
+                    }
+                )
             } else emptyList()
+        )
+    }
+    var preparedCategories by remember {
+        mutableStateOf<List<String>>(
+            if (preparedCategorizedMovies.isNotEmpty()) {
+                val uniqueCats = preparedCategorizedMovies.map { it.first }
+                listOf("All", "ডাউনলোডসমূহ") + uniqueCats
+            } else {
+                listOf("All", "ডাউনলোডসমূহ")
+            }
         )
     }
     var preparedFeaturedMovies by remember {
@@ -201,19 +217,25 @@ fun MoviesTabScreen(
                 cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
             }
 
-            val uniqueCats = catPairs.map { it.first }
             val priorityList = listOf(
-                "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies",
+                "BANGLA (2026)", "BANGLA (2025)", "BANGLA (2024)", "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies", "BANGLA",
                 "STAR JALSHA", "ZEE BANGLA", "SUN BANGLA", "COLORS BANGLA", "HOICHOI", "Chorki/Bangla",
                 "HUM TV", "PAKISTANI DRAMA", "HINDI TV SERIES", "STAR PLUS", "STAR BHARAT",
                 "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR", "SONY LIV"
             )
-            val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
-                .sortedBy { cat ->
+            val sortedCatPairs = catPairs.sortedWith(
+                compareBy<Pair<String, List<MediaItem>>> { pair ->
+                    val cat = pair.first
                     val idx = priorityList.indexOfFirst { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) }
                     if (idx != -1) idx else 999
+                }.thenByDescending { pair ->
+                    pair.second.firstOrNull()?.movieSortWeight ?: 0L
                 }
-            val others = uniqueCats.filterNot { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }.sorted()
+            )
+
+            val uniqueCats = sortedCatPairs.map { it.first }
+            val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
+            val others = uniqueCats.filterNot { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
             val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
 
             val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }.sortedByDescending { it.movieSortWeight }
@@ -222,7 +244,7 @@ fun MoviesTabScreen(
             withContext(Dispatchers.Main) {
                 preparedMovies = typeFiltered
                 preparedCategories = allCats
-                preparedCategorizedMovies = catPairs
+                preparedCategorizedMovies = sortedCatPairs
                 preparedFeaturedMovies = featured
                 isAsyncPreparing = false
             }

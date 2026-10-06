@@ -3081,6 +3081,7 @@ class MediaRepository(private val context: Context) {
                 }
             } catch (_: Exception) {}
 
+            // Top prioritized VOD categories (Bangla, English, Indian 2026/2025/2024, Dubbed, Netflix, etc.)
             val priorityIds = listOf(
                 "792", "610", "538", "100", "793", "614", "620", "629", // Bangla 2026, 2025, 2024, CAM
                 "749", "597", "525", "786", "598", "526",               // English FHD & CAM 2026, 2025, 2024
@@ -3096,15 +3097,19 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
-            // High-speed parallel category fetch
+            // High-speed parallel category fetch (up to 32 top categories concurrently in batches of 16 for ultra-fast loading)
+            val selectedCats = targetCatIds.take(36)
             coroutineScope {
-                targetCatIds.chunked(8).forEach { chunk ->
+                selectedCats.chunked(12).forEach { chunk ->
                     val chunkJobs = chunk.map { catId ->
                         async {
                             try {
                                 val catName = vodCatMap[catId] ?: "Movies"
                                 val streamUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams&category_id=$catId"
-                                val req = Request.Builder().url(streamUrl).header("User-Agent", "IPTVSmartersPro").build()
+                                val req = Request.Builder()
+                                    .url(streamUrl)
+                                    .header("User-Agent", "IPTVSmartersPro")
+                                    .build()
                                 val resp = client.newCall(req).execute()
                                 if (resp.isSuccessful) {
                                     val bodyStr = resp.body?.string() ?: ""
@@ -3231,8 +3236,9 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
+            val selectedSeriesCats = targetSeriesCatIds.take(30)
             coroutineScope {
-                targetSeriesCatIds.chunked(8).forEach { chunk ->
+                selectedSeriesCats.chunked(10).forEach { chunk ->
                     val chunkJobs = chunk.map { catId ->
                         async {
                             try {
