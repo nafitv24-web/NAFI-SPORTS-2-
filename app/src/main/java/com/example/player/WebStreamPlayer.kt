@@ -428,6 +428,43 @@ private fun loadSmartEmbed(webView: WebView, rawUrl: String) {
             </html>
         """.trimIndent()
         webView.loadDataWithBaseURL("https://www.facebook.com", html, "text/html", "UTF-8", null)
+    } else if (lower.contains(".m3u8") || lower.contains("/hls/")) {
+        val uriHost = try { android.net.Uri.parse(clean).host } catch (_: Exception) { null }
+        val baseUrl = if (!uriHost.isNullOrBlank()) "https://$uriHost/" else "https://www.tapmad.com/"
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <style>
+                    * { margin:0; padding:0; box-sizing:border-box; background:#000; overflow:hidden; }
+                    html, body, video { width:100vw; height:100vh; border:none; display:block; object-fit:contain; background:#000; }
+                </style>
+                <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+            </head>
+            <body>
+                <video id="video" controls autoplay playsinline webkit-playsinline></video>
+                <script>
+                    var video = document.getElementById('video');
+                    var src = '$clean';
+                    if (window.Hls && Hls.isSupported()) {
+                        var hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+                        hls.loadSource(src);
+                        hls.attachMedia(video);
+                        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                            video.play().catch(function(e) { console.log(e); });
+                        });
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = src;
+                        video.addEventListener('loadedmetadata', function() {
+                            video.play().catch(function(e) { console.log(e); });
+                        });
+                    }
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
+        webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
     } else {
         webView.loadUrl(clean)
     }

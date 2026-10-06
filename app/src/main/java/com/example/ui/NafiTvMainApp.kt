@@ -303,21 +303,24 @@ fun NafiTvMainApp(
                 try {
                     val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
                     val tvM3u = if (liveTvM3uUrl.isNotBlank()) {
-                        try {
-                            repository.parseM3uFromUrl(liveTvM3uUrl).map {
-                                it.copy(type = MediaType.LIVE_TV, isLive = true)
-                            }.filterNot { deleted.contains(it.id) }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            emptyList()
-                        }
+                        kotlinx.coroutines.withTimeoutOrNull(3500) {
+                            try {
+                                repository.parseM3uFromUrl(liveTvM3uUrl).map {
+                                    it.copy(type = MediaType.LIVE_TV, isLive = true)
+                                }.filterNot { deleted.contains(it.id) }
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } ?: emptyList()
                     } else emptyList()
 
-                    val xtreamLiveChannels = try {
-                        repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
+                    val xtreamLiveChannels = kotlinx.coroutines.withTimeoutOrNull(3000) {
+                        try {
+                            repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    } ?: emptyList()
 
                     val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
                     val combinedTv = mutableListOf<MediaItem>()
@@ -348,7 +351,7 @@ fun NafiTvMainApp(
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(100) // Smooth yield
+                delay(80) // Smooth yield
 
                 // -------------------------------------------------------------
                 // ধাপ ২: তারপর লাইভ ইভেন্ট / খেলাধুলা লোড হবে (Second: Live Events)
@@ -369,7 +372,7 @@ fun NafiTvMainApp(
 
                     val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                     val sportsM3u = if (sportsM3uUrl.isNotBlank()) {
-                        kotlinx.coroutines.withTimeoutOrNull(4000) {
+                        kotlinx.coroutines.withTimeoutOrNull(3500) {
                             try {
                                 repository.parseM3uFromUrl(sportsM3uUrl).map {
                                     it.copy(
@@ -384,7 +387,7 @@ fun NafiTvMainApp(
                         } ?: emptyList()
                     } else emptyList()
 
-                    val tapmad = kotlinx.coroutines.withTimeoutOrNull(3000) {
+                    val tapmad = kotlinx.coroutines.withTimeoutOrNull(2500) {
                         try {
                             repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
                         } catch (e: Exception) {
@@ -403,10 +406,10 @@ fun NafiTvMainApp(
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(100) // Smooth yield to prevent UI frame drop
+                delay(80) // Smooth yield to prevent UI frame drop
 
                 // -------------------------------------------------------------
-                // ধাপ ৩: তারপর মুভি ও সিরিজ অপশন গুলো লোড হবে (Third: Movies & Series)
+                // ধাপ ৩: তারপর মুভি ও সিরিজ অপশন গুলো লোড হবে (Third: Movies & Series - Ultra Fast & Progressive)
                 // -------------------------------------------------------------
                 withContext(Dispatchers.Main) {
                     currentLoadingStage = LoadingStage.MOVIES
@@ -414,62 +417,102 @@ fun NafiTvMainApp(
                 try {
                     val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
                     val moviesM3u = if (moviesM3uUrl.isNotBlank()) {
-                        try {
-                            repository.parseM3uFromUrl(moviesM3uUrl).map {
-                                it.copy(
-                                    type = MediaType.MOVIE,
-                                    tournament = "NAFI_OTT",
-                                    category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
-                                )
-                            }.filterNot { deleted.contains(it.id) }
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
+                        kotlinx.coroutines.withTimeoutOrNull(3500) {
+                            try {
+                                if (moviesM3uUrl.endsWith(".json", ignoreCase = true) || moviesM3uUrl.contains("movies.json", ignoreCase = true)) {
+                                    repository.fetchMoviesFromJsonUrl(moviesM3uUrl).map {
+                                        it.copy(
+                                            type = if (it.type == MediaType.SERIES) MediaType.SERIES else MediaType.MOVIE,
+                                            tournament = "NAFI_OTT",
+                                            category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                        )
+                                    }.filterNot { deleted.contains(it.id) }
+                                } else {
+                                    repository.parseM3uFromUrl(moviesM3uUrl).map {
+                                        it.copy(
+                                            type = MediaType.MOVIE,
+                                            tournament = "NAFI_OTT",
+                                            category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                        )
+                                    }.filterNot { deleted.contains(it.id) }
+                                }
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        } ?: emptyList()
                     } else emptyList()
 
-                    val mixMovies = try {
-                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
-                            it.copy(
-                                type = MediaType.MOVIE,
-                                tournament = "MIX_MOVIES",
-                                category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
-                            )
-                        }.filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
-                    val latestMovies = try {
-                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL).map {
-                            it.copy(
-                                type = MediaType.MOVIE,
-                                tournament = "LATEST_MOVIES",
-                                category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
-                            )
-                        }.filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
-                    val starshareMov = try {
-                        repository.fetchStarshareMoviesAndSeries().filterNot { deleted.contains(it.id) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-
                     val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
-                    val updatedMov = (customMov + starshareMov + moviesM3u + mixMovies + latestMovies).distinctBy { it.id }
 
-                    if (updatedMov.isNotEmpty()) {
+                    // Immediately update moviesList with custom streams + fast JSON movies so UI never waits!
+                    if (moviesM3u.isNotEmpty() || customMov.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
-                            moviesList = updatedMov
+                            val combined = (customMov + moviesM3u + moviesList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                            if (combined.isNotEmpty()) moviesList = combined
                         }
+                    }
+
+                    val mixMovies = kotlinx.coroutines.withTimeoutOrNull(3000) {
+                        try {
+                            repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
+                                it.copy(
+                                    type = MediaType.MOVIE,
+                                    tournament = "MIX_MOVIES",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
+                                )
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    } ?: emptyList()
+
+                    if (mixMovies.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            moviesList = (moviesList + mixMovies).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        }
+                    }
+
+                    val starshareMov = kotlinx.coroutines.withTimeoutOrNull(3000) {
+                        try {
+                            repository.fetchStarshareMoviesAndSeries().filterNot { deleted.contains(it.id) }
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    } ?: emptyList()
+
+                    if (starshareMov.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            moviesList = (moviesList + starshareMov).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        }
+                    }
+
+                    val latestMovies = kotlinx.coroutines.withTimeoutOrNull(3000) {
+                        try {
+                            repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL).take(500).map {
+                                it.copy(
+                                    type = MediaType.MOVIE,
+                                    tournament = "LATEST_MOVIES",
+                                    category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
+                                )
+                            }.filterNot { deleted.contains(it.id) }
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    } ?: emptyList()
+
+                    if (latestMovies.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            moviesList = (moviesList + latestMovies).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                        }
+                    }
+
+                    if (moviesList.isNotEmpty()) {
                         repository.saveCachedMoviesList(moviesList)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(120) // Smooth yield
+                delay(80) // Smooth yield
 
                 // -------------------------------------------------------------
                 // ধাপ ৪: তারপর প্লেলিস্ট অপশন গুলো লোড হবে (Fourth: Playlists & Cloud)
@@ -1122,7 +1165,7 @@ fun NafiTvMainApp(
                             AppTab.MOVIES -> MoviesTabScreen(
                                 movies = moviesList,
                                 favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
+                                isLoading = isRefreshing && moviesList.isEmpty(),
                                 isTvMode = isTvMode,
                                 isAdultHidden = isAdultHidden,
                                 repository = repository,
@@ -1563,7 +1606,7 @@ fun NafiTvMainApp(
                         AppTab.MOVIES -> MoviesTabScreen(
                             movies = moviesList,
                             favoriteIds = favoriteIds,
-                            isLoading = isRefreshing,
+                            isLoading = isRefreshing && moviesList.isEmpty(),
                             isTvMode = isTvMode,
                             isAdultHidden = isAdultHidden,
                             repository = repository,

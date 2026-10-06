@@ -109,15 +109,48 @@ fun MoviesTabScreen(
         }
     }
 
+    // Fast initial fallback if movies list is currently empty
+    val effectiveSourceMovies = remember(movies) {
+        if (movies.isNotEmpty()) movies
+        else repository?.getInitialMoviesSeries() ?: repository?.getDefaultBuiltinMovies() ?: emptyList()
+    }
+
     // Asynchronous background preparation so tab switch is 0ms instantaneous without UI freeze
-    var isAsyncPreparing by remember { mutableStateOf(movies.isNotEmpty()) }
-    var preparedMovies by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var preparedCategories by remember { mutableStateOf<List<String>>(listOf("All", "ডাউনলোডসমূহ")) }
-    var preparedCategorizedMovies by remember { mutableStateOf<List<Pair<String, List<MediaItem>>>>(emptyList()) }
-    var preparedFeaturedMovies by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var isAsyncPreparing by remember { mutableStateOf(false) }
+    var preparedMovies by remember { mutableStateOf(effectiveSourceMovies) }
+    var preparedCategories by remember {
+        mutableStateOf<List<String>>(
+            if (effectiveSourceMovies.isNotEmpty()) {
+                val cats = effectiveSourceMovies.map { it.category.trim() }.filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }.distinct()
+                listOf("All", "ডাউনলোডসমূহ") + cats
+            } else {
+                listOf("All", "ডাউনলোডসমূহ")
+            }
+        )
+    }
+    var preparedCategorizedMovies by remember {
+        mutableStateOf<List<Pair<String, List<MediaItem>>>>(
+            if (effectiveSourceMovies.isNotEmpty()) {
+                val grouped = LinkedHashMap<String, MutableList<MediaItem>>()
+                for (m in effectiveSourceMovies) {
+                    val cat = m.category.trim()
+                    if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true)) {
+                        grouped.getOrPut(cat) { mutableListOf() }.add(m)
+                    }
+                }
+                grouped.map { (cat, list) -> cat to list.distinctBy { it.id } }
+            } else emptyList()
+        )
+    }
+    var preparedFeaturedMovies by remember {
+        mutableStateOf<List<MediaItem>>(
+            effectiveSourceMovies.filter { !it.logoUrl.isNullOrBlank() }.take(10).ifEmpty { effectiveSourceMovies.take(8) }
+        )
+    }
 
     LaunchedEffect(movies, isAdultHidden, selectedTypeFilter, repository) {
-        if (movies.isEmpty()) {
+        val sourceList = if (movies.isNotEmpty()) movies else repository?.getInitialMoviesSeries() ?: repository?.getDefaultBuiltinMovies() ?: emptyList()
+        if (sourceList.isEmpty()) {
             preparedMovies = emptyList()
             preparedCategories = listOf("All", "ডাউনলোডসমূহ")
             preparedCategorizedMovies = emptyList()
@@ -127,15 +160,26 @@ fun MoviesTabScreen(
         }
         withContext(Dispatchers.Default) {
             val adultFiltered = if (isAdultHidden && repository != null) {
-                movies.filterNot { repository.isMediaHidden(it) || repository.isAdultMedia(it) }
+                val hiddenIds = repository.getHiddenItemIds()
+                val hiddenKeywords = repository.getHiddenKeywords().map { it.lowercase() }
+                val isAdultPref = repository.isAdultContentHidden()
+                sourceList.filterNot { m ->
+                    if (isAdultPref && repository.isAdultMedia(m)) return@filterNot true
+                    if (hiddenIds.contains(m.id)) return@filterNot true
+                    if (hiddenKeywords.isNotEmpty()) {
+                        val txt = "${m.title} ${m.category} ${m.genre ?: ""} ${m.description ?: ""}".lowercase()
+                        if (hiddenKeywords.any { txt.contains(it) }) return@filterNot true
+                    }
+                    false
+                }
             } else if (isAdultHidden) {
                 val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
-                movies.filterNot { m ->
+                sourceList.filterNot { m ->
                     val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
                     adultWords.any { txt.contains(it) }
                 }
             } else {
-                movies
+                sourceList
             }
 
             val typeFiltered = when (selectedTypeFilter) {
@@ -394,8 +438,20 @@ fun MoviesTabScreen(
             }
         }
 
+        // Safety timeout so user is never trapped in excessive loading
+        var loadingTimeoutReached by remember { mutableStateOf(false) }
+        LaunchedEffect(isLoading, isAsyncPreparing) {
+            if (isLoading || isAsyncPreparing) {
+                loadingTimeoutReached = false
+                kotlinx.coroutines.delay(1800)
+                loadingTimeoutReached = true
+            } else {
+                loadingTimeoutReached = false
+            }
+        }
+
         // MAIN CONTENT AREA
-        if ((isLoading || isAsyncPreparing) && preparedMovies.isEmpty()) {
+        if ((isLoading || isAsyncPreparing) && preparedMovies.isEmpty() && !loadingTimeoutReached) {
             NafiLogoLoadingView(
                 title = "মুভি ও ওয়েব সিরিজ লোড হচ্ছে...",
                 subtitle = "অনুগ্রহ করে অপেক্ষা করুন, মুভি ক্যাটালগ প্রস্তুত হচ্ছে...",

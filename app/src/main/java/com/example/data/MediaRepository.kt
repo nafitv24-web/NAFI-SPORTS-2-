@@ -606,7 +606,13 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getDefaultBuiltinMovies(): List<MediaItem> {
-        return emptyList()
+        return try {
+            val jsonString = context.assets.open("movies.json").bufferedReader().use { it.readText() }
+            parseMediaFromJsonString(jsonString, defaultCategory = "BANGLA", defaultType = MediaType.MOVIE)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
     }
 
     // High-speed instant loaders (Always return immediate items in 0 milliseconds, never empty)
@@ -648,7 +654,8 @@ class MediaRepository(private val context: Context) {
         val deleted = getDeletedIds()
         val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
         val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
-        return (customMov + cached).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
+        return (customMov + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
     }
 
     // In-memory cache for custom streams to avoid repeated SharedPreferences JSON parsing
@@ -830,7 +837,7 @@ class MediaRepository(private val context: Context) {
             if (!response.isSuccessful) return@withContext emptyList()
 
             val content = response.body?.string()?.trim() ?: return@withContext emptyList()
-            parseMediaFromJsonString(content)
+            parseMediaFromJsonString(content, defaultCategory = "Movies", defaultType = MediaType.MOVIE)
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -1146,7 +1153,10 @@ class MediaRepository(private val context: Context) {
                 content = content.removePrefix("\uFEFF").trim()
             }
             if (content.startsWith("[") || content.startsWith("{")) {
-                return@withContext parseMediaFromJsonString(content, defaultCategory = "Live TV", defaultType = MediaType.LIVE_TV)
+                val isMovieOrSeries = raw.contains("movie", ignoreCase = true) || raw.contains("series", ignoreCase = true) || content.contains("\"movies\"", ignoreCase = true) || content.contains("\"series\"", ignoreCase = true)
+                val defCat = if (isMovieOrSeries) "Movies" else "Live TV"
+                val defType = if (isMovieOrSeries) MediaType.MOVIE else MediaType.LIVE_TV
+                return@withContext parseMediaFromJsonString(content, defaultCategory = defCat, defaultType = defType)
             }
             parseM3uLines(content.lines())
         } catch (e: Exception) {

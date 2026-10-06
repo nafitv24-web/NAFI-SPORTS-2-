@@ -143,9 +143,20 @@ fun VideoPlayerScreen(
 
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
     val servers = remember(currentMedia) { currentMedia.getAllServers() }
-    var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(0) }
+    val initialServerIdx = remember(currentMedia) {
+        val found = servers.indexOfFirst {
+            it.url.trim().equals(currentMedia.streamUrl.trim(), ignoreCase = true)
+        }
+        if (found >= 0) found else 0
+    }
+    var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(initialServerIdx) }
     var currentUrl by remember(currentMedia) {
-        mutableStateOf(servers.getOrNull(selectedServerIndex)?.url ?: currentMedia.streamUrl)
+        val target = if (currentMedia.streamUrl.isNotBlank()) {
+            currentMedia.streamUrl
+        } else {
+            servers.getOrNull(selectedServerIndex)?.url.orEmpty()
+        }
+        mutableStateOf(target)
     }
 
     val isWebEmbedUrl = remember(currentUrl) {
@@ -1339,7 +1350,7 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        if ((isLiveStream || isTsStream || isXtreamStream) && playerRetryKey < 3 && !is403Or401) {
+                        if ((isLiveStream || isTsStream || isXtreamStream) && playerRetryKey < 2 && !is403Or401) {
                             playerRetryKey++
                             errorMessage = "পুনরায় লাইভ সংযোগ স্থাপন করা হচ্ছে ($playerRetryKey/3)..."
                             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -1352,30 +1363,31 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        if (currentServers.size > 1 && selectedServerIndex < currentServers.size - 1) {
-                            // Immediately switch to next available server
-                            selectedServerIndex++
-                            val targetServer = currentServers[selectedServerIndex]
-                            currentUrl = targetServer.url
-                            playerRetryKey = 0
-                            errorMessage = "সার্ভার পরিবর্তন হচ্ছে: ${targetServer.name}..."
-                            channelOsdKey = System.currentTimeMillis()
-                        } else if (playerRetryKey < 2 && (is403Or401 || isIoError)) {
-                            // Automatically attempt next User-Agent / Referer fallback profile
+                        if (playerRetryKey < 2 && (is403Or401 || isIoError)) {
+                            // Automatically attempt next User-Agent / Referer fallback profile on THIS selected stream
                             playerRetryKey++
                             errorMessage = "বিকল্প সংযোগ কনফিগারেশন পরীক্ষা করা হচ্ছে (${playerRetryKey + 1}/3)..."
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                try {
+                                    seekToDefaultPosition()
+                                    prepare()
+                                    playWhenReady = true
+                                } catch (_: Exception) {}
+                            }, 400L)
+                            return
                         } else if (isWebEmbedUrl) {
                             forceWebEngine = true
                             errorMessage = null
                         } else {
+                            val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
                             errorMessage = if (httpEx?.responseCode == 403) {
                                 if (isMovieLinkBd) {
                                     "MovieLinkBD লিঙ্কটির টোকেন মেয়াদোত্তীর্ণ হতে পারে (403 Forbidden)। ওয়েবসাইট থেকে নতুন লিঙ্ক সংগ্রহ করুন।"
                                 } else {
-                                    "এই স্ট্রিমটির সম্প্রচার সমাপ্ত অথবা লিঙ্কটি মেয়াদোত্তীর্ণ (403 Forbidden)। লাইভ খেলা চলাকালীন নতুন লিঙ্ক স্বয়ংক্রিয়ভাবে সক্রিয় হবে।"
+                                    "$activeServerName: স্ট্রিমটিতে সংযোগ অস্বীকৃত (403 Forbidden)। টোকেন বা ভূ-নির্ধারিত সীমাবদ্ধতা থাকতে পারে। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                                 }
                             } else {
-                                "ভিডিও লোড হচ্ছে না (${error.errorCodeName})। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
+                                "$activeServerName: ভিডিও লোড হচ্ছে না (${error.errorCodeName})। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                             }
                         }
                     }
@@ -3046,7 +3058,18 @@ fun VideoPlayerScreen(
                                         shape = RoundedCornerShape(8.dp),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                     ) {
-                                        Text("Retry", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("পুনরায় চেষ্টা", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    if (servers.size > 1) {
+                                        Button(
+                                            onClick = { cycleNextServer() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7), contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("বিকল্প সার্ভার (${(selectedServerIndex + 1) % servers.size + 1}/${servers.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
 
                                     Button(
