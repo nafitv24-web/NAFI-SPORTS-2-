@@ -1401,105 +1401,61 @@ fun VideoPlayerScreen(
                         val httpEx = error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
                         val is405 = httpEx?.responseCode == 405
                         val is403Or401 = httpEx?.responseCode == 403 || httpEx?.responseCode == 401
-                        val isIoError = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+                        val isParsingOrContainerError = error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                                error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED ||
+                                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                                error.cause is androidx.media3.common.ParserException ||
+                                error.cause is androidx.media3.exoplayer.source.UnrecognizedInputFormatException
+
+                        // 1. Direct and Instant Web Engine Fallback:
+                        // Whichever link requires a web player (HTML page, parsing failure, embed, or 403/401/405 protection),
+                        // directly adopt the Web Engine immediately without any slow "সংযোগ নিশ্চিত করা হচ্ছে" retry loops!
+                        if (!useWebPlayer && (isParsingOrContainerError || is403Or401 || is405 || isWebEmbedUrl || !currentUrl.contains(".m3u8", ignoreCase = true))) {
+                            forceWebEngine = true
+                            errorMessage = null
+                            isBuffering = true
+                            return
+                        }
+
+                        // 2. Xtream MPEG-TS vs HLS fast swap (single immediate fallback)
                         val isProtectHls = currentUrl.contains("toffeelive.com", ignoreCase = true) ||
                                 currentUrl.contains("toffee", ignoreCase = true) ||
                                 currentUrl.contains("akamaized.net", ignoreCase = true) ||
                                 currentUrl.contains("tapmad", ignoreCase = true)
-                        if (!isProtectHls && currentUrl.contains("/live/") && currentUrl.contains(".ts", ignoreCase = true) && playerRetryKey == 0 && (isIoError || httpEx?.responseCode == 502 || httpEx?.responseCode == 404)) {
+                        if (!isProtectHls && currentUrl.contains("/live/") && currentUrl.contains(".ts", ignoreCase = true) && playerRetryKey == 0) {
                             currentUrl = currentUrl.replace(".ts", ".m3u8", ignoreCase = true)
                             playerRetryKey = 1
-                            errorMessage = "বিকল্প HLS (.m3u8) সংযোগে রূপান্তর করা হচ্ছে..."
+                            errorMessage = null
                             return
-                        } else if (!isProtectHls && currentUrl.contains("/live/") && currentUrl.contains(".m3u8", ignoreCase = true) && (is405 || (isIoError && playerRetryKey == 0))) {
+                        } else if (!isProtectHls && currentUrl.contains("/live/") && currentUrl.contains(".m3u8", ignoreCase = true) && playerRetryKey == 0) {
                             currentUrl = currentUrl.replace(".m3u8", ".ts", ignoreCase = true)
                             playerRetryKey = 1
-                            errorMessage = "MPEG-TS সংযোগে রূপান্তর করা হচ্ছে..."
-                            return
-                        }
-                        if (currentUrl.contains("rgkkw.live:80", ignoreCase = true)) {
-                            currentUrl = currentUrl.replace("rgkkw.live:80", "rgkkw.live")
-                            playerRetryKey = 0
-                            errorMessage = "বিকল্প সংযোগে রূপান্তর করা হচ্ছে..."
-                            return
-                        } else if (currentUrl.contains("rgkkw.live", ignoreCase = true) && !currentUrl.contains("rgkkw.live:80", ignoreCase = true) && playerRetryKey == 0) {
-                            currentUrl = currentUrl.replace("rgkkw.live", "rgkkw.live:80")
-                            playerRetryKey = 0
-                            errorMessage = "বিকল্প সংযোগে রূপান্তর করা হচ্ছে..."
-                            return
-                        }
-
-                        // Multi-Stage Exhaustive Channel Confirmation & Retry (Televizo / VLC Engine Profiles)
-                        if (playerRetryKey < 3) {
-                            val nextRetry = playerRetryKey + 1
-                            val retryMsg = when (nextRetry) {
-                                1 -> "সংযোগ নিশ্চিত করা হচ্ছে (চেষ্টা ২/৪: VLC ইঞ্জিন মোড)..."
-                                2 -> "সংযোগ নিশ্চিত করা হচ্ছে (চেষ্টা ৩/৪: Televizo ইঞ্জিন মোড)..."
-                                else -> "সংযোগ নিশ্চিত করা হচ্ছে (চেষ্টা ৪/৪: বিকল্প ব্রাউজার মোড)..."
-                            }
-                            isBuffering = true
-                            errorMessage = retryMsg
-                            playerRetryKey = nextRetry
-                            return
-                        } else if (isWebEmbedUrl) {
-                            forceWebEngine = true
                             errorMessage = null
                             return
                         }
 
-                        // All retry engine profiles for THIS channel/server have been thoroughly exhausted!
-                        if (isAutoSwitchOnFailureEnabled) {
-                            val allServers = currentMedia.getAllServers()
-                            if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
-                                val nextIdx = selectedServerIndex + 1
-                                android.widget.Toast.makeText(
-                                    context,
-                                    "${currentServers.getOrNull(selectedServerIndex)?.name ?: "সার্ভার"} সংযোগ ব্যর্থ। পরবর্তী সার্ভার (${nextIdx + 1}) চালানো হচ্ছে...",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                                errorMessage = null
-                                playerRetryKey = 0
-                                pendingServerSwitchIndex = nextIdx
-                            } else {
-                                val list = if (playlist.isNotEmpty()) playlist else emptyList()
-                                val curIdx = list.indexOfFirst { it.id == currentMedia.id }
-                                if (list.size > 1 && curIdx != -1) {
-                                    val nextChannelIdx = (curIdx + 1) % list.size
-                                    val nextItem = list[nextChannelIdx]
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "${currentMedia.title} শেষ চেষ্টা পর্যন্ত সংযোগ ব্যর্থ। পরবর্তী চ্যানেল (${nextItem.title})-এ যাওয়া হচ্ছে...",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                    errorMessage = null
-                                    playerRetryKey = 0
-                                    pendingChannelSwitchDelta = 1
-                                } else {
-                                    val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
-                                    errorMessage = if (httpEx?.responseCode == 403) {
-                                        if (isMovieLinkBd) {
-                                            "MovieLinkBD লিঙ্কটির টোকেন মেয়াদোত্তীর্ণ হতে পারে (403 Forbidden)। ওয়েবসাইট থেকে নতুন লিঙ্ক সংগ্রহ করুন।"
-                                        } else {
-                                            "$activeServerName: স্ট্রিমটিতে সংযোগ অস্বীকৃত (403 Forbidden)। সব বিকল্প ইঞ্জিন পরীক্ষা করার পরও প্লে হয়নি। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
-                                        }
-                                    } else {
-                                        "$activeServerName: ভিডিও লোড হচ্ছে না (${error.errorCodeName})। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
-                                    }
-                                }
-                            }
-                        } else {
-                            val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
-                            errorMessage = if (httpEx?.responseCode == 403) {
-                                if (isMovieLinkBd) {
-                                    "MovieLinkBD লিঙ্কটির টোকেন মেয়াদোত্তীর্ণ হতে পারে (403 Forbidden)। ওয়েবসাইট থেকে নতুন লিঙ্ক সংগ্রহ করুন।"
-                                } else {
-                                    "$activeServerName: স্ট্রিমটিতে সংযোগ অস্বীকৃত (403 Forbidden)। VLC ও Televizo মোডে পরীক্ষা করার পরও প্লে হয়নি। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
-                                }
-                            } else {
-                                "$activeServerName: ভিডিও লোড হচ্ছে না (${error.errorCodeName})। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
-                            }
+                        // 3. Multi-Server Fast Auto-Switch:
+                        // If this channel has alternative servers (e.g. Sports 1 failed -> immediately try Sports 2),
+                        // directly switch to the next server without waiting!
+                        val allServers = currentMedia.getAllServers()
+                        if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
+                            val nextIdx = selectedServerIndex + 1
+                            val nextServerName = allServers.getOrNull(nextIdx)?.name ?: "সার্ভার ${nextIdx + 1}"
+                            android.widget.Toast.makeText(
+                                context,
+                                "বিকল্প সার্ভার ($nextServerName) চালু হচ্ছে...",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            errorMessage = null
+                            playerRetryKey = 0
+                            forceWebEngine = false
+                            pendingServerSwitchIndex = nextIdx
+                            return
                         }
+
+                        // 4. All servers exhausted or single server failed:
+                        val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
+                        errorMessage = "$activeServerName: ভিডিও সংযোগ করা সম্ভব হয়নি। বিকল্প সার্ভার বেছে নিন অথবা ওয়েব প্লেয়ার চেষ্টা করুন।"
                     }
                 })
             }
@@ -1591,7 +1547,13 @@ fun VideoPlayerScreen(
         val oldUrl = currentUrl
         currentUrl = targetServer.url
         isBuffering = true
+        isActuallyBuffering = true
+        hasStartedPlaying = false
+        durationMs = 0L
+        currentPositionMs = 0L
         errorMessage = null
+        playerRetryKey = 0
+        forceWebEngine = false
         channelOsdKey = System.currentTimeMillis()
         if (oldUrl == targetServer.url) {
             try {

@@ -29,7 +29,7 @@ object StreamExtractor {
      */
     fun isEmbedUrl(url: String): Boolean {
         val clean = url.lowercase().trim()
-        if (clean.startsWith("file:") || clean.startsWith("/") || clean.startsWith("content:")) {
+        if (clean.isBlank() || clean.startsWith("file:") || clean.startsWith("/") || clean.startsWith("content:")) {
             return false
         }
         
@@ -49,38 +49,31 @@ object StreamExtractor {
             return true
         }
 
-        // Direct streams should not be treated as embed unless they are file host sharing links
-        if ((clean.contains(".m3u8") || clean.contains(".mpd") || clean.contains(".mp4") || clean.contains(".mkv") || clean.contains(".webm") || clean.contains(".ts")) &&
-            !clean.contains("pixeldrain.com/u/") && !clean.contains("pixeldrain.dev/u/") && !clean.contains("drive.google.com")
-        ) {
+        // Direct stream formats that ExoPlayer can play natively
+        val hasDirectMediaExtension = clean.contains(".m3u8") ||
+                clean.contains(".mpd") ||
+                clean.contains(".mp4") ||
+                clean.contains(".mkv") ||
+                clean.contains(".webm") ||
+                clean.contains(".ts") ||
+                clean.contains(".avi") ||
+                clean.contains(".mov") ||
+                clean.contains(".flv")
+
+        // Xtream Codes live/movie/series stream paths (e.g. server:port/live/user/pass/id)
+        val isXtreamPath = (clean.contains("/live/") || clean.contains("/movie/") || clean.contains("/series/")) &&
+                (clean.contains("player_api.php") || clean.contains(":80") || clean.contains(":8080") || clean.contains(":2086") || clean.contains(":2095") || clean.contains("get.php"))
+
+        if (hasDirectMediaExtension && !clean.contains("pixeldrain.com/u/") && !clean.contains("pixeldrain.dev/u/") && !clean.contains("drive.google.com")) {
+            return false
+        }
+        if (isXtreamPath) {
             return false
         }
 
-        return clean.contains("2embed") ||
-                clean.contains("vidsrc") ||
-                clean.contains("superstream") ||
-                clean.contains("smashystream") ||
-                clean.contains("autoembed") ||
-                clean.contains("embed") ||
-                clean.contains("streamtape") ||
-                clean.contains("mixdrop") ||
-                clean.contains("dood") ||
-                clean.contains("filemoon") ||
-                clean.contains("rabbitstream") ||
-                clean.contains("megacloud") ||
-                clean.contains("dokicloud") ||
-                clean.contains("vidmoly") ||
-                clean.contains("streamwish") ||
-                clean.contains("mp4upload") ||
-                clean.contains("voe.sx") ||
-                clean.contains("luluvdo") ||
-                clean.contains("upstream") ||
-                clean.contains("pixeldrain.com/u/") ||
-                clean.contains("pixeldrain.dev/u/") ||
-                clean.contains("pixeldra.in/u/") ||
-                clean.endsWith(".html") ||
-                clean.endsWith(".htm") ||
-                clean.endsWith(".php")
+        // Any web link without raw media stream extension is an Embed / Web Stream
+        // Directly handled by WebStreamPlayer with zero delay and no failed ExoPlayer retries!
+        return true
     }
 
     /**
