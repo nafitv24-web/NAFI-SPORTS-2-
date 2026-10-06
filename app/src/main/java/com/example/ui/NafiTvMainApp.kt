@@ -327,7 +327,7 @@ fun NafiTvMainApp(
                                 } ?: emptyList()
                             }
 
-                            val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
+                            val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV || (it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
                             val tvM3u = tvM3uJob.await()
                             val xtreamLiveChannels = xtreamLiveJob.await()
 
@@ -416,7 +416,7 @@ fun NafiTvMainApp(
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.MOVIES }
                             val xtreamMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(8000) {
+                                kotlinx.coroutines.withTimeoutOrNull(25000) {
                                     try {
                                         repository.fetchAllXtreamMoviesFast().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }
@@ -464,7 +464,7 @@ fun NafiTvMainApp(
                                 } ?: emptyList()
                             }
 
-                            val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) }
+                            val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) }
 
                             val moviesM3u = moviesM3uJob.await()
                             val mixMovies = mixMoviesJob.await()
@@ -1161,6 +1161,7 @@ fun NafiTvMainApp(
                                 playlists = playlistsList,
                                 repository = repository,
                                 isTvMode = isTvMode,
+                                isAdultHidden = isAdultHidden,
                                 onSelectMedia = { item, playlist ->
                                     selectedMediaItem = item
                                     activePlaybackPlaylist = playlist
@@ -1602,6 +1603,7 @@ fun NafiTvMainApp(
                             playlists = playlistsList,
                             repository = repository,
                             isTvMode = isTvMode,
+                            isAdultHidden = isAdultHidden,
                             onSelectMedia = { item, playlist ->
                                 selectedMediaItem = item
                                 activePlaybackPlaylist = playlist

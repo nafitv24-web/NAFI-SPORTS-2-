@@ -176,12 +176,12 @@ fun MoviesTabScreen(
             return@LaunchedEffect
         }
         withContext(Dispatchers.Default) {
-            val adultFiltered = if (isAdultHidden && repository != null) {
+            val shouldFilterAdult = isAdultHidden || (repository?.isAdultContentHidden() == true)
+            val adultFiltered = if (shouldFilterAdult && repository != null) {
                 val hiddenIds = repository.getHiddenItemIds()
                 val hiddenKeywords = repository.getHiddenKeywords().map { it.lowercase() }
-                val isAdultPref = repository.isAdultContentHidden()
                 sourceList.filterNot { m ->
-                    if (isAdultPref && repository.isAdultMedia(m)) return@filterNot true
+                    if (repository.isAdultCategory(m.category) || repository.isAdultMedia(m) || repository.isMediaHidden(m)) return@filterNot true
                     if (hiddenIds.contains(m.id)) return@filterNot true
                     if (hiddenKeywords.isNotEmpty()) {
                         val txt = "${m.title} ${m.category} ${m.genre ?: ""} ${m.description ?: ""}".lowercase()
@@ -189,7 +189,7 @@ fun MoviesTabScreen(
                     }
                     false
                 }
-            } else if (isAdultHidden) {
+            } else if (shouldFilterAdult) {
                 val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
                 sourceList.filterNot { m ->
                     val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()

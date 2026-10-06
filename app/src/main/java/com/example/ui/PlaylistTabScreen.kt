@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -88,6 +89,7 @@ fun PlaylistTabScreen(
     playlists: List<PlaylistInfo>,
     repository: MediaRepository,
     isTvMode: Boolean = false,
+    isAdultHidden: Boolean = true,
     onSelectMedia: (MediaItem, List<MediaItem>) -> Unit,
     onPlaylistsChanged: () -> Unit
 ) {
@@ -112,15 +114,34 @@ fun PlaylistTabScreen(
         ChannelStatusManager.setOnlyActiveEnabled(showOnlyActive)
     }
 
-    LaunchedEffect(selectedPlaylist) {
+    LaunchedEffect(selectedPlaylist, isAdultHidden) {
         val pl = selectedPlaylist
         if (pl != null) {
-            isLoadingChannels = true
+            val shouldFilterAdult = isAdultHidden || repository.isAdultContentHidden()
+            val cached = repository.getCachedPlaylistChannels(pl.id)
+            if (cached.isNotEmpty()) {
+                playlistChannels = if (shouldFilterAdult) {
+                    cached.filterNot { repository.isDemoChannel(it) || repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
+                } else {
+                    cached.filterNot { repository.isDemoChannel(it) }
+                }
+                isLoadingChannels = false
+            } else {
+                isLoadingChannels = true
+            }
             channelSearchQuery = ""
             selectedPlaylistTypeFilter = "ALL"
             selectedPlaylistCategory = "All"
             try {
-                playlistChannels = repository.fetchPlaylistChannels(pl).filterNot { repository.isDemoChannel(it) }
+                val fetched = repository.fetchPlaylistChannels(pl)
+                val filtered = if (shouldFilterAdult) {
+                    fetched.filterNot { repository.isDemoChannel(it) || repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
+                } else {
+                    fetched.filterNot { repository.isDemoChannel(it) }
+                }
+                if (filtered.isNotEmpty() || playlistChannels.isEmpty()) {
+                    playlistChannels = filtered
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -505,9 +526,17 @@ fun PlaylistTabScreen(
             }
 
             // TYPE FILTER ROW (All, Live TV, Movies, Series)
-            val liveCount = remember(playlistChannels) { playlistChannels.count { it.type == com.example.model.MediaType.LIVE_TV || it.isLive } }
-            val movieCount = remember(playlistChannels) { playlistChannels.count { it.type == com.example.model.MediaType.MOVIE && !it.isSeries } }
-            val seriesCount = remember(playlistChannels) { playlistChannels.count { it.isSeries || it.type == com.example.model.MediaType.SERIES } }
+            val shouldFilterAdult = isAdultHidden || repository.isAdultContentHidden()
+            val safePlaylistChannels = remember(playlistChannels, shouldFilterAdult) {
+                if (shouldFilterAdult) {
+                    playlistChannels.filterNot { repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
+                } else {
+                    playlistChannels
+                }
+            }
+            val liveCount = remember(safePlaylistChannels) { safePlaylistChannels.count { it.type == com.example.model.MediaType.LIVE_TV || it.isLive } }
+            val movieCount = remember(safePlaylistChannels) { safePlaylistChannels.count { it.type == com.example.model.MediaType.MOVIE && !it.isSeries } }
+            val seriesCount = remember(safePlaylistChannels) { safePlaylistChannels.count { it.isSeries || it.type == com.example.model.MediaType.SERIES } }
             val hasMultipleTypes = (liveCount > 0 && (movieCount > 0 || seriesCount > 0)) || (movieCount > 0 && seriesCount > 0)
 
             if (hasMultipleTypes) {
@@ -518,7 +547,7 @@ fun PlaylistTabScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val filterTypes = buildList {
-                        add("ALL" to "সকল (${playlistChannels.size})")
+                        add("ALL" to "সকল (${safePlaylistChannels.size})")
                         if (liveCount > 0) add("LIVE" to "📺 লাইভ ($liveCount)")
                         if (movieCount > 0) add("MOVIE" to "🎬 মুভি ($movieCount)")
                         if (seriesCount > 0) add("SERIES" to "🍿 সিরিজ ($seriesCount)")
@@ -554,18 +583,19 @@ fun PlaylistTabScreen(
                 }
             }
 
-            val typeFilteredChannels = remember(playlistChannels, selectedPlaylistTypeFilter) {
+            val typeFilteredChannels = remember(safePlaylistChannels, selectedPlaylistTypeFilter) {
                 when (selectedPlaylistTypeFilter) {
-                    "LIVE" -> playlistChannels.filter { it.type == com.example.model.MediaType.LIVE_TV || it.isLive }
-                    "MOVIE" -> playlistChannels.filter { it.type == com.example.model.MediaType.MOVIE && !it.isSeries }
-                    "SERIES" -> playlistChannels.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
-                    else -> playlistChannels
+                    "LIVE" -> safePlaylistChannels.filter { it.type == com.example.model.MediaType.LIVE_TV || it.isLive }
+                    "MOVIE" -> safePlaylistChannels.filter { it.type == com.example.model.MediaType.MOVIE && !it.isSeries }
+                    "SERIES" -> safePlaylistChannels.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+                    else -> safePlaylistChannels
                 }
             }
 
-            val playlistCategories = remember(typeFilteredChannels) {
+            val playlistCategories = remember(typeFilteredChannels, shouldFilterAdult) {
                 val unique = typeFilteredChannels.map { it.category.trim() }
                     .filter { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+                    .filterNot { shouldFilterAdult && repository.isAdultCategory(it) }
                     .distinct()
                     .sorted()
                 if (unique.size > 1) listOf("All") + unique else emptyList()
@@ -682,7 +712,7 @@ fun PlaylistTabScreen(
                             }
                         }
 
-                        if (isMovieOrSeriesItem && !item.logoUrl.isNullOrBlank()) {
+                        if (isMovieOrSeriesItem) {
                             // Poster Card for Movies and Series
                             Column(
                                 modifier = Modifier
@@ -703,12 +733,37 @@ fun PlaylistTabScreen(
                                         .focusable()
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        AsyncImage(
-                                            model = item.logoUrl,
-                                            contentDescription = item.title,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
+                                        if (!item.logoUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = item.logoUrl,
+                                                contentDescription = item.title,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center,
+                                                modifier = Modifier.fillMaxSize().padding(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (item.isSeries) Icons.Rounded.Tv else Icons.Rounded.Movie,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF00E5FF).copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(36.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = item.title,
+                                                    color = Color.White.copy(alpha = 0.8f),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    textAlign = TextAlign.Center,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
 
                                         // Badge
                                         Surface(
