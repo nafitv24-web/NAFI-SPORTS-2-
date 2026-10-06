@@ -203,16 +203,17 @@ fun MoviesTabScreen(
 
             val uniqueCats = catPairs.map { it.first }
             val priorityList = listOf(
-                "STAR JALSHA", "HUM TV", "PAKISTANI DRAMA", "ZEE BANGLA", "SUN BANGLA",
-                "COLORS BANGLA", "HOICHOI", "Chorki/Bangla", "HINDI TV SERIES", "STAR PLUS",
-                "STAR BHARAT", "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR"
+                "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies",
+                "STAR JALSHA", "ZEE BANGLA", "SUN BANGLA", "COLORS BANGLA", "HOICHOI", "Chorki/Bangla",
+                "HUM TV", "PAKISTANI DRAMA", "HINDI TV SERIES", "STAR PLUS", "STAR BHARAT",
+                "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR", "SONY LIV"
             )
-            val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }
+            val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
                 .sortedBy { cat ->
-                    val idx = priorityList.indexOfFirst { cat.equals(it, ignoreCase = true) }
+                    val idx = priorityList.indexOfFirst { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) }
                     if (idx != -1) idx else 999
                 }
-            val others = uniqueCats.filterNot { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }.sorted()
+            val others = uniqueCats.filterNot { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }.sorted()
             val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
 
             val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }.sortedByDescending { it.movieSortWeight }

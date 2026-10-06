@@ -2032,6 +2032,24 @@ class MediaRepository(private val context: Context) {
         if (item.addedTimestamp != null) {
             obj.put("addedTimestamp", item.addedTimestamp)
         }
+        if (!item.seriesId.isNullOrBlank()) {
+            obj.put("seriesId", item.seriesId)
+        }
+        if (!item.xtreamServerUrl.isNullOrBlank()) {
+            obj.put("xtreamServerUrl", item.xtreamServerUrl)
+        }
+        if (!item.xtreamUsername.isNullOrBlank()) {
+            obj.put("xtreamUsername", item.xtreamUsername)
+        }
+        if (!item.xtreamPassword.isNullOrBlank()) {
+            obj.put("xtreamPassword", item.xtreamPassword)
+        }
+        if (!item.genre.isNullOrBlank()) {
+            obj.put("genre", item.genre)
+        }
+        if (!item.cast.isNullOrBlank()) {
+            obj.put("cast", item.cast)
+        }
         obj.put("country", item.country ?: "")
         obj.put("drmScheme", item.drmScheme ?: "")
         obj.put("drmLicenseUrl", item.drmLicenseUrl ?: "")
@@ -2114,6 +2132,12 @@ class MediaRepository(private val context: Context) {
             rating = obj.optString("rating", null).takeIf { it?.isNotBlank() == true },
             year = obj.optString("year", null).takeIf { it?.isNotBlank() == true },
             addedTimestamp = if (obj.has("addedTimestamp")) obj.optLong("addedTimestamp") else null,
+            seriesId = obj.optString("seriesId", null).takeIf { it?.isNotBlank() == true } ?: if (id.startsWith("xtream_series_")) id.removePrefix("xtream_series_") else null,
+            xtreamServerUrl = obj.optString("xtreamServerUrl", null).takeIf { it?.isNotBlank() == true },
+            xtreamUsername = obj.optString("xtreamUsername", null).takeIf { it?.isNotBlank() == true },
+            xtreamPassword = obj.optString("xtreamPassword", null).takeIf { it?.isNotBlank() == true },
+            genre = obj.optString("genre", null).takeIf { it?.isNotBlank() == true },
+            cast = obj.optString("cast", null).takeIf { it?.isNotBlank() == true },
             country = obj.optString("country", null).takeIf { it?.isNotBlank() == true },
             drmScheme = obj.optString("drmScheme", obj.optString("license_type", null)).takeIf { it?.isNotBlank() == true },
             drmLicenseUrl = obj.optString("drmLicenseUrl", null).takeIf { it?.isNotBlank() == true },
@@ -3176,26 +3200,39 @@ class MediaRepository(private val context: Context) {
 
             val explicitSeriesCatIds = listOf(
                 "460", // STAR JALSHA
-                "463", // HUM TV
-                "293", // PAKISTANI DRAMA
                 "461", // ZEE BANGLA
                 "496", // SUN BANGLA
                 "487", // COLORS BANGLA
                 "118", // HOICHOI
                 "335", // Chorki/Bangla
+                "485", // SONY AATH
+                "293", // PAKISTANI DRAMA
+                "463", // HUM TV
+                "442", // COLORS HINDI
+                "443", // SONY (SET)
+                "445", // ZEE TV
+                "161", // HINDI TV SERIES
                 "106", // NETFLIX
-                "161"  // HINDI TV SERIES
+                "171", // NETFLIX (MULTI LANGUAGE)
+                "108", // AMAZON PRIME
+                "404", // Amazon MiniTv
+                "102", // DISNEY+HOTSTAR
+                "104", // ZEE5+ALT BALAJI
+                "105", // SONY LIV
+                "103", // MX PLAYER
+                "111"  // VOOT
             )
             val targetSeriesCatIds = explicitSeriesCatIds.toMutableList()
+            val seriesKeywords = listOf("bangla", "bengali", "jalsha", "zee", "sun", "colors", "hoichoi", "chorki", "pak", "hum", "hindi", "netflix", "amazon", "disney", "hotstar", "sony", "voot", "mx", "serial", "drama", "web series")
             for ((cId, cName) in seriesCatMap) {
                 val lower = cName.lowercase()
-                if (listOf("jalsha", "pak", "hum", "zee", "hoichoi", "netflix", "serial", "drama").any { lower.contains(it) } && !targetSeriesCatIds.contains(cId)) {
+                if (seriesKeywords.any { lower.contains(it) } && !targetSeriesCatIds.contains(cId)) {
                     targetSeriesCatIds.add(cId)
                 }
             }
 
             coroutineScope {
-                targetSeriesCatIds.chunked(6).forEach { chunk ->
+                targetSeriesCatIds.chunked(8).forEach { chunk ->
                     val chunkJobs = chunk.map { catId ->
                         async {
                             try {
@@ -3218,6 +3255,7 @@ class MediaRepository(private val context: Context) {
                                             val rating = obj.optString("rating", "8.0")
                                             val releaseDate = obj.optString("releaseDate")
                                             val genre = obj.optString("genre")
+                                            val lastModified = obj.optString("last_modified", "").toLongOrNull() ?: 0L
                                             val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").findAll(name).toList().lastOrNull()?.value ?: releaseDate.take(4)
 
                                             sItems.add(
@@ -3231,6 +3269,7 @@ class MediaRepository(private val context: Context) {
                                                     description = plot,
                                                     rating = rating,
                                                     year = yearMatch,
+                                                    addedTimestamp = lastModified,
                                                     quality = "HD",
                                                     genre = genre,
                                                     cast = cast,
