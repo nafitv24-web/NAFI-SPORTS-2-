@@ -334,7 +334,7 @@ class MediaRepository(private val context: Context) {
 
     // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
     private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
-        val itemsToSave = if (list.size > 300) list.take(300) else list
+        val itemsToSave = if (list.size > 800) list.take(800) else list
         memoryFileCache[fileName] = itemsToSave
         cacheWriteExecutor.execute {
             try {
@@ -655,7 +655,7 @@ class MediaRepository(private val context: Context) {
         val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
         val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
         val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
-        return (customMov + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        return (customMov + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }.sortedByDescending { it.movieSortWeight }
     }
 
     // In-memory cache for custom streams to avoid repeated SharedPreferences JSON parsing
@@ -2029,6 +2029,9 @@ class MediaRepository(private val context: Context) {
         obj.put("quality", item.quality)
         obj.put("rating", item.rating ?: "")
         obj.put("year", item.year ?: "")
+        if (item.addedTimestamp != null) {
+            obj.put("addedTimestamp", item.addedTimestamp)
+        }
         obj.put("country", item.country ?: "")
         obj.put("drmScheme", item.drmScheme ?: "")
         obj.put("drmLicenseUrl", item.drmLicenseUrl ?: "")
@@ -2110,6 +2113,7 @@ class MediaRepository(private val context: Context) {
             quality = obj.optString("quality", "HD"),
             rating = obj.optString("rating", null).takeIf { it?.isNotBlank() == true },
             year = obj.optString("year", null).takeIf { it?.isNotBlank() == true },
+            addedTimestamp = if (obj.has("addedTimestamp")) obj.optLong("addedTimestamp") else null,
             country = obj.optString("country", null).takeIf { it?.isNotBlank() == true },
             drmScheme = obj.optString("drmScheme", obj.optString("license_type", null)).takeIf { it?.isNotBlank() == true },
             drmLicenseUrl = obj.optString("drmLicenseUrl", null).takeIf { it?.isNotBlank() == true },
@@ -3023,29 +3027,269 @@ class MediaRepository(private val context: Context) {
         return getXtreamAccounts().filter { it.isEnabled }
     }
 
-    suspend fun fetchAllXtreamMoviesAndSeries(): List<MediaItem> = withContext(Dispatchers.IO) {
-        val accounts = getActiveXtreamAccounts()
-        if (accounts.isEmpty()) {
-            return@withContext fetchXtreamCodesStreams("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still")
-                .filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }
+    suspend fun fetchXtreamVodOnly(
+        serverUrl: String = "http://rgkkw.live:80",
+        username: String = "4dfoydR2gZ",
+        pass: String = "clever3still"
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
         }
-        val allItems = mutableListOf<MediaItem>()
-        coroutineScope {
-            val jobs = accounts.map { acc ->
-                async {
-                    try {
-                        val streams = fetchXtreamCodesStreams(acc.serverUrl, acc.username, acc.password)
-                        streams.filter { (it.type == MediaType.MOVIE && acc.includeVod) || (it.type == MediaType.SERIES && acc.includeSeries) }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        emptyList()
+        val cleanUser = username.trim()
+        val cleanPass = pass.trim()
+        val items = mutableListOf<MediaItem>()
+
+        try {
+            val vodCatMap = mutableMapOf<String, String>()
+            try {
+                val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_categories"
+                val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
+                val catResp = client.newCall(catReq).execute()
+                if (catResp.isSuccessful) {
+                    val arr = JSONArray(catResp.body?.string() ?: "")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val id = obj.optString("category_id")
+                        val name = obj.optString("category_name")
+                        if (id.isNotBlank() && name.isNotBlank()) vodCatMap[id] = name
                     }
                 }
+            } catch (_: Exception) {}
+
+            val priorityIds = listOf(
+                "792", "610", "538", "100", "793", "614", "620", "629", // Bangla 2026, 2025, 2024, CAM
+                "749", "597", "525", "786", "598", "526",               // English FHD & CAM 2026, 2025, 2024
+                "766", "599", "527", "757", "600", "528",               // Indian FHD & CAM 2026, 2025, 2024
+                "26", "623", "168", "169", "120", "122", "147", "262"  // Dubbed, Netflix, 4K, Marvel, Romantic
+            )
+            val targetCatIds = priorityIds.toMutableList()
+            val vodKeywords = listOf("bangla", "bengali", "2026", "2025", "2024", "hindi", "indian", "netflix", "south", "dubbed", "fhd")
+            for ((cId, cName) in vodCatMap) {
+                val lower = cName.lowercase()
+                if (vodKeywords.any { lower.contains(it) } && !targetCatIds.contains(cId)) {
+                    targetCatIds.add(cId)
+                }
             }
-            val results = jobs.awaitAll()
-            results.forEach { allItems.addAll(it) }
+
+            // High-speed parallel category fetch
+            coroutineScope {
+                targetCatIds.chunked(8).forEach { chunk ->
+                    val chunkJobs = chunk.map { catId ->
+                        async {
+                            try {
+                                val catName = vodCatMap[catId] ?: "Movies"
+                                val streamUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams&category_id=$catId"
+                                val req = Request.Builder().url(streamUrl).header("User-Agent", "IPTVSmartersPro").build()
+                                val resp = client.newCall(req).execute()
+                                if (resp.isSuccessful) {
+                                    val bodyStr = resp.body?.string() ?: ""
+                                    if (bodyStr.startsWith("[")) {
+                                        val arr = JSONArray(bodyStr)
+                                        val catItems = mutableListOf<MediaItem>()
+                                        for (i in 0 until arr.length()) {
+                                            val obj = arr.optJSONObject(i) ?: continue
+                                            val streamId = obj.optString("stream_id").takeIf { it.isNotBlank() } ?: continue
+                                            val name = obj.optString("name", "Movie $streamId").trim()
+                                            if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
+                                            val icon = obj.optString("stream_icon").takeIf { it.isNotBlank() }
+                                            val ext = obj.optString("container_extension", "mp4").ifBlank { "mp4" }
+                                            val rating = obj.optString("rating", "8.5")
+                                            val added = obj.optString("added", "").toLongOrNull() ?: 0L
+                                            val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").findAll(name).toList().lastOrNull()?.value
+
+                                            val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+                                            val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+                                            val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+
+                                            catItems.add(
+                                                MediaItem(
+                                                    id = "xtream_vod_$streamId",
+                                                    title = name,
+                                                    category = catName,
+                                                    type = MediaType.MOVIE,
+                                                    streamUrl = playUrl,
+                                                    backupUrl = altPlayUrl,
+                                                    servers = listOf(
+                                                        StreamServer("সার্ভার ১ (VOD)", playUrl),
+                                                        StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
+                                                    ),
+                                                    logoUrl = icon,
+                                                    isLive = false,
+                                                    rating = rating,
+                                                    year = yearMatch,
+                                                    addedTimestamp = added,
+                                                    xtreamServerUrl = cleanServer,
+                                                    xtreamUsername = cleanUser,
+                                                    xtreamPassword = cleanPass,
+                                                    quality = "HD",
+                                                    userAgent = "IPTVSmartersPro"
+                                                )
+                                            )
+                                        }
+                                        synchronized(items) { items.addAll(catItems) }
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    chunkJobs.awaitAll()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        allItems.distinctBy { it.id }
+
+        // Sort: Newest movies strictly at the top, older movies at the bottom!
+        items.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+    }
+
+    suspend fun fetchXtreamSeriesOnly(
+        serverUrl: String = "http://rgkkw.live:80",
+        username: String = "4dfoydR2gZ",
+        pass: String = "clever3still"
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanUser = username.trim()
+        val cleanPass = pass.trim()
+        val items = mutableListOf<MediaItem>()
+
+        try {
+            val seriesCatMap = mutableMapOf<String, String>()
+            try {
+                val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_series_categories"
+                val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
+                val catResp = client.newCall(catReq).execute()
+                if (catResp.isSuccessful) {
+                    val arr = JSONArray(catResp.body?.string() ?: "")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val id = obj.optString("category_id")
+                        val name = obj.optString("category_name")
+                        if (id.isNotBlank() && name.isNotBlank()) seriesCatMap[id] = name
+                    }
+                }
+            } catch (_: Exception) {}
+
+            val explicitSeriesCatIds = listOf(
+                "460", // STAR JALSHA
+                "463", // HUM TV
+                "293", // PAKISTANI DRAMA
+                "461", // ZEE BANGLA
+                "496", // SUN BANGLA
+                "487", // COLORS BANGLA
+                "118", // HOICHOI
+                "335", // Chorki/Bangla
+                "106", // NETFLIX
+                "161"  // HINDI TV SERIES
+            )
+            val targetSeriesCatIds = explicitSeriesCatIds.toMutableList()
+            for ((cId, cName) in seriesCatMap) {
+                val lower = cName.lowercase()
+                if (listOf("jalsha", "pak", "hum", "zee", "hoichoi", "netflix", "serial", "drama").any { lower.contains(it) } && !targetSeriesCatIds.contains(cId)) {
+                    targetSeriesCatIds.add(cId)
+                }
+            }
+
+            coroutineScope {
+                targetSeriesCatIds.chunked(6).forEach { chunk ->
+                    val chunkJobs = chunk.map { catId ->
+                        async {
+                            try {
+                                val catName = seriesCatMap[catId] ?: "Web Series"
+                                val url = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_series&category_id=$catId"
+                                val req = Request.Builder().url(url).header("User-Agent", "IPTVSmartersPro").build()
+                                val resp = client.newCall(req).execute()
+                                if (resp.isSuccessful) {
+                                    val body = resp.body?.string() ?: ""
+                                    if (body.startsWith("[")) {
+                                        val arr = JSONArray(body)
+                                        val sItems = mutableListOf<MediaItem>()
+                                        for (i in 0 until arr.length()) {
+                                            val obj = arr.optJSONObject(i) ?: continue
+                                            val sId = obj.optString("series_id").takeIf { it.isNotBlank() } ?: continue
+                                            val name = obj.optString("name", "Series $sId").trim()
+                                            val cover = obj.optString("cover").takeIf { it.isNotBlank() }
+                                            val plot = obj.optString("plot")
+                                            val cast = obj.optString("cast")
+                                            val rating = obj.optString("rating", "8.0")
+                                            val releaseDate = obj.optString("releaseDate")
+                                            val genre = obj.optString("genre")
+                                            val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").findAll(name).toList().lastOrNull()?.value ?: releaseDate.take(4)
+
+                                            sItems.add(
+                                                MediaItem(
+                                                    id = "xtream_series_$sId",
+                                                    title = name,
+                                                    category = catName,
+                                                    type = MediaType.SERIES,
+                                                    streamUrl = "",
+                                                    logoUrl = cover,
+                                                    description = plot,
+                                                    rating = rating,
+                                                    year = yearMatch,
+                                                    quality = "HD",
+                                                    genre = genre,
+                                                    cast = cast,
+                                                    seriesId = sId,
+                                                    xtreamServerUrl = cleanServer,
+                                                    xtreamUsername = cleanUser,
+                                                    xtreamPassword = cleanPass,
+                                                    userAgent = "IPTVSmartersPro"
+                                                )
+                                            )
+                                        }
+                                        synchronized(items) { items.addAll(sItems) }
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    chunkJobs.awaitAll()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        items.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+    }
+
+    suspend fun fetchAllXtreamMoviesAndSeries(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val accounts = getActiveXtreamAccounts()
+        val allItems = mutableListOf<MediaItem>()
+        if (accounts.isEmpty()) {
+            coroutineScope {
+                val vodJob = async { fetchXtreamVodOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
+                val seriesJob = async { fetchXtreamSeriesOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
+                allItems.addAll(vodJob.await())
+                allItems.addAll(seriesJob.await())
+            }
+        } else {
+            coroutineScope {
+                val jobs = accounts.map { acc ->
+                    async {
+                        val subItems = mutableListOf<MediaItem>()
+                        coroutineScope {
+                            val vodJob = if (acc.includeVod) async { fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password) } else null
+                            val seriesJob = if (acc.includeSeries) async { fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password) } else null
+                            vodJob?.await()?.let { subItems.addAll(it) }
+                            seriesJob?.await()?.let { subItems.addAll(it) }
+                        }
+                        subItems
+                    }
+                }
+                jobs.awaitAll().forEach { allItems.addAll(it) }
+            }
+        }
+        allItems.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+    }
+
+    suspend fun fetchAllXtreamMoviesFast(): List<MediaItem> = withContext(Dispatchers.IO) {
+        fetchAllXtreamMoviesAndSeries()
     }
 
     suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {

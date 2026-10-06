@@ -149,12 +149,34 @@ data class MediaItem(
     val stalkerMac: String? = null,
     val stalkerMacAddress: String? = null,
     val isFastChannel: Boolean = false,
-    val posterUrl: String? = null
+    val posterUrl: String? = null,
+    val addedTimestamp: Long? = null
 ) {
     val isSeries: Boolean get() = type == MediaType.SERIES || !seriesId.isNullOrBlank() || seasons.isNotEmpty() || episodes.isNotEmpty() || id.startsWith("xtream_series_") || id.startsWith("series_") || category.contains("JALSHA", ignoreCase = true) || category.contains("SERIAL", ignoreCase = true) || category.contains("DRAMA", ignoreCase = true) || category.contains("SERIES", ignoreCase = true)
     val resolvedSeriesId: String? get() = seriesId?.takeIf { it.isNotBlank() } ?: if (id.startsWith("xtream_series_")) id.removePrefix("xtream_series_") else null
     val isFromAdmin: Boolean get() = isAdminAdded || id.startsWith("sport_") || id.startsWith("match_") || id.startsWith("event_") || id.startsWith("admin_")
     val headers: Map<String, String>? get() = customHeaders
+
+    val movieSortWeight: Long get() {
+        if (addedTimestamp != null && addedTimestamp > 0L) {
+            return addedTimestamp
+        }
+        val yr = year?.toIntOrNull() ?: extractYearFromTitle(title)
+        if (yr != null && yr in 1900..2099) {
+            return (yr - 1970).toLong() * 31536000L
+        }
+        val sid = id.removePrefix("xtream_vod_").removePrefix("xtream_series_").toLongOrNull()
+        if (sid != null) {
+            return sid
+        }
+        return 0L
+    }
+
+    private fun extractYearFromTitle(str: String): Int? {
+        val regex = Regex("""\b(19\d{2}|20\d{2})\b""")
+        val matches = regex.findAll(str).toList()
+        return matches.lastOrNull()?.value?.toIntOrNull()
+    }
     // Helper to get all available server URLs
     fun getAllServers(): List<StreamServer> {
         val list = mutableListOf<StreamServer>()

@@ -3815,7 +3815,7 @@ fun AdminControlAppScreen(
                                                 try {
                                                     val movAndSeries = repository.fetchAllXtreamMoviesAndSeries()
                                                     if (movAndSeries.isNotEmpty()) {
-                                                        repository.saveCachedMoviesList((moviesList + movAndSeries).distinctBy { it.id })
+                                                        repository.saveCachedMoviesList((moviesList + movAndSeries).distinctBy { it.id }.sortedByDescending { it.movieSortWeight })
                                                     }
                                                     val liveChans = repository.fetchAllXtreamLiveChannels()
                                                     if (liveChans.isNotEmpty()) {
@@ -3961,7 +3961,7 @@ fun AdminControlAppScreen(
                                             try {
                                                 val movAndSeries = repository.fetchAllXtreamMoviesAndSeries()
                                                 if (movAndSeries.isNotEmpty()) {
-                                                    repository.saveCachedMoviesList((moviesList + movAndSeries).distinctBy { it.id })
+                                                    repository.saveCachedMoviesList((moviesList + movAndSeries).distinctBy { it.id }.sortedByDescending { it.movieSortWeight })
                                                 }
                                                 val liveChans = repository.fetchAllXtreamLiveChannels()
                                                 if (liveChans.isNotEmpty()) {

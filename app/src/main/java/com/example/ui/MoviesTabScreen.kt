@@ -111,8 +111,9 @@ fun MoviesTabScreen(
 
     // Fast initial fallback if movies list is currently empty
     val effectiveSourceMovies = remember(movies) {
-        if (movies.isNotEmpty()) movies
+        val src = if (movies.isNotEmpty()) movies
         else repository?.getInitialMoviesSeries() ?: repository?.getDefaultBuiltinMovies() ?: emptyList()
+        src.sortedByDescending { it.movieSortWeight }
     }
 
     // Asynchronous background preparation so tab switch is 0ms instantaneous without UI freeze
@@ -138,7 +139,7 @@ fun MoviesTabScreen(
                         grouped.getOrPut(cat) { mutableListOf() }.add(m)
                     }
                 }
-                grouped.map { (cat, list) -> cat to list.distinctBy { it.id } }
+                grouped.map { (cat, list) -> cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight } }
             } else emptyList()
         )
     }
@@ -186,7 +187,7 @@ fun MoviesTabScreen(
                 "MOVIE" -> adultFiltered.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
                 "SERIES" -> adultFiltered.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
                 else -> adultFiltered
-            }
+            }.sortedByDescending { it.movieSortWeight }
 
             // High performance O(N) grouping in a single pass instead of N * M iterations!
             val groupedMap = LinkedHashMap<String, MutableList<MediaItem>>()
@@ -197,7 +198,7 @@ fun MoviesTabScreen(
                 }
             }
             val catPairs = groupedMap.map { (cat, list) ->
-                cat to list.distinctBy { it.id }
+                cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
             }
 
             val uniqueCats = catPairs.map { it.first }
@@ -214,7 +215,7 @@ fun MoviesTabScreen(
             val others = uniqueCats.filterNot { cat -> priorityList.any { cat.equals(it, ignoreCase = true) } }.sorted()
             val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
 
-            val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }
+            val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }.sortedByDescending { it.movieSortWeight }
             val featured = if (withLogos.isNotEmpty()) withLogos.take(10) else typeFiltered.take(8)
 
             withContext(Dispatchers.Main) {
@@ -250,7 +251,7 @@ fun MoviesTabScreen(
                     else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
                 matchesSearch && matchesCategory
-            }.distinctBy { it.id }
+            }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
         }
     }
 
