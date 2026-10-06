@@ -144,10 +144,16 @@ fun VideoPlayerScreen(
     var currentMedia by remember(mediaItem) { mutableStateOf(mediaItem) }
     val servers = remember(currentMedia) { currentMedia.getAllServers() }
     val initialServerIdx = remember(currentMedia) {
-        val found = servers.indexOfFirst {
-            it.url.trim().equals(currentMedia.streamUrl.trim(), ignoreCase = true)
+        val target = currentMedia.streamUrl.trim()
+        if (target.isBlank()) 0
+        else {
+            val found = servers.indexOfFirst {
+                it.url.trim().equals(target, ignoreCase = true) ||
+                (it.url.contains('?') && it.url.substringBefore('?').equals(target.substringBefore('?'), ignoreCase = true)) ||
+                (it.url.contains('|') && it.url.substringBefore('|').equals(target.substringBefore('|'), ignoreCase = true))
+            }
+            if (found >= 0) found else 0
         }
-        if (found >= 0) found else 0
     }
     var selectedServerIndex by remember(currentMedia) { mutableIntStateOf(initialServerIdx) }
     var currentUrl by remember(currentMedia) {
@@ -157,6 +163,21 @@ fun VideoPlayerScreen(
             servers.getOrNull(selectedServerIndex)?.url.orEmpty()
         }
         mutableStateOf(target)
+    }
+
+    // Configure lenient SSL globally for live IPTV / HLS streams (matching VLC and Televizo behavior)
+    LaunchedEffect(Unit) {
+        try {
+            val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+            })
+            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
+            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
+            javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
+        } catch (_: Exception) {}
     }
 
     val isWebEmbedUrl = remember(currentUrl) {
@@ -294,6 +315,34 @@ fun VideoPlayerScreen(
     var selectedSubtitle by remember { mutableStateOf<SubtitleTrackOption?>(null) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var showEpisodesSheet by remember { mutableStateOf(false) }
+
+    val playerRepository = remember(context) { MediaRepository(context) }
+    var isAutoSwitchOnFailureEnabled by remember {
+        mutableStateOf(playerRepository.isAutoSwitchChannelOnFailure())
+    }
+    var showPlayerSettingsDialog by remember { mutableStateOf(false) }
+
+    var pendingServerSwitchIndex by remember { mutableIntStateOf(-1) }
+    var pendingChannelSwitchDelta by remember { mutableIntStateOf(0) }
+
+    // Keep server index, currentUrl, and media in sync whenever user picks a specific server or media item
+    LaunchedEffect(mediaItem) {
+        currentMedia = mediaItem
+        val currentServers = mediaItem.getAllServers()
+        val target = mediaItem.streamUrl.trim()
+        val foundIdx = if (target.isNotBlank()) {
+            val idx = currentServers.indexOfFirst {
+                it.url.trim().equals(target, ignoreCase = true) ||
+                (it.url.contains('?') && it.url.substringBefore('?').equals(target.substringBefore('?'), ignoreCase = true)) ||
+                (it.url.contains('|') && it.url.substringBefore('|').equals(target.substringBefore('|'), ignoreCase = true))
+            }
+            if (idx >= 0) idx else 0
+        } else 0
+        selectedServerIndex = foundIdx
+        currentUrl = if (target.isNotBlank()) target else currentServers.getOrNull(foundIdx)?.url.orEmpty()
+        playerRetryKey = 0
+        errorMessage = null
+    }
 
     // Automatic season & episode metadata fetcher for Series
     LaunchedEffect(currentMedia.id) {
@@ -799,11 +848,12 @@ fun VideoPlayerScreen(
         } else {
             listOf(
                 primaryUa,
+                "VLC/3.0.18 LibVLC/3.0.18",
+                "Televizo/1.9.3 (Linux; Android 14)",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)",
                 "TiviMate/4.7.0 (Android TV)",
-                "VLC/3.0.18 LibVLC/3.0.18",
-                "Toffee (Linux;Android 14)",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "Toffee (Linux;Android 14)"
             ).distinct()
         }
         val finalUserAgent = fallbackUserAgents[playerRetryKey.coerceAtLeast(0) % fallbackUserAgents.size]
@@ -1350,41 +1400,71 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        if ((isLiveStream || isTsStream || isXtreamStream) && playerRetryKey < 2 && !is403Or401) {
-                            playerRetryKey++
-                            errorMessage = "পুনরায় লাইভ সংযোগ স্থাপন করা হচ্ছে ($playerRetryKey/3)..."
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                try {
-                                    seekToDefaultPosition()
-                                    prepare()
-                                    playWhenReady = true
-                                } catch (_: Exception) {}
-                            }, 400L)
-                            return
-                        }
-
-                        if (playerRetryKey < 2 && (is403Or401 || isIoError)) {
-                            // Automatically attempt next User-Agent / Referer fallback profile on THIS selected stream
-                            playerRetryKey++
-                            errorMessage = "বিকল্প সংযোগ কনফিগারেশন পরীক্ষা করা হচ্ছে (${playerRetryKey + 1}/3)..."
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                try {
-                                    seekToDefaultPosition()
-                                    prepare()
-                                    playWhenReady = true
-                                } catch (_: Exception) {}
-                            }, 400L)
+                        // Multi-Stage Exhaustive Channel Confirmation & Retry (Televizo / VLC Engine Profiles)
+                        if (playerRetryKey < 3) {
+                            val nextRetry = playerRetryKey + 1
+                            val retryMsg = when (nextRetry) {
+                                1 -> "সংযোগ নিশ্চিত করা হচ্ছে (চেষ্টা ২/৪: VLC ইঞ্জিন মোড)..."
+                                2 -> "সংযোগ নিশ্চিত করা হচ্ছে (চেষ্টা ৩/৪: Televizo ইঞ্জিন মোড)..."
+                                else -> "সংযোগ নিশ্চিত করা হচ্ছে (চেষ্টা ৪/৪: বিকল্প ব্রাউজার মোড)..."
+                            }
+                            isBuffering = true
+                            errorMessage = retryMsg
+                            playerRetryKey = nextRetry
                             return
                         } else if (isWebEmbedUrl) {
                             forceWebEngine = true
                             errorMessage = null
+                            return
+                        }
+
+                        // All retry engine profiles for THIS channel/server have been thoroughly exhausted!
+                        if (isAutoSwitchOnFailureEnabled) {
+                            val allServers = currentMedia.getAllServers()
+                            if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
+                                val nextIdx = selectedServerIndex + 1
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "${currentServers.getOrNull(selectedServerIndex)?.name ?: "সার্ভার"} সংযোগ ব্যর্থ। পরবর্তী সার্ভার (${nextIdx + 1}) চালানো হচ্ছে...",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                                errorMessage = null
+                                playerRetryKey = 0
+                                pendingServerSwitchIndex = nextIdx
+                            } else {
+                                val list = if (playlist.isNotEmpty()) playlist else emptyList()
+                                val curIdx = list.indexOfFirst { it.id == currentMedia.id }
+                                if (list.size > 1 && curIdx != -1) {
+                                    val nextChannelIdx = (curIdx + 1) % list.size
+                                    val nextItem = list[nextChannelIdx]
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "${currentMedia.title} শেষ চেষ্টা পর্যন্ত সংযোগ ব্যর্থ। পরবর্তী চ্যানেল (${nextItem.title})-এ যাওয়া হচ্ছে...",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                    errorMessage = null
+                                    playerRetryKey = 0
+                                    pendingChannelSwitchDelta = 1
+                                } else {
+                                    val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
+                                    errorMessage = if (httpEx?.responseCode == 403) {
+                                        if (isMovieLinkBd) {
+                                            "MovieLinkBD লিঙ্কটির টোকেন মেয়াদোত্তীর্ণ হতে পারে (403 Forbidden)। ওয়েবসাইট থেকে নতুন লিঙ্ক সংগ্রহ করুন।"
+                                        } else {
+                                            "$activeServerName: স্ট্রিমটিতে সংযোগ অস্বীকৃত (403 Forbidden)। সব বিকল্প ইঞ্জিন পরীক্ষা করার পরও প্লে হয়নি। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
+                                        }
+                                    } else {
+                                        "$activeServerName: ভিডিও লোড হচ্ছে না (${error.errorCodeName})। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
+                                    }
+                                }
+                            }
                         } else {
                             val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
                             errorMessage = if (httpEx?.responseCode == 403) {
                                 if (isMovieLinkBd) {
                                     "MovieLinkBD লিঙ্কটির টোকেন মেয়াদোত্তীর্ণ হতে পারে (403 Forbidden)। ওয়েবসাইট থেকে নতুন লিঙ্ক সংগ্রহ করুন।"
                                 } else {
-                                    "$activeServerName: স্ট্রিমটিতে সংযোগ অস্বীকৃত (403 Forbidden)। টোকেন বা ভূ-নির্ধারিত সীমাবদ্ধতা থাকতে পারে। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
+                                    "$activeServerName: স্ট্রিমটিতে সংযোগ অস্বীকৃত (403 Forbidden)। VLC ও Televizo মোডে পরীক্ষা করার পরও প্লে হয়নি। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                                 }
                             } else {
                                 "$activeServerName: ভিডিও লোড হচ্ছে না (${error.errorCodeName})। নিচে থেকে বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
@@ -1553,6 +1633,22 @@ fun VideoPlayerScreen(
         errorMessage = null
         onSelectMedia(targetItem)
         channelOsdKey = System.currentTimeMillis()
+    }
+
+    LaunchedEffect(pendingServerSwitchIndex) {
+        if (pendingServerSwitchIndex >= 0) {
+            val idx = pendingServerSwitchIndex
+            pendingServerSwitchIndex = -1
+            switchServer(idx)
+        }
+    }
+
+    LaunchedEffect(pendingChannelSwitchDelta) {
+        if (pendingChannelSwitchDelta != 0) {
+            val delta = pendingChannelSwitchDelta
+            pendingChannelSwitchDelta = 0
+            switchChannel(delta)
+        }
     }
 
     fun toggleFullscreen() {
@@ -1903,6 +1999,18 @@ fun VideoPlayerScreen(
         )
     }
 
+    if (showPlayerSettingsDialog) {
+        PlayerSettingsDialog(
+            isAutoSwitchEnabled = isAutoSwitchOnFailureEnabled,
+            onToggleAutoSwitch = { nextState ->
+                isAutoSwitchOnFailureEnabled = nextState
+                playerRepository.setAutoSwitchChannelOnFailure(nextState)
+            },
+            currentResolution = currentVideoResolution,
+            onDismiss = { showPlayerSettingsDialog = false }
+        )
+    }
+
     // Picture-in-Picture (PiP) Window Layout - Clean, clutter-free floating player
     if (isInPipMode) {
         Box(
@@ -2129,7 +2237,7 @@ fun VideoPlayerScreen(
                     message = errorMessage ?: "",
                     onRetry = {
                         errorMessage = null
-                        playerRetryKey++
+                        playerRetryKey = 0
                         exoPlayer.seekTo(0)
                         exoPlayer.prepare()
                         exoPlayer.play()
@@ -2140,7 +2248,15 @@ fun VideoPlayerScreen(
                     },
                     onNextServer = if (servers.size > 1) {
                         { cycleNextServer() }
-                    } else null
+                    } else null,
+                    onNextChannel = if (playlist.size > 1) {
+                        { switchChannel(1) }
+                    } else null,
+                    isAutoSwitchEnabled = isAutoSwitchOnFailureEnabled,
+                    onToggleAutoSwitch = { nextState ->
+                        isAutoSwitchOnFailureEnabled = nextState
+                        playerRepository.setAutoSwitchChannelOnFailure(nextState)
+                    }
                 )
             }
 
@@ -2226,6 +2342,7 @@ fun VideoPlayerScreen(
                     onEnterPip = { enterPictureInPictureMode() },
                     onToggleFullscreen = { toggleFullscreen() },
                     onToggleChannelDrawer = { showQuickChannelDrawer = !showQuickChannelDrawer },
+                    onOpenSettings = { showPlayerSettingsDialog = true },
                     onClose = { toggleFullscreen() }
                 )
             }
@@ -3045,11 +3162,11 @@ fun VideoPlayerScreen(
                             ) {
                                 Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(28.dp))
                                 Text(text = errorMessage ?: "", color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Button(
                                         onClick = {
                                             errorMessage = null
-                                            playerRetryKey++
+                                            playerRetryKey = 0
                                             exoPlayer.seekTo(0)
                                             exoPlayer.prepare()
                                             exoPlayer.play()
@@ -3069,6 +3186,17 @@ fun VideoPlayerScreen(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                         ) {
                                             Text("বিকল্প সার্ভার (${(selectedServerIndex + 1) % servers.size + 1}/${servers.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    if (playlist.size > 1) {
+                                        Button(
+                                            onClick = { switchChannel(1) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("পরবর্তী চ্যানেল", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
 
@@ -4755,7 +4883,10 @@ private fun FullscreenErrorOverlay(
     message: String,
     onRetry: () -> Unit,
     onSwitchToWebPlayer: (() -> Unit)? = null,
-    onNextServer: (() -> Unit)? = null
+    onNextServer: (() -> Unit)? = null,
+    onNextChannel: (() -> Unit)? = null,
+    isAutoSwitchEnabled: Boolean = true,
+    onToggleAutoSwitch: ((Boolean) -> Unit)? = null
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -4769,12 +4900,12 @@ private fun FullscreenErrorOverlay(
             Column(
                 modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(36.dp))
                 Text(text = message, color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center)
                 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         onClick = onRetry,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
@@ -4785,29 +4916,173 @@ private fun FullscreenErrorOverlay(
                         Text("পুনরায় চেষ্টা", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    if (onSwitchToWebPlayer != null) {
+                    if (onNextServer != null) {
                         Button(
+                            onClick = onNextServer,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7), contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("বিকল্প সার্ভার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (onNextChannel != null) {
+                        Button(
+                            onClick = onNextChannel,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Rounded.SkipNext, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("পরবর্তী চ্যানেল", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (onSwitchToWebPlayer != null) {
+                        OutlinedButton(
                             onClick = onSwitchToWebPlayer,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1), contentColor = Color.White),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("🌐 ওয়েব প্লেয়ার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+                }
 
-                    if (onNextServer != null) {
-                        OutlinedButton(
-                            onClick = onNextServer,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(10.dp)
+                // Auto-Switch Toggle Chip on Error Screen for full user transparency & control
+                if (onToggleAutoSwitch != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isAutoSwitchEnabled) Color(0xFF10B981).copy(alpha = 0.6f) else Color(0xFF64748B)),
+                        modifier = Modifier.clickable { onToggleAutoSwitch(!isAutoSwitchEnabled) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("বিকল্প সার্ভার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(
+                                imageVector = if (isAutoSwitchEnabled) Icons.Rounded.Autorenew else Icons.Rounded.Block,
+                                contentDescription = null,
+                                tint = if (isAutoSwitchEnabled) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "নেটওয়ার্ক সমস্যায় অটো পরবর্তী চ্যানেল: " + if (isAutoSwitchEnabled) "চালু (ON)" else "বন্ধ (OFF)",
+                                color = if (isAutoSwitchEnabled) Color(0xFFF1F5F9) else Color(0xFF94A3B8),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PlayerSettingsDialog(
+    isAutoSwitchEnabled: Boolean,
+    onToggleAutoSwitch: (Boolean) -> Unit,
+    currentResolution: String?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(Icons.Rounded.Settings, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(32.dp))
+        },
+        title = {
+            Text("⚙️ প্লেয়ার সেটিংস (Player Settings)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Auto switch on failure toggle
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "নেটওয়ার্ক সমস্যা হলে পরবর্তী চ্যানেলে পরিবর্তন",
+                                color = Color.White,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "কোন চ্যানেল সব চেষ্টা করার পরও সচল না হলে স্বয়ংক্রিয়ভাবে পরবর্তী চ্যানেল বা বিকল্প সার্ভারে চলে যাবে।",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.5.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = isAutoSwitchEnabled,
+                            onCheckedChange = onToggleAutoSwitch,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color(0xFF00E5FF),
+                                checkedTrackColor = Color(0xFF0284C7)
+                            )
+                        )
+                    }
+                }
+
+                // Compatibility Engine Info
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Rounded.Verified, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                            Text("Televizo ও VLC সামঞ্জস্যপূর্ণ ইঞ্জিন", color = Color(0xFF34D399), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text(
+                            "Akamai, Tapmad, Toffee ও HLS/TS স্ট্রিমগুলো নির্বিঘ্নে চালানোর জন্য মাল্টি-স্টেজ অটো রিট্রাই এবং রিল্যাক্সড SSL সিকিউরিটি সক্রিয় রয়েছে।",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 10.5.sp
+                        )
+                    }
+                }
+
+                if (currentResolution != null) {
+                    Text(
+                        "বর্তমান ভিডিও রেজোলিউশন: $currentResolution",
+                        color = Color(0xFFBAE6FD),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("ঠিক আছে", fontWeight = FontWeight.Bold)
+            }
+        },
+        containerColor = Color(0xFF1E293B)
+    )
 }
 
 @Composable
@@ -5020,6 +5295,7 @@ private fun FullscreenControlsOverlay(
     onEnterPip: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     onToggleChannelDrawer: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     onClose: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -5168,6 +5444,16 @@ private fun FullscreenControlsOverlay(
                     onClick = onEnterPip,
                     icon = Icons.Rounded.PictureInPictureAlt,
                     contentDescription = "Picture in Picture",
+                    tint = Color(0xFF00E5FF),
+                    size = 38.dp,
+                    iconSize = 22.dp
+                )
+
+                // Player Settings
+                TvPlayerIconButton(
+                    onClick = onOpenSettings,
+                    icon = Icons.Rounded.Settings,
+                    contentDescription = "Player Settings",
                     tint = Color(0xFF00E5FF),
                     size = 38.dp,
                     iconSize = 22.dp

@@ -3638,6 +3638,14 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    fun isAutoSwitchChannelOnFailure(): Boolean {
+        return prefs.getBoolean("auto_switch_channel_on_failure", true)
+    }
+
+    fun setAutoSwitchChannelOnFailure(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_switch_channel_on_failure", enabled).apply()
+    }
+
     fun saveFirebaseUrl(url: String) {
         prefs.edit().putString("saved_firebase_url", url).apply()
     }
