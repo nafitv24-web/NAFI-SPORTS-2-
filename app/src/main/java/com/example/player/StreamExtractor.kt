@@ -33,7 +33,7 @@ object StreamExtractor {
             return false
         }
         
-        // Social & Video platforms
+        // Social & Video platforms that are web players
         if (clean.contains("youtube.com") ||
             clean.contains("youtu.be") ||
             clean.contains("facebook.com") ||
@@ -44,12 +44,14 @@ object StreamExtractor {
             clean.contains("vimeo.com") ||
             clean.contains("ok.ru") ||
             clean.contains("drive.google.com") ||
-            clean.contains("dropbox.com")
+            clean.contains("dropbox.com") ||
+            clean.contains("pixeldrain.com/u/") ||
+            clean.contains("pixeldrain.dev/u/")
         ) {
             return true
         }
 
-        // Direct stream formats that ExoPlayer can play natively
+        // Direct stream formats that ExoPlayer plays natively
         val hasDirectMediaExtension = clean.contains(".m3u8") ||
                 clean.contains(".mpd") ||
                 clean.contains(".mp4") ||
@@ -60,20 +62,57 @@ object StreamExtractor {
                 clean.contains(".mov") ||
                 clean.contains(".flv")
 
-        // Xtream Codes live/movie/series stream paths (e.g. server:port/live/user/pass/id)
-        val isXtreamPath = (clean.contains("/live/") || clean.contains("/movie/") || clean.contains("/series/")) &&
-                (clean.contains("player_api.php") || clean.contains(":80") || clean.contains(":8080") || clean.contains(":2086") || clean.contains(":2095") || clean.contains("get.php"))
-
-        if (hasDirectMediaExtension && !clean.contains("pixeldrain.com/u/") && !clean.contains("pixeldrain.dev/u/") && !clean.contains("drive.google.com")) {
-            return false
-        }
-        if (isXtreamPath) {
+        if (hasDirectMediaExtension && !clean.contains("drive.google.com")) {
             return false
         }
 
-        // Any web link without raw media stream extension is an Embed / Web Stream
-        // Directly handled by WebStreamPlayer with zero delay and no failed ExoPlayer retries!
-        return true
+        // Standard IPTV live, restream, and portal paths (play directly in ExoPlayer)
+        val isDirectLiveStream = clean.contains("/live/") ||
+                clean.contains("/movie/") ||
+                clean.contains("/series/") ||
+                clean.contains("/hls/") ||
+                clean.contains("/stream") ||
+                clean.contains("/channel") ||
+                clean.contains("toffeelive.com") ||
+                clean.contains("akamaized.net") ||
+                clean.contains("tapmad") ||
+                clean.contains("rgkkw") ||
+                clean.contains("akr4m") ||
+                clean.contains("bdtv") ||
+                clean.contains("movielinkbd") ||
+                clean.contains("player_api.php") ||
+                clean.contains("get.php")
+
+        if (isDirectLiveStream) {
+            return false
+        }
+
+        // Explicit web embed player URLs
+        val isExplicitEmbed = clean.contains("2embed") ||
+                clean.contains("vidsrc") ||
+                clean.contains("superembed") ||
+                clean.contains("autoembed") ||
+                clean.contains("/embed/") ||
+                clean.contains("embed.html") ||
+                clean.contains("player.html") ||
+                clean.contains("streamtape.com") ||
+                clean.contains("doodstream") ||
+                clean.contains("dood.") ||
+                clean.contains("mixdrop") ||
+                clean.contains("vidcloud") ||
+                clean.contains("playertv")
+
+        if (isExplicitEmbed) {
+            return true
+        }
+
+        // Webpage documents (.html / .htm)
+        if (clean.contains(".html") || clean.contains(".htm")) {
+            return true
+        }
+
+        // All other direct streams adopt ExoPlayer directly for fast playback!
+        return false
     }
 
     /**

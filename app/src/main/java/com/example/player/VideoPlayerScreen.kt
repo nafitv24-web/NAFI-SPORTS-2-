@@ -950,8 +950,8 @@ fun VideoPlayerScreen(
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(25000)
+            .setConnectTimeoutMs(5000)
+            .setReadTimeoutMs(8000)
             .setUserAgent(finalUserAgent)
             .setTransferListener(bandwidthMeter)
             .setDefaultRequestProperties(requestHeaders)
@@ -971,13 +971,13 @@ fun VideoPlayerScreen(
                 finalCleanUrl.contains(".m3u8", ignoreCase = true)
         )
 
-        // Ultra-fast retry error policy: retries dropped packets within 350ms instead of long backoff pauses
-        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(10) {
+        // Instant fail-fast error policy: avoids long connection checking waits, fails fast in 2 retries
+        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(3) {
             override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                return 350L
+                return 250L
             }
             override fun getMinimumLoadableRetryCount(dataType: Int): Int {
-                return if (isLiveStream || isTsStream || isXtreamStream) 15 else 4
+                return 2
             }
         }
 
@@ -1455,10 +1455,50 @@ fun VideoPlayerScreen(
 
                         // 4. All servers exhausted or single server failed:
                         val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
+                        if (isAutoSwitchOnFailureEnabled && playlist.size > 1) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "⚠️ '${currentMedia.title}' সংযোগ করা যায়নি। পরবর্তী চ্যানেলে যাওয়া হচ্ছে...",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            errorMessage = null
+                            playerRetryKey = 0
+                            forceWebEngine = false
+                            pendingChannelSwitchDelta = 1
+                            return
+                        }
                         errorMessage = "$activeServerName: ভিডিও সংযোগ করা সম্ভব হয়নি। বিকল্প সার্ভার বেছে নিন অথবা ওয়েব প্লেয়ার চেষ্টা করুন।"
                     }
                 })
             }
+    }
+
+    // Dead / Unplayable Channel Auto-Skip Watchdog:
+    // If a selected channel hangs or fails to play within 7 seconds,
+    // automatically and forcibly skips to the next channel without waiting for user permission!
+    LaunchedEffect(currentMedia.id, currentUrl, isActuallyBuffering, hasStartedPlaying, isAutoSwitchOnFailureEnabled) {
+        if (!hasStartedPlaying && isActuallyBuffering && isAutoSwitchOnFailureEnabled && playlist.size > 1) {
+            delay(7000)
+            if (!hasStartedPlaying && isActuallyBuffering) {
+                val allServers = currentMedia.getAllServers()
+                if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
+                    val nextIdx = selectedServerIndex + 1
+                    val nextServerName = allServers.getOrNull(nextIdx)?.name ?: "সার্ভার ${nextIdx + 1}"
+                    android.widget.Toast.makeText(context, "বিকল্প সার্ভার ($nextServerName) চেষ্টা করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
+                    pendingServerSwitchIndex = nextIdx
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        "⚠️ '${currentMedia.title}' চ্যানেলটি সচল নয়। স্বয়ংক্রিয়ভাবে পরবর্তী চ্যানেলে যাওয়া হচ্ছে...",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    errorMessage = null
+                    playerRetryKey = 0
+                    forceWebEngine = false
+                    pendingChannelSwitchDelta = 1
+                }
+            }
+        }
     }
 
     // Periodic time progress tracker & Live Stream Anti-Stall Auto-Recovery Watchdog
@@ -1627,6 +1667,11 @@ fun VideoPlayerScreen(
         val targetServers = targetItem.getAllServers()
         currentUrl = targetServers.firstOrNull()?.url ?: targetItem.streamUrl
         errorMessage = null
+        playerRetryKey = 0
+        forceWebEngine = false
+        if (isFullscreen && !isTvMode) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
         onSelectMedia(targetItem)
         channelOsdKey = System.currentTimeMillis()
         android.widget.Toast.makeText(context, "${targetItem.title} চালু হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
@@ -2705,6 +2750,11 @@ fun VideoPlayerScreen(
                                                     val nextUrl = newServers.firstOrNull()?.url ?: item.streamUrl
                                                     currentUrl = nextUrl
                                                     errorMessage = null
+                                                    playerRetryKey = 0
+                                                    forceWebEngine = false
+                                                    if (isFullscreen && !isTvMode) {
+                                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                                    }
                                                     onSelectMedia(item)
                                                     showQuickChannelDrawer = false
                                                     channelOsdKey = System.currentTimeMillis()
@@ -4967,7 +5017,7 @@ private fun FullscreenErrorOverlay(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = "নেটওয়ার্ক সমস্যায় অটো পরবর্তী চ্যানেল: " + if (isAutoSwitchEnabled) "চালু (ON)" else "বন্ধ (OFF)",
+                                text = "চ্যানেল প্লে না হলে জোরপূর্বক পরবর্তী চ্যানেলে যাওয়া: " + if (isAutoSwitchEnabled) "চালু (ON)" else "বন্ধ (OFF)",
                                 color = if (isAutoSwitchEnabled) Color(0xFFF1F5F9) else Color(0xFF94A3B8),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -5012,14 +5062,14 @@ private fun PlayerSettingsDialog(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "নেটওয়ার্ক সমস্যা হলে পরবর্তী চ্যানেলে পরিবর্তন",
+                                "চ্যানেল প্লে না হলে পরবর্তী চ্যানেলে যাওয়া",
                                 color = Color.White,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "কোন চ্যানেল সব চেষ্টা করার পরও সচল না হলে স্বয়ংক্রিয়ভাবে পরবর্তী চ্যানেল বা বিকল্প সার্ভারে চলে যাবে।",
+                                "কোন চ্যানেল প্লে না হলে বা আটকে থাকলে অনুমতি ছাড়াই জোরপূর্বক পরবর্তী চ্যানেলে চলে যাবে।",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 10.5.sp
                             )
