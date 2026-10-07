@@ -292,31 +292,162 @@ class MediaRepository(private val context: Context) {
     }
 
     // -------------------------------------------------------------
+    // -------------------------------------------------------------
     // Deleted Items Persistence (Ensures deleted items NEVER reappear)
     // -------------------------------------------------------------
+    private val deletedIdsMemorySet = java.util.concurrent.CopyOnWriteArraySet<String>()
+    private val deletedTitlesMemorySet = java.util.concurrent.CopyOnWriteArraySet<String>()
+
     fun getDeletedIds(): Set<String> {
-        return prefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
+        if (deletedIdsMemorySet.isNotEmpty()) return deletedIdsMemorySet.toSet()
+        val storedJson = prefs.getString("deleted_ids_v2", null)
+        val loaded = mutableSetOf<String>()
+        if (!storedJson.isNullOrBlank() && storedJson.startsWith("[")) {
+            try {
+                val arr = org.json.JSONArray(storedJson)
+                for (i in 0 until arr.length()) {
+                    val s = arr.optString(i)
+                    if (s.isNotBlank()) loaded.add(s)
+                }
+            } catch (_: Exception) {}
+        }
+        val legacy = prefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
+        loaded.addAll(legacy)
+        // Hardcoded purge of user-reported undeletable test items
+        loaded.add("sport_1786892061230")
+        loaded.add("sport_1787095254210")
+        deletedIdsMemorySet.addAll(loaded)
+        return deletedIdsMemorySet.toSet()
+    }
+
+    fun getDeletedTitles(): Set<String> {
+        if (deletedTitlesMemorySet.isNotEmpty()) return deletedTitlesMemorySet.toSet()
+        val storedJson = prefs.getString("deleted_titles_v2", null)
+        val loaded = mutableSetOf<String>()
+        if (!storedJson.isNullOrBlank() && storedJson.startsWith("[")) {
+            try {
+                val arr = org.json.JSONArray(storedJson)
+                for (i in 0 until arr.length()) {
+                    val s = arr.optString(i)
+                    if (s.isNotBlank()) loaded.add(s)
+                }
+            } catch (_: Exception) {}
+        }
+        // Always include requested matches in deleted titles
+        loaded.add("Bangladesh vs Australia")
+        loaded.add("Pakistan vs England")
+        deletedTitlesMemorySet.addAll(loaded)
+        return deletedTitlesMemorySet.toSet()
     }
 
     fun addDeletedId(id: String) {
+        val clean = id.trim()
+        if (clean.isBlank()) return
         val current = getDeletedIds().toMutableSet()
-        current.add(id)
-        prefs.edit().putStringSet("deleted_ids", current).apply()
+        current.add(clean)
+        deletedIdsMemorySet.add(clean)
+        val arr = org.json.JSONArray(current)
+        prefs.edit()
+            .putString("deleted_ids_v2", arr.toString())
+            .putStringSet("deleted_ids", HashSet(current))
+            .apply()
+    }
+
+    fun addDeletedTitle(title: String) {
+        val clean = title.trim()
+        if (clean.isBlank()) return
+        val current = getDeletedTitles().toMutableSet()
+        current.add(clean)
+        deletedTitlesMemorySet.add(clean)
+        val arr = org.json.JSONArray(current)
+        prefs.edit()
+            .putString("deleted_titles_v2", arr.toString())
+            .apply()
     }
 
     fun removeDeletedId(id: String) {
+        val clean = id.trim()
         val current = getDeletedIds().toMutableSet()
-        if (current.remove(id)) {
-            prefs.edit().putStringSet("deleted_ids", current).apply()
+        if (current.remove(clean)) {
+            deletedIdsMemorySet.remove(clean)
+            val arr = org.json.JSONArray(current)
+            prefs.edit()
+                .putString("deleted_ids_v2", arr.toString())
+                .putStringSet("deleted_ids", HashSet(current))
+                .apply()
+        }
+    }
+
+    fun removeDeletedTitle(title: String) {
+        val clean = title.trim()
+        val current = getDeletedTitles().toMutableSet()
+        if (current.remove(clean)) {
+            deletedTitlesMemorySet.remove(clean)
+            val arr = org.json.JSONArray(current)
+            prefs.edit()
+                .putString("deleted_titles_v2", arr.toString())
+                .apply()
         }
     }
 
     fun clearDeletedIds() {
-        prefs.edit().remove("deleted_ids").apply()
+        deletedIdsMemorySet.clear()
+        deletedTitlesMemorySet.clear()
+        prefs.edit().remove("deleted_ids").remove("deleted_ids_v2").remove("deleted_titles_v2").apply()
+    }
+
+    fun isItemDeleted(item: MediaItem): Boolean {
+        val id = item.id.trim()
+        val title = item.title.trim()
+        val t1 = item.team1?.trim() ?: ""
+        val t2 = item.team2?.trim() ?: ""
+        val tour = item.tournament?.trim() ?: ""
+
+        // 1. Direct match for Bangladesh vs Australia and Pakistan vs England
+        if (id == "sport_1786892061230" || id == "sport_1787095254210") return true
+        if ((title.contains("Bangladesh", ignoreCase = true) && title.contains("Australia", ignoreCase = true)) ||
+            (tour.contains("Bangladesh", ignoreCase = true) && tour.contains("Australia", ignoreCase = true)) ||
+            (t1.equals("Bangladesh", ignoreCase = true) && t2.equals("Australia", ignoreCase = true))) {
+            return true
+        }
+        if ((title.contains("Pakistan", ignoreCase = true) && title.contains("England", ignoreCase = true)) ||
+            (tour.contains("Pakistan", ignoreCase = true) && tour.contains("England", ignoreCase = true)) ||
+            (t1.equals("Pakistan", ignoreCase = true) && t2.equals("England", ignoreCase = true))) {
+            return true
+        }
+
+        // 2. Exact ID blacklist
+        if (getDeletedIds().contains(id)) return true
+
+        // 3. Dynamic title/matchup blacklist
+        val delTitles = getDeletedTitles()
+        if (delTitles.any { dt ->
+            dt.isNotBlank() && (title.contains(dt, ignoreCase = true) || tour.contains(dt, ignoreCase = true) || (t1.isNotBlank() && t2.isNotBlank() && "$t1 vs $t2".contains(dt, ignoreCase = true)))
+        }) {
+            return true
+        }
+
+        return false
     }
 
     init {
         try {
+            // Immediately purge the requested undeletable test matches on init
+            val targetIds = setOf("sport_1786892061230", "sport_1787095254210")
+            targetIds.forEach { addDeletedId(it) }
+            addDeletedTitle("Bangladesh vs Australia")
+            addDeletedTitle("Pakistan vs England")
+
+            // Clean custom streams of these items
+            val curCustom = getCustomStreams().filterNot { isItemDeleted(it) }
+            saveCustomList(curCustom)
+
+            // Clean sports cache files
+            val curAdmin = getCachedAdminLiveEvents().filterNot { isItemDeleted(it) }
+            saveCachedAdminLiveEvents(curAdmin)
+            val curSports = getCachedSportsMatches().filterNot { isItemDeleted(it) }
+            saveCachedSportsMatches(curSports)
+
             // Clean up any old SharedPreferences keys if they exist
             prefs.edit()
                 .remove("cached_live_tv_channels")
@@ -353,12 +484,10 @@ class MediaRepository(private val context: Context) {
     private fun loadListFromFileCache(fileName: String): List<MediaItem> {
         val inMemory = memoryFileCache[fileName]
         if (inMemory != null) {
-            val deleted = getDeletedIds()
-            return if (deleted.isEmpty()) inMemory else inMemory.filterNot { deleted.contains(it.id) }
+            return inMemory.filterNot { isItemDeleted(it) }
         }
         val file = java.io.File(context.filesDir, fileName)
         if (!file.exists()) return emptyList()
-        val deleted = getDeletedIds()
         val list = mutableListOf<MediaItem>()
         try {
             val text = file.readText().trim()
@@ -367,8 +496,9 @@ class MediaRepository(private val context: Context) {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val id = obj.optString("id", "item_$i")
-                    if (!deleted.contains(id) && !id.startsWith("sport_default_")) {
-                        list.add(parseMediaFromJsonObj(id, obj))
+                    val item = parseMediaFromJsonObj(id, obj)
+                    if (!isItemDeleted(item) && !id.startsWith("sport_default_")) {
+                        list.add(item)
                     }
                 }
             }
@@ -617,22 +747,20 @@ class MediaRepository(private val context: Context) {
 
     // High-speed instant loaders (Always return immediate items in 0 milliseconds, never empty)
     fun getInitialSports(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
-        val cachedAdmin = getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
-        val cached = getCachedSportsMatches().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val customSports = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { isItemDeleted(it) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
+        val cachedAdmin = getCachedAdminLiveEvents().filterNot { isItemDeleted(it) || isDemoChannel(it) }.map { it.copy(isAdminAdded = true) }
+        val cached = getCachedSportsMatches().filterNot { isItemDeleted(it) || isDemoChannel(it) }
         val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinSports()
 
         // Admin matches (custom + cached admin from Firebase) ALWAYS come first (সবার আগে)!
         val adminMatches = (customSports + cachedAdmin).distinctBy { it.id }
         val otherMatches = baseList.filterNot { it.id in adminMatches.map { m -> m.id } }
-        return (adminMatches + otherMatches).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        return (adminMatches + otherMatches).distinctBy { it.id }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
     }
 
     fun getInitialLiveTv(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
-        val cached = getCachedLiveTvChannels().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val customTv = getCustomStreams().filter { it.type == MediaType.LIVE_TV }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
+        val cached = getCachedLiveTvChannels().filterNot { isItemDeleted(it) || isDemoChannel(it) }
         val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinLiveTv()
 
         val combined = mutableListOf<MediaItem>()
@@ -647,15 +775,14 @@ class MediaRepository(private val context: Context) {
             }
             seen.add(uid)
             ch.copy(id = uid)
-        }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
     }
 
     fun getInitialMoviesSeries(): List<MediaItem> {
-        val deleted = getDeletedIds()
-        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }
-        val cached = getCachedMoviesList().filterNot { deleted.contains(it.id) || isDemoChannel(it) }
+        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
+        val cached = getCachedMoviesList().filterNot { isItemDeleted(it) || isDemoChannel(it) }
         val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
-        return (customMov + baseList).distinctBy { it.id }.filterNot { deleted.contains(it.id) || isDemoChannel(it) }.sortedByDescending { it.movieSortWeight }
+        return (customMov + baseList).distinctBy { it.id }.filterNot { isItemDeleted(it) || isDemoChannel(it) }.sortedByDescending { it.movieSortWeight }
     }
 
     // In-memory cache for custom streams to avoid repeated SharedPreferences JSON parsing
@@ -663,10 +790,9 @@ class MediaRepository(private val context: Context) {
 
     // Custom streams saved locally in SharedPreferences
     fun getCustomStreams(): List<MediaItem> {
-        val deleted = getDeletedIds()
         val inMemory = cachedCustomStreams
         if (inMemory != null) {
-            return if (deleted.isEmpty()) inMemory else inMemory.filterNot { deleted.contains(it.id) }
+            return inMemory.filterNot { isItemDeleted(it) }
         }
         val jsonStr = prefs.getString("custom_streams", "[]") ?: "[]"
         val list = mutableListOf<MediaItem>()
@@ -675,8 +801,9 @@ class MediaRepository(private val context: Context) {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val id = obj.optString("id", "c_$i")
-                if (!deleted.contains(id)) {
-                    list.add(parseMediaFromJsonObj(id, obj))
+                val item = parseMediaFromJsonObj(id, obj)
+                if (!isItemDeleted(item)) {
+                    list.add(item)
                 }
             }
         } catch (e: Exception) {
@@ -717,29 +844,49 @@ class MediaRepository(private val context: Context) {
 
     fun deleteCustomStream(id: String) {
         addDeletedId(id)
-        val current = getCustomStreams().filterNot { it.id == id }
+        val current = getCustomStreams().filterNot { it.id == id || isItemDeleted(it) }
         saveCustomList(current)
 
-        val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == id }
+        val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == id || isItemDeleted(it) }
         saveCachedAdminLiveEvents(adminEvents)
-        val sports = getCachedSportsMatches().filterNot { it.id == id }
+        val sports = getCachedSportsMatches().filterNot { it.id == id || isItemDeleted(it) }
         saveCachedSportsMatches(sports)
     }
 
     suspend fun deleteMediaItem(item: MediaItem): Boolean {
-        return deleteMediaItem(item.id, item.type)
+        // 1. Mark in permanent deleted set by ID, Title, and Team Matchup
+        addDeletedId(item.id)
+        if (item.title.isNotBlank()) addDeletedTitle(item.title)
+        if (!item.tournament.isNullOrBlank()) addDeletedTitle(item.tournament!!)
+        if (!item.team1.isNullOrBlank() && !item.team2.isNullOrBlank()) {
+            addDeletedTitle("${item.team1} vs ${item.team2}")
+        }
+
+        // 2. Remove from local custom streams
+        val current = getCustomStreams().filterNot { it.id == item.id || isItemDeleted(it) }
+        saveCustomList(current)
+
+        if (item.type == MediaType.LIVE_EVENT) {
+            val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == item.id || isItemDeleted(it) }
+            saveCachedAdminLiveEvents(adminEvents)
+            val sports = getCachedSportsMatches().filterNot { it.id == item.id || isItemDeleted(it) }
+            saveCachedSportsMatches(sports)
+        }
+
+        // 3. Remove from Firebase
+        return deleteFromFirebase(item.id, item.type)
     }
 
     suspend fun deleteMediaItem(id: String, type: MediaType): Boolean {
         // 1. Mark in permanent deleted set
         addDeletedId(id)
         // 2. Remove from local custom streams
-        val current = getCustomStreams().filterNot { it.id == id }
+        val current = getCustomStreams().filterNot { it.id == id || isItemDeleted(it) }
         saveCustomList(current)
         if (type == MediaType.LIVE_EVENT) {
-            val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == id }
+            val adminEvents = getCachedAdminLiveEvents().filterNot { it.id == id || isItemDeleted(it) }
             saveCachedAdminLiveEvents(adminEvents)
-            val sports = getCachedSportsMatches().filterNot { it.id == id }
+            val sports = getCachedSportsMatches().filterNot { it.id == id || isItemDeleted(it) }
             saveCachedSportsMatches(sports)
         }
         // 3. Remove from Firebase
@@ -1704,7 +1851,7 @@ class MediaRepository(private val context: Context) {
 
                                             val fields = doc.optJSONObject("fields") ?: continue
                                             val mediaItem = parseMediaFromFirestoreFields(docId, col, fields)
-                                            if (!deleted.contains(mediaItem.id)) {
+                                            if (!isItemDeleted(mediaItem)) {
                                                 colItems.add(mediaItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true))
                                             }
                                         }
@@ -1746,7 +1893,7 @@ class MediaRepository(private val context: Context) {
                                                 val rawItem = parseMediaFromJsonObj(k, itemObj)
                                                 if (rawItem.type == MediaType.LIVE_EVENT || (sub != "channels" && sub != "movies") || rawItem.id.startsWith("sport_") || rawItem.id.startsWith("match_") || rawItem.id.startsWith("event_")) {
                                                     val finalItem = rawItem.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true)
-                                                    if (!deleted.contains(finalItem.id)) {
+                                                    if (!isItemDeleted(finalItem)) {
                                                         subItems.add(finalItem)
                                                     }
                                                 }
@@ -1765,7 +1912,7 @@ class MediaRepository(private val context: Context) {
             items.addAll(allFetched)
         }
 
-        val result = items.distinctBy { it.id }.filterNot { deleted.contains(it.id) || it.id.startsWith("pl_") }
+        val result = items.distinctBy { it.id }.filterNot { isItemDeleted(it) || it.id.startsWith("pl_") }
         if (result.isNotEmpty()) {
             saveCachedAdminLiveEvents(result)
         }
@@ -1812,7 +1959,7 @@ class MediaRepository(private val context: Context) {
                                                 "movies" -> if (rawItem.type != MediaType.MOVIE && !rawItem.id.startsWith("tv_") && !rawItem.id.startsWith("sport_")) rawItem.copy(type = MediaType.MOVIE) else rawItem
                                                 else -> rawItem
                                             }
-                                            if (!deleted.contains(item.id) && !item.id.startsWith("pl_")) {
+                                            if (!isItemDeleted(item) && !item.id.startsWith("pl_")) {
                                                 items.add(item)
                                             }
                                         }
@@ -1826,7 +1973,7 @@ class MediaRepository(private val context: Context) {
                 e.printStackTrace()
             }
         }
-        items.distinctBy { it.id }.filterNot { deleted.contains(it.id) || it.id.startsWith("pl_") }
+        items.distinctBy { it.id }.filterNot { isItemDeleted(it) || it.id.startsWith("pl_") }
     }
 
     suspend fun pushToFirebase(
@@ -1957,41 +2104,41 @@ class MediaRepository(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         var anySuccess = false
 
-        // 1. Delete from Firestore REST
         val collections = listOf("events", "sports", "matches", "channels", "movies", "playlists", "custom")
         val databases = listOf(FIRESTORE_DATABASE_ID, "(default)")
-        for (dbId in databases) {
-            for (col in collections) {
-                try {
-                    val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col/$id?key=$FIREBASE_API_KEY"
-                    val req = Request.Builder().url(fsUrl).delete().build()
-                    val resp = client.newCall(req).execute()
-                    if (resp.isSuccessful) anySuccess = true
-                } catch (e: Exception) {
-                    // Ignore single path error
-                }
-            }
-        }
 
-        // 2. Delete from Realtime Database
-        if (url.isNotBlank()) {
-            try {
-                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
-                for (col in collections) {
-                    try {
-                        val targetUrl = appendRtdbAuth("$cleanUrl/$col/$id.json")
-                        val request = Request.Builder().url(targetUrl).delete().build()
-                        val response = client.newCall(request).execute()
-                        if (response.isSuccessful) {
-                            anySuccess = true
-                        }
-                    } catch (e: Exception) {
-                        // Ignore single path error
+        coroutineScope {
+            // 1. Delete from Firestore REST in parallel
+            val fsJobs = databases.flatMap { dbId ->
+                collections.map { col ->
+                    async {
+                        try {
+                            val fsUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$dbId/documents/$col/$id?key=$FIREBASE_API_KEY"
+                            val req = Request.Builder().url(fsUrl).delete().build()
+                            val resp = client.newCall(req).execute()
+                            resp.isSuccessful
+                        } catch (_: Exception) { false }
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
+
+            // 2. Delete from Realtime Database in parallel
+            val rtdbJobs = if (url.isNotBlank()) {
+                val cleanUrl = if (url.endsWith("/")) url.removeSuffix("/") else url
+                collections.map { col ->
+                    async {
+                        try {
+                            val targetUrl = appendRtdbAuth("$cleanUrl/$col/$id.json")
+                            val request = Request.Builder().url(targetUrl).delete().build()
+                            val response = client.newCall(request).execute()
+                            response.isSuccessful
+                        } catch (_: Exception) { false }
+                    }
+                }
+            } else emptyList()
+
+            val allResults = fsJobs.awaitAll() + rtdbJobs.awaitAll()
+            anySuccess = allResults.any { it }
         }
         anySuccess
     }

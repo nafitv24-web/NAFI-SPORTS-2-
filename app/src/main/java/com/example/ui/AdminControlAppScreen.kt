@@ -66,6 +66,14 @@ fun AdminControlAppScreen(
         onExitAdmin()
     }
 
+    var adminSportsItems by remember(sportsList) {
+        mutableStateOf(sportsList.filterNot { repository.isItemDeleted(it) })
+    }
+
+    LaunchedEffect(sportsList) {
+        adminSportsItems = sportsList.filterNot { repository.isItemDeleted(it) }
+    }
+
     var selectedAdminTab by remember { mutableStateOf(AdminTab.CHANNELS) }
     var showAuthDialog by remember { mutableStateOf(false) }
 
@@ -2182,7 +2190,7 @@ fun AdminControlAppScreen(
                 }
 
                 // Sports Items List
-                items(sportsList) { item ->
+                items(adminSportsItems, key = { it.id }) { item ->
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
@@ -6754,6 +6762,8 @@ fun AdminControlAppScreen(
                     onClick = {
                         val toRemove = target
                         itemToDelete = null
+                        // 1. Instant 0ms optimistic UI removal from admin screen
+                        adminSportsItems = adminSportsItems.filterNot { it.id == toRemove.id || repository.isItemDeleted(it) }
                         coroutineScope.launch {
                             repository.deleteMediaItem(toRemove)
                             onDataChanged()

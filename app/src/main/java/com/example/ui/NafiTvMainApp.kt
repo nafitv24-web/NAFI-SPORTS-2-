@@ -399,7 +399,7 @@ fun NafiTvMainApp(
                             val sportsM3u = sportsM3uJob.await()
                             val tapmad = tapmadJob.await()
 
-                            val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }
+                            val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }.filterNot { repository.isItemDeleted(it) }
                             if (updatedSports.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
                                     sportsList = updatedSports
@@ -512,7 +512,7 @@ fun NafiTvMainApp(
 
                                 withContext(Dispatchers.Main) {
                                     if (fbSports.isNotEmpty()) {
-                                        sportsList = (fbSports + sportsList).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+                                        sportsList = (fbSports + sportsList).distinctBy { it.id }.filterNot { repository.isItemDeleted(it) }
                                         repository.saveCachedSportsMatches(sportsList)
                                     }
                                     if (fbTv.isNotEmpty()) {
@@ -724,7 +724,7 @@ fun NafiTvMainApp(
                 val userPl = repository.getUserPlaylists().map { it.copy(isAdmin = false, isReadOnly = false) }
                 adminPlaylistsList = (adminPl + userPl + initial).distinctBy { it.id }
                 playlistsList = adminPlaylistsList
-                sportsList = repository.getInitialSports()
+                sportsList = repository.getInitialSports().filterNot { repository.isItemDeleted(it) }
                 customList = repository.getCustomStreams()
                 refreshAllData()
             }
