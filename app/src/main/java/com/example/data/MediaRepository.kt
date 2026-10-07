@@ -4187,6 +4187,21 @@ class MediaRepository(private val context: Context) {
                         }
                     }
 
+                    if (serversList.isEmpty() && streamUrl.isBlank()) {
+                        // Attach fallback live sports stream servers so the channel never has an empty unplayable link
+                        val fallbackSports = getDefaultBuiltinSports()
+                        val matchedFallback = fallbackSports.find { 
+                            (team1 != null && it.title.contains(team1, ignoreCase = true)) ||
+                            (team2 != null && it.title.contains(team2, ignoreCase = true))
+                        } ?: fallbackSports.firstOrNull()
+                        if (matchedFallback != null && matchedFallback.streamUrl.isNotBlank()) {
+                            serversList.add(StreamServer("লাইভ স্পোর্টস HD 1", matchedFallback.streamUrl))
+                            matchedFallback.getAllServers().drop(1).take(2).forEach { s ->
+                                serversList.add(StreamServer(s.name, s.url))
+                            }
+                        }
+                    }
+
                     val primaryStream = serversList.firstOrNull()?.url ?: streamUrl
 
                     val cleanCat = categoryName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()

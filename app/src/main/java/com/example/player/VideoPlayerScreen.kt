@@ -190,11 +190,12 @@ fun VideoPlayerScreen(
         } catch (_: Exception) {}
     }
 
+    val isTvOrLiveChannel = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
     val isWebEmbedUrl = remember(currentUrl) {
-        StreamExtractor.isEmbedUrl(currentUrl)
+        !isTvOrLiveChannel && StreamExtractor.isEmbedUrl(currentUrl)
     }
     var forceWebEngine by remember(currentMedia.id, currentUrl) { mutableStateOf(false) }
-    val useWebPlayer = (isWebEmbedUrl || forceWebEngine)
+    val useWebPlayer = (!isTvOrLiveChannel && (isWebEmbedUrl || forceWebEngine))
 
     // Automatically resolve any 2embed/vidsrc/embed streams to native ExoPlayer URLs in the background
     LaunchedEffect(currentUrl) {
@@ -1407,17 +1408,7 @@ fun VideoPlayerScreen(
                                 error.cause is androidx.media3.common.ParserException ||
                                 error.cause is androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 
-                        // 1. Direct and Instant Web Engine Fallback:
-                        // Whichever link requires a web player (HTML page, parsing failure, embed, or 403/401/405 protection),
-                        // directly adopt the Web Engine immediately without any slow "সংযোগ নিশ্চিত করা হচ্ছে" retry loops!
-                        if (!useWebPlayer && (isParsingOrContainerError || is403Or401 || is405 || isWebEmbedUrl || !currentUrl.contains(".m3u8", ignoreCase = true))) {
-                            forceWebEngine = true
-                            errorMessage = null
-                            isBuffering = true
-                            return
-                        }
-
-                        // 2. Xtream MPEG-TS vs HLS fast swap (single immediate fallback)
+                        // 1. Xtream MPEG-TS vs HLS fast swap (single immediate fallback)
                         val isProtectHls = currentUrl.contains("toffeelive.com", ignoreCase = true) ||
                                 currentUrl.contains("toffee", ignoreCase = true) ||
                                 currentUrl.contains("akamaized.net", ignoreCase = true) ||
@@ -1434,7 +1425,7 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        // 3. Multi-Server Fast Auto-Switch:
+                        // 2. Multi-Server Fast Auto-Switch:
                         // If this channel has alternative servers (e.g. Sports 1 failed -> immediately try Sports 2),
                         // directly switch to the next server without waiting!
                         val allServers = currentMedia.getAllServers()
@@ -1453,9 +1444,9 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        // 4. All servers exhausted or single server failed:
+                        // 3. All servers exhausted or single server failed -> Instant Auto-Skip to next channel:
                         val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
-                        if (isAutoSwitchOnFailureEnabled && playlist.size > 1) {
+                        if (isAutoSwitchOnFailureEnabled) {
                             android.widget.Toast.makeText(
                                 context,
                                 "⚠️ '${currentMedia.title}' সংযোগ করা যায়নি। পরবর্তী চ্যানেলে যাওয়া হচ্ছে...",
@@ -1467,19 +1458,38 @@ fun VideoPlayerScreen(
                             pendingChannelSwitchDelta = 1
                             return
                         }
-                        errorMessage = "$activeServerName: ভিডিও সংযোগ করা সম্ভব হয়নি। বিকল্প সার্ভার বেছে নিন অথবা ওয়েব প্লেয়ার চেষ্টা করুন।"
+                        errorMessage = "$activeServerName: ভিডিও সংযোগ করা সম্ভব হয়নি। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
                     }
                 })
             }
     }
 
     // Dead / Unplayable Channel Auto-Skip Watchdog:
-    // If a selected channel hangs or fails to play within 7 seconds,
-    // automatically and forcibly skips to the next channel without waiting for user permission!
-    LaunchedEffect(currentMedia.id, currentUrl, isActuallyBuffering, hasStartedPlaying, isAutoSwitchOnFailureEnabled) {
-        if (!hasStartedPlaying && isActuallyBuffering && isAutoSwitchOnFailureEnabled && playlist.size > 1) {
-            delay(7000)
-            if (!hasStartedPlaying && isActuallyBuffering) {
+    // If a selected channel hangs or fails to play within 4.5 seconds (or if stream link is blank),
+    // automatically and forcibly skips to the next server or next channel without waiting for user permission!
+    LaunchedEffect(currentMedia.id, currentUrl, hasStartedPlaying, isAutoSwitchOnFailureEnabled) {
+        if (!hasStartedPlaying && isAutoSwitchOnFailureEnabled) {
+            // Immediate check: if stream URL is blank, skip without waiting
+            if (currentUrl.isBlank()) {
+                delay(800)
+                if (!hasStartedPlaying) {
+                    val allServers = currentMedia.getAllServers()
+                    if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
+                        val nextIdx = selectedServerIndex + 1
+                        val nextServerName = allServers.getOrNull(nextIdx)?.name ?: "সার্ভার ${nextIdx + 1}"
+                        android.widget.Toast.makeText(context, "বিকল্প সার্ভার ($nextServerName) চেষ্টা করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
+                        pendingServerSwitchIndex = nextIdx
+                    } else {
+                        android.widget.Toast.makeText(context, "⚠️ '${currentMedia.title}' লিংক নেই। পরবর্তী চ্যানেলে যাওয়া হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
+                        pendingChannelSwitchDelta = 1
+                    }
+                }
+                return@LaunchedEffect
+            }
+
+            // Normal timeout: 4.5 seconds
+            delay(4500)
+            if (!hasStartedPlaying) {
                 val allServers = currentMedia.getAllServers()
                 if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
                     val nextIdx = selectedServerIndex + 1
@@ -1629,7 +1639,17 @@ fun VideoPlayerScreen(
             if (didSwitch) return
         }
 
-        val list = if (playlist.isNotEmpty()) playlist else listOf(currentMedia)
+        val list = when {
+            playlist.size > 1 -> playlist
+            else -> {
+                val cached = playerRepository.getCachedLiveTvChannels().ifEmpty {
+                    playerRepository.getCachedSportsMatches().ifEmpty {
+                        playerRepository.getDefaultBuiltinLiveTv()
+                    }
+                }
+                if (cached.size > 1) cached else playlist.ifEmpty { listOf(currentMedia) }
+            }
+        }
         if (list.isEmpty()) return
 
         var currentIndex = list.indexOfFirst { it.id == currentMedia.id }
@@ -2273,10 +2293,6 @@ fun VideoPlayerScreen(
                         exoPlayer.seekTo(0)
                         exoPlayer.prepare()
                         exoPlayer.play()
-                    },
-                    onSwitchToWebPlayer = {
-                        errorMessage = null
-                        forceWebEngine = true
                     },
                     onNextServer = if (servers.size > 1) {
                         { cycleNextServer() }
@@ -3246,18 +3262,6 @@ fun VideoPlayerScreen(
                                         ) {
                                             Text("পরবর্তী চ্যানেল", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            errorMessage = null
-                                            forceWebEngine = true
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1), contentColor = Color.White),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("ওয়েব প্লেয়ার", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -4983,16 +4987,6 @@ private fun FullscreenErrorOverlay(
                             Icon(Icons.Rounded.SkipNext, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("পরবর্তী চ্যানেল", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (onSwitchToWebPlayer != null) {
-                        OutlinedButton(
-                            onClick = onSwitchToWebPlayer,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("🌐 ওয়েব প্লেয়ার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
