@@ -842,10 +842,12 @@ fun VideoPlayerScreen(
                 pathBeforeQuery.endsWith(".avi") ||
                 pathBeforeQuery.endsWith(".webm") ||
                 pathBeforeQuery.endsWith(".mov") ||
+                pathBeforeQuery.endsWith(".flv") ||
                 finalCleanUrl.contains("/movie/", ignoreCase = true) ||
                 finalCleanUrl.contains("/series/", ignoreCase = true) ||
                 currentMedia.type == MediaType.MOVIE ||
                 currentMedia.type == MediaType.SERIES ||
+                currentMedia.isSeries ||
                 isMovieLinkBd
 
         val isXtreamStream = finalCleanUrl.contains("/live/", ignoreCase = true) ||
@@ -853,6 +855,7 @@ fun VideoPlayerScreen(
                 finalCleanUrl.contains("/series/", ignoreCase = true) ||
                 finalCleanUrl.contains("fixtv123", ignoreCase = true) ||
                 finalCleanUrl.contains("rgkkw", ignoreCase = true) ||
+                finalCleanUrl.contains("growthtry", ignoreCase = true) ||
                 finalCleanUrl.contains("my-king", ignoreCase = true) ||
                 finalCleanUrl.contains("zerotv", ignoreCase = true) ||
                 isRgkkw
@@ -951,8 +954,8 @@ fun VideoPlayerScreen(
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(5000)
-            .setReadTimeoutMs(8000)
+            .setConnectTimeoutMs(8000)
+            .setReadTimeoutMs(15000)
             .setUserAgent(finalUserAgent)
             .setTransferListener(bandwidthMeter)
             .setDefaultRequestProperties(requestHeaders)
@@ -988,9 +991,9 @@ fun VideoPlayerScreen(
                 androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
 
         val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-            .setConstantBitrateSeekingEnabled(false) // Never force CBR seeking on live continuous streams
+            .setConstantBitrateSeekingEnabled(!isLiveStream)
             .setTsExtractorFlags(tsPayloadReaderFlags)
-            .setTsExtractorMode(if (isTsStream || isXtreamStream) androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT else androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
+            .setTsExtractorMode(if (isTsStream) androidx.media3.extractor.ts.TsExtractor.MODE_SINGLE_PMT else androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT)
             .setTsExtractorTimestampSearchBytes(androidx.media3.extractor.ts.TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 4)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory, extractorsFactory)
@@ -1124,10 +1127,10 @@ fun VideoPlayerScreen(
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setAllocator(androidx.media3.exoplayer.upstream.DefaultAllocator(true, if (isLowRamDevice) 32 * 1024 else 64 * 1024))
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isLowRamDevice) 2500 else if (isAkr4m) 12000 else if (isTsStream || isXtreamStream) 6000 else if (isLiveStream) 5000 else 12000,
-                /* maxBufferMs = */ if (isLowRamDevice) 6000 else if (isAkr4m) 25000 else if (isTsStream || isXtreamStream) 28000 else if (isLiveStream) 18000 else 25000,
-                /* bufferForPlaybackMs = */ if (isTsStream || isXtreamStream) 300 else 350,
-                /* bufferForPlaybackAfterRebufferMs = */ if (isTsStream || isXtreamStream) 600 else 700
+                /* minBufferMs = */ if (isLowRamDevice) 2000 else if (isAkr4m) 8000 else if (isLiveStream) 4000 else 6000,
+                /* maxBufferMs = */ if (isLowRamDevice) 6000 else if (isAkr4m) 20000 else if (isLiveStream) 15000 else 25000,
+                /* bufferForPlaybackMs = */ 250,
+                /* bufferForPlaybackAfterRebufferMs = */ 500
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(if (isLiveStream || isLowRamDevice) 0 else 5000, false)
@@ -1136,10 +1139,10 @@ fun VideoPlayerScreen(
                     if (isLiveStream) 4 * 1024 * 1024 else 6 * 1024 * 1024
                 } else if (isAkr4m) {
                     18 * 1024 * 1024
-                } else if (isLiveStream || isTsStream || isXtreamStream) {
-                    16 * 1024 * 1024
+                } else if (isLiveStream) {
+                    12 * 1024 * 1024
                 } else {
-                    16 * 1024 * 1024
+                    24 * 1024 * 1024
                 }
             )
             .build()
@@ -1444,9 +1447,9 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        // 3. All servers exhausted or single server failed -> Instant Auto-Skip to next channel:
+                        // 3. All servers exhausted or single server failed -> Instant Auto-Skip to next channel (only for Live TV/Events):
                         val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
-                        if (isAutoSwitchOnFailureEnabled) {
+                        if (isAutoSwitchOnFailureEnabled && (currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT)) {
                             android.widget.Toast.makeText(
                                 context,
                                 "⚠️ '${currentMedia.title}' সংযোগ করা যায়নি। পরবর্তী চ্যানেলে যাওয়া হচ্ছে...",
@@ -1467,8 +1470,9 @@ fun VideoPlayerScreen(
     // Dead / Unplayable Channel Auto-Skip Watchdog:
     // If a selected channel hangs or fails to play within 4.5 seconds (or if stream link is blank),
     // automatically and forcibly skips to the next server or next channel without waiting for user permission!
+    val isChannelOrLive = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
     LaunchedEffect(currentMedia.id, currentUrl, hasStartedPlaying, isAutoSwitchOnFailureEnabled) {
-        if (!hasStartedPlaying && isAutoSwitchOnFailureEnabled) {
+        if (!hasStartedPlaying && isAutoSwitchOnFailureEnabled && isChannelOrLive) {
             // Immediate check: if stream URL is blank, skip without waiting
             if (currentUrl.isBlank()) {
                 delay(800)
