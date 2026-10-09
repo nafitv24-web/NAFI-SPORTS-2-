@@ -49,7 +49,8 @@ import kotlinx.coroutines.launch
 private data class FloatingReaction(
     val id: Long,
     val emoji: String,
-    val offsetX: Float
+    val offsetX: Float,
+    val isFromRemote: Boolean = false
 )
 
 @Composable
@@ -67,14 +68,14 @@ fun SportsMatchCommentsAndReactionsView(
         SportsInteractionManager.init(context)
     }
 
-    // Real-time synchronization loop: Fetches real comments and presence from other users
+    // Real-time synchronization loop: Fetches real comments, reactions, and presence from other users
     LaunchedEffect(sport.id) {
         SportsInteractionManager.pingPresence(sport.id)
         SportsInteractionManager.fetchRealLiveViewers(sport.id)
         SportsInteractionManager.fetchRemoteComments(sport.id)
 
         while (isActive) {
-            delay(3500L)
+            delay(2800L)
             try {
                 SportsInteractionManager.pingPresence(sport.id)
                 SportsInteractionManager.fetchRealLiveViewers(sport.id)
@@ -85,6 +86,7 @@ fun SportsMatchCommentsAndReactionsView(
 
     val updateTick by SportsInteractionManager.updateTick.collectAsState()
     val viewersMap by SportsInteractionManager.liveViewersMap.collectAsState()
+    val incomingReaction by SportsInteractionManager.incomingReactionFlow.collectAsState()
 
     val reactions = remember(sport.id, updateTick) {
         SportsInteractionManager.getReactions(sport.id)
@@ -109,13 +111,32 @@ fun SportsMatchCommentsAndReactionsView(
     }
     var showNameDialog by remember { mutableStateOf(false) }
 
-    // Floating reaction animations
+    // Floating reaction animations (Facebook Live style physics)
     var floatingReactions by remember { mutableStateOf(listOf<FloatingReaction>()) }
+
+    // Listen to real-time incoming reactions sent by other live users
+    LaunchedEffect(incomingReaction) {
+        val event = incomingReaction
+        if (event != null) {
+            val randomOffset = (-55..55).random().toFloat()
+            val newReaction = FloatingReaction(
+                id = event.id,
+                emoji = event.emoji,
+                offsetX = randomOffset,
+                isFromRemote = event.isFromRemote
+            )
+            floatingReactions = floatingReactions + newReaction
+            coroutineScope.launch {
+                delay(1800L)
+                floatingReactions = floatingReactions.filterNot { it.id == event.id }
+            }
+        }
+    }
 
     fun triggerFloatingReaction(emoji: String) {
         val newId = System.currentTimeMillis() + (0..1000).random()
         val randomOffset = (-40..40).random().toFloat()
-        floatingReactions = floatingReactions + FloatingReaction(newId, emoji, randomOffset)
+        floatingReactions = floatingReactions + FloatingReaction(newId, emoji, randomOffset, isFromRemote = false)
         SportsInteractionManager.addReaction(sport.id, emoji)
 
         coroutineScope.launch {
@@ -673,25 +694,46 @@ fun SportsMatchCommentsAndReactionsView(
                 LaunchedEffect(item.id) {
                     floatAnim.animateTo(
                         targetValue = 1f,
-                        animationSpec = tween(1500, easing = LinearOutSlowInEasing)
+                        animationSpec = tween(1700, easing = LinearOutSlowInEasing)
                     )
                 }
 
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 40.dp)
+                        .padding(end = 36.dp)
                         .offset(
                             x = item.offsetX.dp,
-                            y = (-240 * floatAnim.value).dp
+                            y = (-260 * floatAnim.value).dp
                         )
-                        .scale(0.8f + (0.5f * (1f - floatAnim.value)))
+                        .scale(0.85f + (0.45f * (1f - floatAnim.value)))
                         .clip(CircleShape)
-                        .background(Color(0xFF0F172A).copy(alpha = 0.85f * (1f - floatAnim.value)))
-                        .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f * (1f - floatAnim.value)), CircleShape)
-                        .padding(8.dp)
+                        .background(
+                            if (item.isFromRemote) Color(0xFF1E1B4B).copy(alpha = 0.92f * (1f - floatAnim.value))
+                            else Color(0xFF0F172A).copy(alpha = 0.88f * (1f - floatAnim.value))
+                        )
+                        .border(
+                            1.dp,
+                            if (item.isFromRemote) Color(0xFFF43F5E).copy(alpha = 0.7f * (1f - floatAnim.value))
+                            else Color(0xFF00E5FF).copy(alpha = 0.7f * (1f - floatAnim.value)),
+                            CircleShape
+                        )
+                        .padding(horizontal = 9.dp, vertical = 7.dp)
                 ) {
-                    Text(text = item.emoji, fontSize = 24.sp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(text = item.emoji, fontSize = 23.sp)
+                        if (item.isFromRemote) {
+                            Text(
+                                text = "LIVE",
+                                color = Color(0xFFFDA4AF).copy(alpha = 1f - floatAnim.value),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }

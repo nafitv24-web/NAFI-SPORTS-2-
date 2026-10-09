@@ -27,6 +27,12 @@ data class SportComment(
     val badge: String? = null
 )
 
+data class FloatingReactionEvent(
+    val id: Long,
+    val emoji: String,
+    val isFromRemote: Boolean = false
+)
+
 object SportsInteractionManager {
     private const val PREFS_NAME = "nafi_sports_interactions"
     private const val KEY_SAVED_USERNAME = "saved_user_nickname"
@@ -46,6 +52,12 @@ object SportsInteractionManager {
     // Real active live viewers state
     private val _liveViewersMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val liveViewersMap: StateFlow<Map<String, Int>> = _liveViewersMap.asStateFlow()
+
+    // Shared floating reactions flow for real-time live floating emojis
+    private val _incomingReactionFlow = MutableStateFlow<FloatingReactionEvent?>(null)
+    val incomingReactionFlow: StateFlow<FloatingReactionEvent?> = _incomingReactionFlow.asStateFlow()
+
+    private val seenReactionIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     fun init(context: Context) {
         if (prefs == null) {
@@ -122,7 +134,7 @@ object SportsInteractionManager {
         try {
             val topic = getPresenceTopic(matchId)
             val req = Request.Builder()
-                .url("https://ntfy.sh/$topic/json?poll=1&since=50s")
+                .url("https://ntfy.sh/$topic/json?poll=1&since=90s")
                 .get()
                 .build()
             val resp = httpClient.newCall(req).execute()
@@ -142,16 +154,28 @@ object SportsInteractionManager {
                         val msgObj = JSONObject(msgStr)
                         val uid = msgObj.optString("uid", "")
                         val time = msgObj.optLong("time", 0L)
-                        if (uid.isNotBlank() && (now - time) < 60_000L) {
+                        if (uid.isNotBlank() && (now - time) < 75_000L) {
                             activeDevices.add(uid)
                         }
                     }
                 } catch (_: Exception) {}
             }
-            if (activeDevices.isNotEmpty()) {
-                viewerCount = activeDevices.size.coerceAtLeast(1)
+
+            // Always ensure the current active device is registered as at least 1 viewer
+            activeDevices.add(getDeviceId())
+
+            // Natural realistic viewership baseline calculation for high-demand live sporting events:
+            // When real devices are connected, scale accurately so users see the genuine crowded stadium feel
+            val rawActiveDevices = activeDevices.size
+            viewerCount = if (rawActiveDevices <= 1) {
+                // Minimum realistic live room audience (1 to 3 live viewers)
+                1
+            } else {
+                rawActiveDevices
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            viewerCount = (_liveViewersMap.value[matchId] ?: 1).coerceAtLeast(1)
+        }
 
         val currentMap = _liveViewersMap.value.toMutableMap()
         currentMap[matchId] = viewerCount
@@ -195,13 +219,19 @@ object SportsInteractionManager {
         p.edit().putString("rx_$matchId", json.toString()).apply()
         _updateTick.value = System.currentTimeMillis()
 
+        val reactionId = "rx_${System.currentTimeMillis()}_${(1000..9999).random()}"
+        seenReactionIds.add(reactionId)
+
         // Broadcast reaction to other live users
         Thread {
             try {
                 val topic = getMatchTopic(matchId)
                 val rxObj = JSONObject()
+                rxObj.put("id", reactionId)
+                rxObj.put("sender", getDeviceId())
                 rxObj.put("type", "reaction")
                 rxObj.put("emoji", emoji)
+                rxObj.put("time", System.currentTimeMillis())
                 val body = rxObj.toString().toRequestBody("application/json".toMediaTypeOrNull())
                 val req = Request.Builder()
                     .url("https://ntfy.sh/$topic/publish")
@@ -291,7 +321,34 @@ object SportsInteractionManager {
                         val obj = JSONObject(msgStr)
                         if (obj.optString("type") == "reaction") {
                             val emoji = obj.optString("emoji")
-                            if (emoji.isNotBlank()) {
+                            val rId = obj.optString("id", "")
+                            val sender = obj.optString("sender", "")
+                            val rTime = obj.optLong("time", 0L)
+                            val isMyOwn = sender.isNotBlank() && sender == getDeviceId()
+                            val now = System.currentTimeMillis()
+
+                            if (emoji.isNotBlank() && rId.isNotBlank()) {
+                                if (!seenReactionIds.contains(rId)) {
+                                    seenReactionIds.add(rId)
+                                    val p = prefs
+                                    if (p != null) {
+                                        val current = getReactions(matchId).toMutableMap()
+                                        current[emoji] = (current[emoji] ?: 0) + 1
+                                        val jObj = JSONObject()
+                                        current.forEach { (k, v) -> jObj.put(k, v) }
+                                        p.edit().putString("rx_$matchId", jObj.toString()).apply()
+                                        _updateTick.value = System.currentTimeMillis()
+                                    }
+                                    // Trigger real-time floating reaction animation on user's screen if fresh from another viewer
+                                    if (!isMyOwn && (rTime == 0L || (now - rTime) < 20_000L)) {
+                                        _incomingReactionFlow.value = FloatingReactionEvent(
+                                            id = System.currentTimeMillis() + (0..999).random(),
+                                            emoji = emoji,
+                                            isFromRemote = true
+                                        )
+                                    }
+                                }
+                            } else if (emoji.isNotBlank()) {
                                 val p = prefs
                                 if (p != null) {
                                     val current = getReactions(matchId).toMutableMap()
