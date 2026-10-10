@@ -493,6 +493,19 @@ fun VideoPlayerScreen(
         }
     }
 
+    DisposableEffect(activity) {
+        onDispose {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
+                try {
+                    val params = PictureInPictureParams.Builder()
+                        .setAutoEnterEnabled(false)
+                        .build()
+                    activity.setPictureInPictureParams(params)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     // TV Remote OSD & Number Input
     var showChannelOsd by remember { mutableStateOf(false) }
     var channelOsdKey by remember { mutableLongStateOf(0L) }
@@ -583,49 +596,26 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Hide System Bars (Status Bar & Navigation Bar) completely in fullscreen mode
+    // Hide System Bars safely in fullscreen mode without corrupting Edge-to-Edge window
     DisposableEffect(isFullscreen, activity) {
         val window = activity?.window
         if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, !isFullscreen)
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (isFullscreen) {
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                insetsController.hide(WindowInsetsCompat.Type.statusBars())
-                insetsController.hide(WindowInsetsCompat.Type.navigationBars())
-                insetsController.hide(WindowInsetsCompat.Type.captionBar())
                 window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    window.attributes.layoutInDisplayCutoutMode =
-                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-                @Suppress("DEPRECATION")
-                window.decorView.systemUiVisibility = (
-                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                )
             } else {
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
-                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                @Suppress("DEPRECATION")
-                window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
         onDispose {
             val w = activity?.window
             if (w != null) {
-                WindowCompat.setDecorFitsSystemWindows(w, true)
                 val insetsController = WindowCompat.getInsetsController(w, w.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
-                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                @Suppress("DEPRECATION")
-                w.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
     }
@@ -635,13 +625,9 @@ fun VideoPlayerScreen(
         if (isFullscreen) {
             val window = activity?.window
             if (window != null) {
-                WindowCompat.setDecorFitsSystemWindows(window, false)
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                insetsController.hide(WindowInsetsCompat.Type.statusBars())
-                insetsController.hide(WindowInsetsCompat.Type.navigationBars())
-                insetsController.hide(WindowInsetsCompat.Type.captionBar())
             }
         }
     }
@@ -1447,6 +1433,21 @@ fun VideoPlayerScreen(
                             return
                         }
 
+                        val isAkamaiOrTapmad = currentUrl.contains("akamaized.net", ignoreCase = true) ||
+                                currentUrl.contains("tapmad", ignoreCase = true) ||
+                                currentMedia.category.contains("tapmad", ignoreCase = true)
+
+                        if (is403Or401 && isAkamaiOrTapmad) {
+                            val promoServerIdx = allServers.indexOfFirst { it.url.contains("Tapmadpromo", ignoreCase = true) }
+                            if (promoServerIdx != -1 && promoServerIdx != selectedServerIndex) {
+                                android.widget.Toast.makeText(context, "লাইভ সম্প্রচার এখনো শুরু হয়নি। বিকল্প প্রোমো সার্ভারে সংযোগ করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
+                                pendingServerSwitchIndex = promoServerIdx
+                                return
+                            }
+                            errorMessage = "⚠️ এই লাইভ ইভেন্টটি এখনো সরাসরি সম্প্রচার শুরু হয়নি অথবা ব্রডকাস্টার সংযোগ বিচ্ছিন্ন রয়েছে। ম্যাচ শুরুর সময়ে লাইভ স্ট্রিমিং স্বয়ংক্রিয়ভাবে সচল হবে।"
+                            return
+                        }
+
                         // 3. All servers exhausted or single server failed -> Instant Auto-Skip to next channel (only for Live TV/Events):
                         val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
                         if (isAutoSwitchOnFailureEnabled && (currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT)) {
@@ -1563,10 +1564,35 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Cleanup on dispose
-    DisposableEffect(exoPlayer) {
+    // Cleanup on dispose and manage background lifecycle cleanly
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    try {
+                        if (!isInPipMode) {
+                            exoPlayer.pause()
+                        }
+                    } catch (_: Exception) {}
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    try {
+                        if (!isInPipMode && exoPlayer.playbackState != Player.STATE_IDLE) {
+                            exoPlayer.play()
+                        }
+                    } catch (_: Exception) {}
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            exoPlayer.release()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            try {
+                exoPlayer.release()
+            } catch (_: Exception) {}
         }
     }
 
@@ -2099,9 +2125,6 @@ fun VideoPlayerScreen(
                             try {
                                 setEnableComposeSurfaceSyncWorkaround(true)
                             } catch (_: Throwable) {}
-                            try {
-                                (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
-                            } catch (_: Throwable) {}
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -2217,9 +2240,6 @@ fun VideoPlayerScreen(
                             keepScreenOn = true
                             try {
                                 setEnableComposeSurfaceSyncWorkaround(true)
-                            } catch (_: Throwable) {}
-                            try {
-                                (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
                             } catch (_: Throwable) {}
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -3027,9 +3047,6 @@ fun VideoPlayerScreen(
                                 keepScreenOn = true
                                 try {
                                     setEnableComposeSurfaceSyncWorkaround(true)
-                                } catch (_: Throwable) {}
-                                try {
-                                    (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
                                 } catch (_: Throwable) {}
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,

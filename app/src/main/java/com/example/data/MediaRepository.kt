@@ -89,8 +89,8 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u\nhttps://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
-        const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.json"
-        const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/srhady/tapmad-bd/refs/heads/main/tapmad_bd.m3u"
+        const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_data.json"
+        const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_sm.m3u"
         const val DEFAULT_MOVIES_JSON_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/movies.json"
         const val DEFAULT_MOVIES_M3U_URL = DEFAULT_MOVIES_JSON_URL
         const val DEFAULT_MIX_MOVIES_M3U_URL = "https://raw.githubusercontent.com/abusaeeidx/Movie-Playlist-Auto-update/refs/heads/main/Mix_Movies.m3u"
@@ -100,6 +100,7 @@ class MediaRepository(private val context: Context) {
         const val FIREBASE_PROJECT_ID = "nafitv24-live"
         const val FIREBASE_API_KEY = "AIzaSyDEhKK6T9kpKHICq4VSAXWoIQwQtfDFAX8"
         const val FIRESTORE_DATABASE_ID = "(default)"
+        val memoryFileCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
     }
 
     fun getMarqueeTickerText(): String {
@@ -460,7 +461,6 @@ class MediaRepository(private val context: Context) {
     }
 
     // High-speed In-Memory Cache to completely eliminate file read and JSON parsing freezes on app startup
-    private val memoryFileCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
     private val cacheWriteExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
@@ -1582,9 +1582,16 @@ class MediaRepository(private val context: Context) {
                         category = currentGroup,
                         type = mediaType,
                         streamUrl = streamUrl,
-                        servers = listOf(
-                            StreamServer("সার্ভার ১ (Main)", streamUrl)
-                        ),
+                        servers = if (isTapmad && (streamUrl.contains("akamaized.net", ignoreCase = true) || streamUrl.contains("tapmad", ignoreCase = true))) {
+                            listOf(
+                                StreamServer("সার্ভার ১ (Main)", streamUrl),
+                                StreamServer("বিকল্প সার্ভার (Promo)", "https://vodnewv2.in-maa-1.linodeobjects.com/promos/Tapmadpromo/master.m3u8")
+                            )
+                        } else {
+                            listOf(
+                                StreamServer("সার্ভার ১ (Main)", streamUrl)
+                            )
+                        },
                         logoUrl = currentLogo,
                         country = currentCountry,
                         isLive = mediaType != MediaType.MOVIE,
@@ -4127,7 +4134,11 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getSavedTapmadJsonUrl(): String {
-        return prefs.getString("saved_tapmad_json_url", DEFAULT_TAPMAD_JSON_URL) ?: DEFAULT_TAPMAD_JSON_URL
+        val stored = prefs.getString("saved_tapmad_json_url", null)
+        if (stored.isNullOrBlank() || stored.contains("srhady/tapmad-bd", ignoreCase = true)) {
+            return DEFAULT_TAPMAD_JSON_URL
+        }
+        return stored
     }
 
     fun getSavedTapmadJsonUrls(): List<String> {
@@ -4140,7 +4151,11 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getSavedTapmadM3uUrl(): String {
-        return prefs.getString("saved_tapmad_m3u_url", DEFAULT_TAPMAD_M3U_URL) ?: DEFAULT_TAPMAD_M3U_URL
+        val stored = prefs.getString("saved_tapmad_m3u_url", null)
+        if (stored.isNullOrBlank() || stored.contains("srhady/tapmad-bd", ignoreCase = true)) {
+            return DEFAULT_TAPMAD_M3U_URL
+        }
+        return stored
     }
 
     suspend fun fetchTapmadSportsMatches(
@@ -4222,19 +4237,19 @@ class MediaRepository(private val context: Context) {
                 for (i in 0 until matchesArr.length()) {
                     val mObj = matchesArr.optJSONObject(i) ?: continue
                     val entityId = mObj.optString("EntityId", "").ifBlank { 
-                        mObj.optString("id", "${jsonIdx}_$i") 
+                        mObj.optString("content_entity_id", mObj.optString("id", "${jsonIdx}_$i")) 
                     }
                     val videoName = mObj.optString("VideoName", "").ifBlank { 
                         mObj.optString("title", mObj.optString("name", "")) 
                     }.trim()
                     val categoryName = mObj.optString("CategoryName", "").ifBlank { 
-                        mObj.optString("category", "") 
+                        mObj.optString("category_seo_title", mObj.optString("category", "")) 
                     }.trim()
                     val stageName = mObj.optString("StageName", "").ifBlank { 
-                        mObj.optString("stage", "") 
+                        mObj.optString("header_name", mObj.optString("stage", "")) 
                     }.trim()
                     val eventStartDate = mObj.optString("EventStartDate", "").ifBlank { 
-                        mObj.optString("start_time", mObj.optString("date", "")) 
+                        mObj.optString("start_time_bd", mObj.optString("start_time", mObj.optString("date", ""))) 
                     }.trim()
                     val desc = mObj.optString("Description", "").ifBlank { 
                         mObj.optString("description", "") 
@@ -4243,7 +4258,7 @@ class MediaRepository(private val context: Context) {
                         mObj.optString("thumbnail", mObj.optString("logo", "")) 
                     }).trim().takeIf { it.isNotBlank() }
                     val thumbTv = (mObj.optString("ThumbnailTV", "").ifBlank { 
-                        mObj.optString("poster", "") 
+                        mObj.optString("tv_image", mObj.optString("poster", "")) 
                     }).trim().takeIf { it.isNotBlank() }
                     val statusStr = mObj.optString("Status", "Upcoming").trim()
                     val streamUrl = mObj.optString("stream_url", "").ifBlank { 
@@ -4334,6 +4349,14 @@ class MediaRepository(private val context: Context) {
                         }
                     }
 
+                    // Also attach the active Tapmad Promo fallback server if streamUrl is an Akamai broadcast
+                    // so if the broadcaster has not started streaming yet, the user immediately gets a working video stream!
+                    val isAkamaiStream = streamUrl.contains("akamaized.net", ignoreCase = true) || streamUrl.contains("tapmad", ignoreCase = true)
+                    val promoUrl = "https://vodnewv2.in-maa-1.linodeobjects.com/promos/Tapmadpromo/master.m3u8"
+                    if (isAkamaiStream && serversList.none { it.url.trim().equals(promoUrl, ignoreCase = true) }) {
+                        serversList.add(StreamServer("বিকল্প সার্ভার (Promo)", promoUrl))
+                    }
+
                     if (serversList.isEmpty() && streamUrl.isBlank()) {
                         // Attach fallback live sports stream servers so the channel never has an empty unplayable link
                         val fallbackSports = getDefaultBuiltinSports()
@@ -4391,6 +4414,18 @@ class MediaRepository(private val context: Context) {
                             )
                         )
                     }
+                }
+            }
+
+            // Also merge any remaining m3uChannels that weren't matched in the JSON matches
+            for (m in m3uChannels) {
+                if (items.none { it.id == m.id || (m.streamUrl.isNotBlank() && it.streamUrl == m.streamUrl) }) {
+                    val srvs = m.getAllServers().toMutableList()
+                    val promoUrl = "https://vodnewv2.in-maa-1.linodeobjects.com/promos/Tapmadpromo/master.m3u8"
+                    if (srvs.none { it.url.contains("Tapmadpromo", ignoreCase = true) }) {
+                        srvs.add(StreamServer("বিকল্প সার্ভার (Promo)", promoUrl))
+                    }
+                    items.add(m.copy(type = MediaType.LIVE_EVENT, servers = srvs))
                 }
             }
         } catch (e: Exception) {
