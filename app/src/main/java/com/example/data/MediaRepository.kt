@@ -89,7 +89,7 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u\nhttps://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
         const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/nfiptv24-max/NAFITV/refs/heads/main/NAFI%20Sports.m3u"
-        const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_data.json"
+        const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_data.json\nhttps://raw.githubusercontent.com/sm-monirulislam/Upcoming-and-Live-Sports-Data/main/Sports_data.json"
         const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_sm.m3u"
         const val DEFAULT_MOVIES_JSON_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/movies.json"
         const val DEFAULT_MOVIES_M3U_URL = DEFAULT_MOVIES_JSON_URL
@@ -4240,24 +4240,25 @@ class MediaRepository(private val context: Context) {
                         mObj.optString("content_entity_id", mObj.optString("id", "${jsonIdx}_$i")) 
                     }
                     val videoName = mObj.optString("VideoName", "").ifBlank { 
-                        mObj.optString("title", mObj.optString("name", "")) 
+                        mObj.optString("event_name", mObj.optString("title", mObj.optString("name", ""))) 
                     }.trim()
                     val categoryName = mObj.optString("CategoryName", "").ifBlank { 
-                        mObj.optString("category_seo_title", mObj.optString("category", "")) 
+                        mObj.optString("Category", mObj.optString("category_seo_title", mObj.optString("category", ""))) 
                     }.trim()
                     val stageName = mObj.optString("StageName", "").ifBlank { 
                         mObj.optString("header_name", mObj.optString("stage", "")) 
                     }.trim()
                     val eventStartDate = mObj.optString("EventStartDate", "").ifBlank { 
-                        mObj.optString("start_time_bd", mObj.optString("start_time", mObj.optString("date", ""))) 
+                        val evStart = mObj.optJSONObject("eventInfo")?.optString("startTime", "") ?: ""
+                        if (evStart.isNotBlank()) evStart else mObj.optString("start_time_bd", mObj.optString("start_time", mObj.optString("date", ""))) 
                     }.trim()
                     val desc = mObj.optString("Description", "").ifBlank { 
                         mObj.optString("description", "") 
                     }.trim()
-                    val thumbStd = (mObj.optString("ThumbnailStandard", "").ifBlank { 
+                    var thumbStd = (mObj.optString("ThumbnailStandard", "").ifBlank { 
                         mObj.optString("thumbnail", mObj.optString("logo", "")) 
                     }).trim().takeIf { it.isNotBlank() }
-                    val thumbTv = (mObj.optString("ThumbnailTV", "").ifBlank { 
+                    var thumbTv = (mObj.optString("ThumbnailTV", "").ifBlank { 
                         mObj.optString("tv_image", mObj.optString("poster", "")) 
                     }).trim().takeIf { it.isNotBlank() }
                     val statusStr = mObj.optString("Status", "Upcoming").trim()
@@ -4331,6 +4332,18 @@ class MediaRepository(private val context: Context) {
                     val primaryServerName = if (isFree) "Watch Free" else "Live HD"
                     if (streamUrl.isNotBlank()) {
                         serversList.add(StreamServer(primaryServerName, streamUrl))
+                    }
+
+                    val streamsArr = mObj.optJSONArray("streams")
+                    if (streamsArr != null) {
+                        for (sIdx in 0 until streamsArr.length()) {
+                            val sObj = streamsArr.optJSONObject(sIdx) ?: continue
+                            val sUrl = sObj.optString("stream_url", "").trim()
+                            val sName = sObj.optString("channel_name", "সার্ভার ${sIdx + 1}").trim()
+                            if (sUrl.isNotBlank() && serversList.none { it.url.equals(sUrl, ignoreCase = true) }) {
+                                serversList.add(StreamServer(sName, sUrl))
+                            }
+                        }
                     }
 
                     // Match with m3uChannels

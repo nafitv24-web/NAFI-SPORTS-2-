@@ -1438,13 +1438,13 @@ fun VideoPlayerScreen(
                                 currentMedia.category.contains("tapmad", ignoreCase = true)
 
                         if (is403Or401 && isAkamaiOrTapmad) {
-                            val promoServerIdx = allServers.indexOfFirst { it.url.contains("Tapmadpromo", ignoreCase = true) }
+                            val promoServerIdx = allServers.indexOfFirst { it.url.contains("Tapmadpromo", ignoreCase = true) || it.url.contains("promo", ignoreCase = true) }
                             if (promoServerIdx != -1 && promoServerIdx != selectedServerIndex) {
-                                android.widget.Toast.makeText(context, "লাইভ সম্প্রচার এখনো শুরু হয়নি। বিকল্প প্রোমো সার্ভারে সংযোগ করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "লাইভ ব্রডকাস্ট এখনো শুরু হয়নি। বিকল্প প্রোমো সার্ভারে সংযোগ করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
                                 pendingServerSwitchIndex = promoServerIdx
                                 return
                             }
-                            errorMessage = "⚠️ এই লাইভ ইভেন্টটি এখনো সরাসরি সম্প্রচার শুরু হয়নি অথবা ব্রডকাস্টার সংযোগ বিচ্ছিন্ন রয়েছে। ম্যাচ শুরুর সময়ে লাইভ স্ট্রিমিং স্বয়ংক্রিয়ভাবে সচল হবে।"
+                            errorMessage = "⚠️ এই লাইভ ইভেন্টটির সম্প্রচার এখনো শুরু হয়নি (Upcoming Event) অথবা ব্রডকাস্টার সংযোগ বিচ্ছিন্ন রয়েছে। ম্যাচ শুরু হওয়া মাত্রই লাইভ স্ট্রিমিং স্বয়ংক্রিয়ভাবে সচল হবে।"
                             return
                         }
 
@@ -1472,8 +1472,8 @@ fun VideoPlayerScreen(
     // If a selected channel hangs or fails to play within 4.5 seconds (or if stream link is blank),
     // automatically and forcibly skips to the next server or next channel without waiting for user permission!
     val isChannelOrLive = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
-    LaunchedEffect(currentMedia.id, currentUrl, hasStartedPlaying, isAutoSwitchOnFailureEnabled) {
-        if (!hasStartedPlaying && isAutoSwitchOnFailureEnabled && isChannelOrLive) {
+    LaunchedEffect(currentMedia.id, currentUrl, hasStartedPlaying, isAutoSwitchOnFailureEnabled, errorMessage) {
+        if (!hasStartedPlaying && errorMessage == null && isAutoSwitchOnFailureEnabled && isChannelOrLive) {
             // Immediate check: if stream URL is blank, skip without waiting
             if (currentUrl.isBlank()) {
                 delay(800)

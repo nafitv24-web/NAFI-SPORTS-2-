@@ -207,6 +207,14 @@ data class MediaItem(
             }
         }
 
+        // Automatic active fallback endpoint for Tapmad & Akamai event streams
+        if (lower.contains("akamaized.net") || lower.contains("tapmad") || category.contains("tapmad", ignoreCase = true)) {
+            val promo = "https://vodnewv2.in-maa-1.linodeobjects.com/promos/Tapmadpromo/master.m3u8"
+            if (list.none { it.url.trim().equals(promo, ignoreCase = true) }) {
+                list.add(StreamServer("ট্যাপম্যাড প্রোমো (সক্রিয় ব্যাকআপ)", promo))
+            }
+        }
+
         val distinctList = list.distinctBy { it.url.trim() }
         if (distinctList.isEmpty()) {
             return if (streamUrl.isNotBlank()) listOf(StreamServer("সার্ভার ১", streamUrl.trim())) else emptyList()
