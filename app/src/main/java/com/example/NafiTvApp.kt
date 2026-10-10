@@ -16,6 +16,7 @@ import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
 
 class NafiTvApp : Application(), ImageLoaderFactory {
 
@@ -35,6 +36,16 @@ class NafiTvApp : Application(), ImageLoaderFactory {
         try {
             com.example.util.SportsInteractionManager.init(this)
         } catch (_: Exception) {}
+
+        // Pre-warm local file caches on Dispatchers.IO to guarantee 0ms UI startup
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val repo = com.example.data.MediaRepository(this@NafiTvApp)
+                repo.getCachedLiveTvChannels()
+                repo.getCachedSportsMatches()
+                repo.getCachedMoviesList()
+            } catch (_: Exception) {}
+        }
 
         // 2. Global crash protection: Intercepts decoder, GPU, network & memory crashes
         // preventing unexpected process termination on normal & low-spec (512MB RAM) devices

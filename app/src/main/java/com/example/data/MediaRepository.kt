@@ -465,7 +465,7 @@ class MediaRepository(private val context: Context) {
 
     // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
     private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
-        val itemsToSave = if (list.size > 800) list.take(800) else list
+        val itemsToSave = list
         memoryFileCache[fileName] = itemsToSave
         cacheWriteExecutor.execute {
             try {

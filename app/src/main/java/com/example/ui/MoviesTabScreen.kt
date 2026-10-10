@@ -283,6 +283,17 @@ fun MoviesTabScreen(
             .fillMaxSize()
             .background(Color(0xFF020617))
     ) {
+        if (isLoading && preparedMovies.isNotEmpty()) {
+            androidx.compose.material3.LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.5.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = Color(0xFF00E5FF),
+                trackColor = Color(0xFF1E293B)
+            )
+        }
+
         // TOP SEARCH BAR & DOWNLOAD BUTTON (Matching Screenshot 1)
         Row(
             modifier = Modifier

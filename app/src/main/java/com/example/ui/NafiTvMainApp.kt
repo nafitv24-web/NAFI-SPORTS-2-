@@ -302,14 +302,14 @@ fun NafiTvMainApp(
                 // সকল ট্যাব (লাইভ টিভি, লাইভ ইভেন্ট, মুভি ও প্লেলিস্ট) একসাথে লোড হবে যেন কোনো বিলম্ব না হয়
                 // -------------------------------------------------------------
                 kotlinx.coroutines.coroutineScope {
-                    // ১. লাইভ টিভি চ্যানেল সমান্তরাল লোডিং (Live TV)
+                    // ১. লাইভ টিভি চ্যানেল সমান্তরাল লোডিং (Live TV) - সম্পূর্ণ লোড, একটি চ্যানেলও বাদ পড়বে না
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.LIVE_TV }
                             val liveTvM3uUrl = repository.getSavedLiveTvM3uUrl()
                             val tvM3uJob = async {
                                 if (liveTvM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
+                                    kotlinx.coroutines.withTimeoutOrNull(30000) {
                                         try {
                                             repository.parseM3uFromUrl(liveTvM3uUrl).map {
                                                 it.copy(type = MediaType.LIVE_TV, isLive = true)
@@ -320,9 +320,17 @@ fun NafiTvMainApp(
                             }
 
                             val xtreamLiveJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(5000) {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
                                     try {
                                         repository.fetchAllXtreamLiveChannels().filterNot { deleted.contains(it.id) }
+                                    } catch (_: Exception) { emptyList() }
+                                } ?: emptyList()
+                            }
+
+                            val stalkerLiveJob = async {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
+                                    try {
+                                        repository.fetchAllStalkerLiveChannels().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }
                                 } ?: emptyList()
                             }
@@ -330,11 +338,16 @@ fun NafiTvMainApp(
                             val customTv = repository.getCustomStreams().filter { it.type == MediaType.LIVE_TV || (it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) || repository.isDemoChannel(it) }
                             val tvM3u = tvM3uJob.await()
                             val xtreamLiveChannels = xtreamLiveJob.await()
+                            val stalkerLiveChannels = stalkerLiveJob.await()
 
                             val combinedTv = mutableListOf<MediaItem>()
                             combinedTv.addAll(customTv)
                             combinedTv.addAll(tvM3u.filterNot { repository.isDemoChannel(it) })
                             combinedTv.addAll(xtreamLiveChannels.filterNot { repository.isDemoChannel(it) })
+                            combinedTv.addAll(stalkerLiveChannels.filterNot { repository.isDemoChannel(it) })
+                            if (liveTvList.isNotEmpty()) {
+                                combinedTv.addAll(liveTvList.filterNot { repository.isDemoChannel(it) })
+                            }
 
                             val sourceTvList = if (combinedTv.isNotEmpty()) combinedTv else repository.getDefaultBuiltinLiveTv()
                             val seenTvIds = HashSet<String>()
@@ -364,13 +377,15 @@ fun NafiTvMainApp(
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.LIVE_EVENTS }
                             val adminEventsJob = async {
                                 try {
-                                    repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
+                                    kotlinx.coroutines.withTimeoutOrNull(30000) {
+                                        repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
+                                    } ?: emptyList()
                                 } catch (_: Exception) { emptyList() }
                             }
                             val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                             val sportsM3uJob = async {
                                 if (sportsM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
+                                    kotlinx.coroutines.withTimeoutOrNull(30000) {
                                         try {
                                             repository.parseM3uFromUrl(sportsM3uUrl).map {
                                                 it.copy(
@@ -384,7 +399,7 @@ fun NafiTvMainApp(
                                 } else emptyList()
                             }
                             val tapmadJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(3500) {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
                                     try {
                                         repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }
@@ -399,7 +414,7 @@ fun NafiTvMainApp(
                             val sportsM3u = sportsM3uJob.await()
                             val tapmad = tapmadJob.await()
 
-                            val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }.filterNot { repository.isItemDeleted(it) }
+                            val updatedSports = (allAdminSports + tapmad + sportsM3u + sportsList).distinctBy { it.id }.filterNot { repository.isItemDeleted(it) }
                             if (updatedSports.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
                                     sportsList = updatedSports
@@ -411,14 +426,22 @@ fun NafiTvMainApp(
                         }
                     }
 
-                    // ৩. মুভি ও সিরিজ সমান্তরাল লোডিং (Movies & Series - Xtream + M3U, Newest First)
+                    // ৩. মুভি ও সিরিজ সমান্তরাল লোডিং (Movies & Series - Xtream + M3U + Mix + Latest Movies)
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.MOVIES }
                             val xtreamMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(25000) {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
                                     try {
                                         repository.fetchAllXtreamMoviesFast().filterNot { deleted.contains(it.id) }
+                                    } catch (_: Exception) { emptyList() }
+                                } ?: emptyList()
+                            }
+
+                            val stalkerMoviesJob = async {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
+                                    try {
+                                        repository.fetchAllStalkerMovies().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }
                                 } ?: emptyList()
                             }
@@ -426,7 +449,7 @@ fun NafiTvMainApp(
                             val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
                             val moviesM3uJob = async {
                                 if (moviesM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
+                                    kotlinx.coroutines.withTimeoutOrNull(30000) {
                                         try {
                                             if (moviesM3uUrl.endsWith(".json", ignoreCase = true) || moviesM3uUrl.contains("movies.json", ignoreCase = true)) {
                                                 repository.fetchMoviesFromJsonUrl(moviesM3uUrl).map {
@@ -451,7 +474,7 @@ fun NafiTvMainApp(
                             }
 
                             val mixMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(3500) {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
                                     try {
                                         repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
                                             it.copy(
@@ -464,13 +487,29 @@ fun NafiTvMainApp(
                                 } ?: emptyList()
                             }
 
+                            val latestMoviesJob = async {
+                                kotlinx.coroutines.withTimeoutOrNull(30000) {
+                                    try {
+                                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_LATEST_MOVIES_M3U_URL).map {
+                                            it.copy(
+                                                type = MediaType.MOVIE,
+                                                tournament = "LATEST_MOVIES",
+                                                category = if (it.category.isBlank() || it.category == "Unknown") "Latest Movies" else it.category
+                                            )
+                                        }.filterNot { deleted.contains(it.id) }
+                                    } catch (_: Exception) { emptyList() }
+                                } ?: emptyList()
+                            }
+
                             val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) }
 
                             val moviesM3u = moviesM3uJob.await()
                             val mixMovies = mixMoviesJob.await()
+                            val latestMovies = latestMoviesJob.await()
                             val xtreamMovies = xtreamMoviesJob.await()
+                            val stalkerMovies = stalkerMoviesJob.await()
 
-                            val combined = (customMov + xtreamMovies + moviesM3u + mixMovies + moviesList)
+                            val combined = (customMov + xtreamMovies + stalkerMovies + moviesM3u + mixMovies + latestMovies + moviesList)
                                 .distinctBy { it.id }
                                 .filterNot { deleted.contains(it.id) }
                                 .sortedByDescending { it.movieSortWeight }
@@ -580,7 +619,7 @@ fun NafiTvMainApp(
         }
     }
 
-    // Periodic user presence heartbeat (Quota optimized: 15-minute pulse)
+    // Periodic user presence heartbeat (Quota optimized: 15-minute pulse, debounced 6s)
     LaunchedEffect(currentTab, selectedMediaItem) {
         val activity = when {
             selectedMediaItem != null -> "দেখছেন: ${selectedMediaItem?.title?.take(25)}"
@@ -591,6 +630,7 @@ fun NafiTvMainApp(
             currentTab == AppTab.MENU -> "মেনু স্ক্রিন"
             else -> "হোম স্ক্রিন"
         }
+        delay(6000L) // Wait 6 seconds so rapid tab switching never fires HTTP calls
         while (isActive) {
             try {
                 repository.recordUserPresence(activity)
@@ -1541,7 +1581,7 @@ fun NafiTvMainApp(
                         AppTab.EVENTS -> EventsScreen(
                             sports = sportsList.distinctBy { it.id },
                             favoriteIds = favoriteIds,
-                            isLoading = isRefreshing,
+                            isLoading = isRefreshing && sportsList.isEmpty(),
                             isTvMode = isTvMode,
                             onSelectMedia = {
                                 selectedMediaItem = it
@@ -1559,7 +1599,7 @@ fun NafiTvMainApp(
                                     liveTvList + customList.filter { it.type == MediaType.LIVE_TV } + m3uList.filter { it.type == MediaType.LIVE_TV || it.isLive }
                                 },
                                 favoriteIds = favoriteIds,
-                                isLoading = isRefreshing,
+                                isLoading = isRefreshing && liveTvList.isEmpty(),
                                 isTvMode = isTvMode,
                                 isAdultHidden = isAdultHidden,
                                 repository = repository,
@@ -3392,16 +3432,7 @@ fun LiveEventMatchCard(
     var isCardFocused by remember { mutableStateOf(false) }
     var showNoLinkDialog by remember { mutableStateOf(false) }
 
-    // Real-time 1-second ticking ticker guarantee
-    var localTick by remember { mutableStateOf(0L) }
-    LaunchedEffect(sport.id, sport.countdownTargetSeconds, sport.matchTimeFormatted, sport.eventTime) {
-        while (isActive) {
-            kotlinx.coroutines.delay(1000L)
-            localTick++
-        }
-    }
-
-    val effectiveTick = if (tickCount > 0L) tickCount else localTick
+    val effectiveTick = tickCount
     val actualRemainingSecs = calculateEventRemainingSeconds(sport, effectiveTick)
     val actualIsLive = isEventLiveNow(sport, effectiveTick) || sport.isLive || sport.status.equals("LIVE", ignoreCase = true) || sport.status.contains("LIVE NOW", ignoreCase = true)
     val isEffectivelyLive = actualIsLive || (actualRemainingSecs <= 0L && (sport.countdownTargetSeconds != null || !sport.matchTimeFormatted.isNullOrBlank() || !sport.eventTime.isNullOrBlank()))
