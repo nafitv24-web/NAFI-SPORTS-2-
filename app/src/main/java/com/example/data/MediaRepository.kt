@@ -1501,17 +1501,9 @@ class MediaRepository(private val context: Context) {
                         currentGroup.contains("tapmad", ignoreCase = true)
 
                 if (isTapmad) {
-                    if (currentUserAgent.isNullOrBlank()) {
-                        currentUserAgent = if (streamUrl.contains("akamaized.net", ignoreCase = true)) {
-                            "VLC/3.0.18 LibVLC/3.0.18"
-                        } else {
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                        }
-                    }
-                    if (streamUrl.contains("tapmad.com", ignoreCase = true)) {
-                        if (currentReferrer.isNullOrBlank()) currentReferrer = "https://www.tapmad.com/"
-                        if (currentOrigin.isNullOrBlank()) currentOrigin = "https://www.tapmad.com"
-                    }
+                    if (currentUserAgent.isNullOrBlank()) currentUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    if (currentReferrer.isNullOrBlank()) currentReferrer = "https://www.tapmad.com/"
+                    if (currentOrigin.isNullOrBlank()) currentOrigin = "https://www.tapmad.com"
                 }
 
                 // Sanitize duplicate slashes in URL path ONLY (never touch query string with tokens/base64)
@@ -4393,9 +4385,9 @@ class MediaRepository(private val context: Context) {
                                 matchTimeFormatted = formattedTime ?: eventStartDate,
                                 countdownTargetSeconds = countdownEpoch,
                                 quality = "HD",
-                                userAgent = if (streamUrl.contains("akamaized.net", ignoreCase = true)) "VLC/3.0.18 LibVLC/3.0.18" else "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                                referrer = if (streamUrl.contains("akamaized.net", ignoreCase = true)) null else "https://www.tapmad.com/",
-                                origin = if (streamUrl.contains("akamaized.net", ignoreCase = true)) null else "https://www.tapmad.com"
+                                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                                referrer = "https://www.tapmad.com/",
+                                origin = "https://www.tapmad.com"
                             )
                         )
                     }
