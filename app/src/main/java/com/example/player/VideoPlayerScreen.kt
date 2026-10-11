@@ -812,9 +812,14 @@ fun VideoPlayerScreen(
                 currentMedia.category.contains("tapmad", ignoreCase = true)
 
         if (isTapmad) {
-            if (extractedUa.isNullOrBlank()) extractedUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            if (extractedReferer.isNullOrBlank()) extractedReferer = "https://www.tapmad.com/"
-            if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://www.tapmad.com"
+            // CRITICAL: Network Stream (Video) Player & native player compatibility:
+            // Akamai CDN blocks requests containing web browser headers (Referer/Origin: tapmad.com).
+            // Native Android players (Network Stream Player, VLC, ExoPlayer) play Akamai streams with native UA and NO Referer/Origin!
+            extractedReferer = null
+            extractedOrigin = null
+            if (extractedUa.isNullOrBlank()) {
+                extractedUa = "NetworkStreamPlayer/1.0 (Linux; Android 14; Mobile)"
+            }
         }
 
         // akr4m / bdtv IPTV restream server smart headers & compatibility
@@ -865,6 +870,7 @@ fun VideoPlayerScreen(
                 (isXtreamStream && !finalCleanUrl.contains(".m3u8", ignoreCase = true)))
 
         val primaryUa = when {
+            isTapmad -> "NetworkStreamPlayer/1.0 (Linux; Android 14; Mobile)"
             !extractedUa.isNullOrBlank() -> extractedUa!!
             isToffee -> "Toffee (Linux;Android 14)"
             isMovieLinkBd -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -873,14 +879,20 @@ fun VideoPlayerScreen(
         }
 
         // Multi-Agent fallback list for maximum online stream compatibility
-        val fallbackUserAgents = if (isMovieLinkBd) {
-            listOf(
+        val fallbackUserAgents = when {
+            isTapmad -> listOf(
+                "NetworkStreamPlayer/1.0 (Linux; Android 14; Mobile)",
+                "ExoPlayerLib/2.19.1 (Linux; Android 14; Mobile)",
+                "VLC/3.0.18 LibVLC/3.0.18",
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)"
+            ).distinct()
+            isMovieLinkBd -> listOf(
                 primaryUa,
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
             ).distinct()
-        } else {
-            listOf(
+            else -> listOf(
                 primaryUa,
                 "VLC/3.0.18 LibVLC/3.0.18",
                 "Televizo/1.9.3 (Linux; Android 14)",
@@ -893,34 +905,38 @@ fun VideoPlayerScreen(
         val finalUserAgent = fallbackUserAgents[playerRetryKey.coerceAtLeast(0) % fallbackUserAgents.size]
 
         val uriHost = try { android.net.Uri.parse(finalCleanUrl).host } catch (_: Exception) { null }
-        val streamHostReferer = if (!uriHost.isNullOrBlank() && !isXtreamStream && !isToffee) "https://$uriHost/" else null
-        val streamHostOrigin = if (!uriHost.isNullOrBlank() && !isXtreamStream && !isToffee) "https://$uriHost" else null
+        val streamHostReferer = if (!uriHost.isNullOrBlank() && !isXtreamStream && !isToffee && !isTapmad) "https://$uriHost/" else null
+        val streamHostOrigin = if (!uriHost.isNullOrBlank() && !isXtreamStream && !isToffee && !isTapmad) "https://$uriHost" else null
 
         val requestHeaders = mutableMapOf<String, String>()
         requestHeaders["User-Agent"] = finalUserAgent
         val finalReferer = when {
+            isTapmad -> null
             !extractedReferer.isNullOrBlank() -> extractedReferer
             isToffee -> "https://toffeelive.com/"
-            isTapmad -> "https://www.tapmad.com/"
             isXtreamStream -> null
             isMovieLinkBd -> streamHostReferer ?: "https://fast.movielinkbd.app/"
             else -> streamHostReferer
         }
         val finalOrigin = when {
+            isTapmad -> null
             !extractedOrigin.isNullOrBlank() -> extractedOrigin
             isToffee -> "https://toffeelive.com"
-            isTapmad -> "https://www.tapmad.com"
             isXtreamStream -> null
             isMovieLinkBd -> streamHostOrigin ?: "https://fast.movielinkbd.app"
             else -> streamHostOrigin
         }
 
-        val suppressReferer = (playerRetryKey == 1) || isXtreamStream
+        val suppressReferer = (playerRetryKey == 1) || isXtreamStream || isTapmad
         if (!finalReferer.isNullOrBlank() && !suppressReferer) {
             requestHeaders["Referer"] = finalReferer
         }
         if (!finalOrigin.isNullOrBlank() && !suppressReferer) {
             requestHeaders["Origin"] = finalOrigin
+        }
+        if (isTapmad) {
+            requestHeaders.remove("Referer")
+            requestHeaders.remove("Origin")
         }
         if (!extractedCookie.isNullOrBlank()) {
             requestHeaders["Cookie"] = extractedCookie
@@ -1435,6 +1451,13 @@ fun VideoPlayerScreen(
                         val isAkamai403 = (is403Or401 || isParsingOrContainerError) &&
                                 (currentUrl.contains("akamaized.net", ignoreCase = true) || currentUrl.contains("tapmad", ignoreCase = true))
 
+                        // Allow Tapmad stream to retry with native fallback User-Agent before auto-switching
+                        if (isAkamai403 && playerRetryKey < 1) {
+                            playerRetryKey = 1
+                            errorMessage = null
+                            return
+                        }
+
                         if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
                             val nextIdx = selectedServerIndex + 1
                             val nextServerName = allServers.getOrNull(nextIdx)?.name ?: "সার্ভার ${nextIdx + 1}"
@@ -1458,7 +1481,7 @@ fun VideoPlayerScreen(
                         // 2.1 Dynamic Match Server Resolution for single-stream Tapmad / Sports items
                         if (isAkamai403 || currentMedia.category.contains("cricket", ignoreCase = true) || currentMedia.type == MediaType.LIVE_EVENT) {
                             try {
-                                val resolved = com.example.data.MediaRepository(context).resolveWorkingSportsServers(currentMedia.title, currentUrl)
+                                val resolved = com.example.data.MediaRepository(context).resolveWorkingSportsServers(currentMedia.title, currentUrl, currentMedia.id)
                                 val fallbackServer = resolved.firstOrNull {
                                     !it.url.contains("akamaized.net", ignoreCase = true) && !it.url.equals(currentUrl, ignoreCase = true)
                                 }

@@ -1339,6 +1339,7 @@ class MediaRepository(private val context: Context) {
     private fun parseM3uLines(lines: List<String>): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         var currentTitle = ""
+        var currentTvgId: String? = null
         var currentLogo: String? = null
         var currentGroup = "Live TV"
         var currentCountry: String? = null
@@ -1362,6 +1363,7 @@ class MediaRepository(private val context: Context) {
                 currentGroup = extractM3uAttribute(trimmed, "group-title") ?: "Live TV"
                 currentLogo = extractM3uAttribute(trimmed, "tvg-logo")
                 currentCountry = extractM3uAttribute(trimmed, "tvg-country")
+                currentTvgId = extractM3uAttribute(trimmed, "tvg-id")
 
                 val commaIndex = trimmed.lastIndexOf(',')
                 currentTitle = if (commaIndex != -1) {
@@ -1583,18 +1585,26 @@ class MediaRepository(private val context: Context) {
                         cleanTitle.contains("vs", ignoreCase = true)
 
                 val resolvedServers = if (isSportsItem || isAkamaiOrTapmad) {
-                    resolveWorkingSportsServers(cleanTitle, streamUrl)
+                    resolveWorkingSportsServers(cleanTitle, streamUrl, currentTvgId ?: currentId.toString())
                 } else emptyList()
 
                 val finalServers = if (resolvedServers.isNotEmpty()) {
-                    resolvedServers
+                    val sList = mutableListOf<StreamServer>()
+                    if (streamUrl.isNotBlank() && resolvedServers.none { it.url.trim().equals(streamUrl.trim(), ignoreCase = true) }) {
+                        val sName = if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else "সার্ভার ১ (Main)"
+                        sList.add(StreamServer(sName, streamUrl))
+                    }
+                    sList.addAll(resolvedServers)
+                    sList.distinctBy { it.url.trim().lowercase() }
                 } else {
-                    listOf(StreamServer("সার্ভার ১ (Main)", streamUrl))
+                    listOf(StreamServer(if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else "সার্ভার ১ (Main)", streamUrl))
                 }
 
-                val finalStreamUrl = if (isAkamaiOrTapmad && resolvedServers.isNotEmpty()) {
-                    resolvedServers.firstOrNull { !it.url.contains("akamaized.net", ignoreCase = true) }?.url ?: streamUrl
-                } else streamUrl
+                val finalStreamUrl = if (streamUrl.isNotBlank()) {
+                    streamUrl
+                } else {
+                    finalServers.firstOrNull()?.url ?: ""
+                }
 
                 val finalMediaType = if (isSportsItem || isAkamaiOrTapmad) MediaType.LIVE_EVENT else mediaType
                 val finalIsLive = if (isSportsItem || isAkamaiOrTapmad) true else (mediaType != MediaType.MOVIE)
@@ -1627,6 +1637,7 @@ class MediaRepository(private val context: Context) {
                 )
 
                 currentTitle = ""
+                currentTvgId = null
                 currentLogo = null
                 currentCountry = null
                 currentUserAgent = null
@@ -4142,7 +4153,7 @@ class MediaRepository(private val context: Context) {
 
     fun getSavedSportsM3uUrl(): String {
         val stored = prefs.getString("saved_sports_m3u_url", null)
-        if (stored.isNullOrBlank() || stored.contains("nfiptv24-max", ignoreCase = true) || stored.contains("srhady", ignoreCase = true)) {
+        if (stored.isNullOrBlank() || stored.contains("nfiptv24-max", ignoreCase = true) || stored.contains("srhady", ignoreCase = true) || !stored.contains("Sports_data", ignoreCase = true)) {
             return DEFAULT_SPORTS_M3U_URL
         }
         return stored
@@ -4154,7 +4165,7 @@ class MediaRepository(private val context: Context) {
 
     fun getSavedTapmadJsonUrl(): String {
         val stored = prefs.getString("saved_tapmad_json_url", null)
-        if (stored.isNullOrBlank() || stored.contains("srhady", ignoreCase = true)) {
+        if (stored.isNullOrBlank() || stored.contains("srhady", ignoreCase = true) || !stored.contains("Sports_data", ignoreCase = true)) {
             return DEFAULT_TAPMAD_JSON_URL
         }
         return stored
@@ -4171,28 +4182,63 @@ class MediaRepository(private val context: Context) {
 
     fun getSavedTapmadM3uUrl(): String {
         val stored = prefs.getString("saved_tapmad_m3u_url", null)
-        if (stored.isNullOrBlank() || stored.contains("srhady", ignoreCase = true)) {
+        if (stored.isNullOrBlank() || stored.contains("srhady", ignoreCase = true) || !stored.contains("Sports_data", ignoreCase = true)) {
             return DEFAULT_TAPMAD_M3U_URL
         }
         return stored
     }
 
-    fun resolveWorkingSportsServers(title: String, originalStreamUrl: String = ""): List<StreamServer> {
+    fun resolveWorkingSportsServers(title: String, originalStreamUrl: String = "", itemId: String = ""): List<StreamServer> {
         val list = mutableListOf<StreamServer>()
         val clean = title.lowercase()
+        val cleanUrl = originalStreamUrl.lowercase()
+        val cleanId = itemId.lowercase()
 
-        // 1. Check if cachedSportsMatches has matching live servers
+        // Match 1: Afghanistan vs Bangladesh (1st Test)
+        val isAfgBan = (clean.contains("afghanistan") && clean.contains("bangladesh")) ||
+                cleanId.contains("18900") || cleanUrl.contains("28593jkil")
+        if (isAfgBan) {
+            val tapmadUrl = if (originalStreamUrl.isNotBlank()) originalStreamUrl else "https://saseries.akamaized.net/hls/live/2110097/28593jkiL-tapmad/master.m3u8"
+            list.add(StreamServer("Tapmad Live (Direct HD)", tapmadUrl))
+            list.add(StreamServer("T SPORTS HD (Live BD)", "http://livetv.akr4m.com:8080/bdtv/restrem/02.m3u8"))
+            list.add(StreamServer("SKY CRICKET FHD (Live)", "https://bl.rutube.ru/livestream/7c13a51576b9ff2601f08f5d57dd5169/index.m3u8?s=uiXES2ePt7xTpQnbJxn7Dg&e=2074684474&scheme=https"))
+            list.add(StreamServer("WILLOW FHD (ClearKey DASH)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/v8s736w0hw/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd"))
+            return list
+        }
+
+        // Match 2: South Africa vs Australia (1st Test)
+        val isSaAus = (clean.contains("south africa") && clean.contains("australia")) ||
+                cleanId.contains("17700") || cleanUrl.contains("fifa-3827e1")
+        if (isSaAus) {
+            val tapmadUrl = if (originalStreamUrl.isNotBlank()) originalStreamUrl else "https://saseries.akamaized.net/hls/live/2110097/FiFa-3827e1/master.m3u8"
+            list.add(StreamServer("Tapmad Live (Direct HD)", tapmadUrl))
+            list.add(StreamServer("SKY CRICKET FHD (Live)", "https://bl.rutube.ru/livestream/7c13a51576b9ff2601f08f5d57dd5169/index.m3u8?s=uiXES2ePt7xTpQnbJxn7Dg&e=2074684474&scheme=https"))
+            list.add(StreamServer("WILLOW FHD (ClearKey DASH)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/1dwfmiwgbk/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd|drmScheme=clearkey&drmLicense=61b5fe1a7d9d83929d15da6db1c5f427:6e8231835a24911fd035a47e49f5c53b"))
+            list.add(StreamServer("FANCODE FHD (ClearKey)", "https://otte.cache.aiv-cdn.net/iad-nitro/live/clients/dash/enc/b3b3fkmrbl/out/v1/1084d5c9a97a4c5b9f9554c88f486646/cenc.mpd|drmScheme=clearkey&drmLicense=82dfca238e8c4b430a3269db71965db9:a00b28caf4ac628e77a553d440c0ddca"))
+            list.add(StreamServer("WILLOW SPORTS HD", "https://otte.cache.aiv-cdn.net/bom-nitro/live/clients/dash/enc/tll6uwepxa/out/v1/a7f67cbb33df46539312956427343886/cenc.mpd|drmScheme=clearkey&drmLicense=290e09c837da78d5cd961978d390515c:b748836c71e6a4ca68ef5b5652db6247"))
+            return list
+        }
+
+        // Match 3: Pakistan U19 vs Bangladesh U19 / Women Tri-Series
+        val isPakBan = (clean.contains("pakistan") && clean.contains("bangladesh")) ||
+                cleanId.contains("18090") || cleanUrl.contains("tapmad258645") ||
+                (clean.contains("bangladesh") && (clean.contains("women") || clean.contains("u19") || clean.contains("tri-series")))
+        if (isPakBan) {
+            val tapmadUrl = if (originalStreamUrl.isNotBlank()) originalStreamUrl else "https://saseries.akamaized.net/hls/live/2110097/tapmad258645/master.m3u8"
+            list.add(StreamServer("Tapmad Live (Direct HD)", tapmadUrl))
+            list.add(StreamServer("WILLOW FHD (ClearKey DASH)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/jhqpjlh8bf/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd"))
+            list.add(StreamServer("FANCODE (IND)", "https://dai-fancode.pages.dev/mumbai/4250150_english_hls_e1216d6dea39966_1ta-di_video.m3u8"))
+            list.add(StreamServer("SKY CRICKET FHD (Live)", "https://bl.rutube.ru/livestream/7c13a51576b9ff2601f08f5d57dd5169/index.m3u8?s=uiXES2ePt7xTpQnbJxn7Dg&e=2074684474&scheme=https"))
+            list.add(StreamServer("T SPORTS / AYNA Live", "http://tvsen5.aynascope.net/willowhd/index.m3u8"))
+            return list
+        }
+
+        // Check if cachedSportsMatches has matching live servers
         try {
             val cached = getCachedSportsMatches()
             val foundMatch = cached.firstOrNull { item ->
                 val itTitle = item.title.lowercase()
-                (clean.contains("afghanistan") && itTitle.contains("afghanistan") && clean.contains("bangladesh") && itTitle.contains("bangladesh")) ||
-                (clean.contains("south africa") && itTitle.contains("south africa") && clean.contains("australia") && itTitle.contains("australia")) ||
-                (clean.contains("pakistan") && itTitle.contains("pakistan") && clean.contains("bangladesh") && itTitle.contains("bangladesh")) ||
-                (clean.contains("australia") && itTitle.contains("australia") && clean.contains("bangladesh") && itTitle.contains("bangladesh")) ||
-                (clean.contains("elche") && itTitle.contains("elche")) ||
-                (clean.contains("celta") && itTitle.contains("celta")) ||
-                (itTitle.isNotBlank() && clean.contains(itTitle))
+                (itTitle.isNotBlank() && (clean.contains(itTitle) || itTitle.contains(clean)))
             }
             if (foundMatch != null) {
                 for (s in foundMatch.getAllServers()) {
@@ -4203,50 +4249,19 @@ class MediaRepository(private val context: Context) {
             }
         } catch (_: Exception) {}
 
-        // 2. High-priority verified fallback live servers for today's active series
-        when {
-            // Afghanistan vs Bangladesh (1st Test)
-            clean.contains("afghanistan") && clean.contains("bangladesh") -> {
-                if (list.none { it.name.contains("T SPORTS", ignoreCase = true) }) {
-                    list.add(0, StreamServer("T SPORTS HD (Live BD)", "http://livetv.akr4m.com:8080/bdtv/restrem/02.m3u8"))
-                }
-                if (list.none { it.name.contains("WILLOW HD", ignoreCase = true) }) {
-                    list.add(StreamServer("WILLOW HD (Fast)", "https://baila-lentoo.pages.dev/all-sp/809386.m3u8"))
-                }
-                if (list.none { it.url.contains("v8s736w0hw") }) {
-                    list.add(StreamServer("WILLOW FHD (ClearKey DASH)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/v8s736w0hw/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd"))
-                }
+        // Fallback for any other Akamai / Tapmad sports stream
+        val isAkamaiWithoutToken = cleanUrl.contains("akamaized.net") && !cleanUrl.contains("hdnts=")
+        val isTapmadWithoutToken = cleanUrl.contains("tapmad") && !cleanUrl.contains("token=")
+        if (isAkamaiWithoutToken || isTapmadWithoutToken) {
+            if (list.none { it.name.contains("T SPORTS", ignoreCase = true) }) {
+                list.add(0, StreamServer("T SPORTS HD (Live BD)", "http://livetv.akr4m.com:8080/bdtv/restrem/02.m3u8"))
             }
-            // South Africa vs Australia (1st Test)
-            clean.contains("south africa") && clean.contains("australia") -> {
-                if (list.none { it.name.contains("SKY CRICKET", ignoreCase = true) }) {
-                    list.add(0, StreamServer("SKY CRICKET FHD (Rutube)", "https://bl.rutube.ru/livestream/7c13a51576b9ff2601f08f5d57dd5169/index.m3u8?s=uiXES2ePt7xTpQnbJxn7Dg&e=2074684474&scheme=https"))
-                }
-                if (list.none { it.url.contains("1dwfmiwgbk") }) {
-                    list.add(StreamServer("WILLOW FHD (ClearKey DASH)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/1dwfmiwgbk/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd|drmScheme=clearkey&drmLicense=61b5fe1a7d9d83929d15da6db1c5f427:6e8231835a24911fd035a47e49f5c53b"))
-                }
-                if (list.none { it.url.contains("b3b3fkmrbl") }) {
-                    list.add(StreamServer("FANCODE FHD (ClearKey)", "https://otte.cache.aiv-cdn.net/iad-nitro/live/clients/dash/enc/b3b3fkmrbl/out/v1/1084d5c9a97a4c5b9f9554c88f486646/cenc.mpd|drmScheme=clearkey&drmLicense=82dfca238e8c4b430a3269db71965db9:a00b28caf4ac628e77a553d440c0ddca"))
-                }
-                if (list.none { it.url.contains("tll6uwepxa") }) {
-                    list.add(StreamServer("WILLOW SPORTS HD", "https://otte.cache.aiv-cdn.net/bom-nitro/live/clients/dash/enc/tll6uwepxa/out/v1/a7f67cbb33df46539312956427343886/cenc.mpd|drmScheme=clearkey&drmLicense=290e09c837da78d5cd961978d390515c:b748836c71e6a4ca68ef5b5652db6247"))
-                }
-            }
-            // Pakistan vs Bangladesh / Australia Women vs Bangladesh Women
-            clean.contains("bangladesh") && (clean.contains("pakistan") || clean.contains("australia") || clean.contains("women") || clean.contains("u19")) -> {
-                if (list.none { it.url.contains("jhqpjlh8bf") }) {
-                    list.add(0, StreamServer("WILLOW FHD (ClearKey)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/jhqpjlh8bf/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd"))
-                }
-                if (list.none { it.url.contains("dai-fancode") }) {
-                    list.add(StreamServer("FANCODE (IND)", "https://dai-fancode.pages.dev/mumbai/4250150_english_hls_e1216d6dea39966_1ta-di_video.m3u8"))
-                }
-                if (list.none { it.url.contains("aynascope") }) {
-                    list.add(StreamServer("T SPORTS / AYNA Live", "http://tvsen5.aynascope.net/willowhd/index.m3u8"))
-                }
+            if (list.none { it.name.contains("SKY CRICKET", ignoreCase = true) }) {
+                list.add(StreamServer("SKY CRICKET FHD (Live)", "https://bl.rutube.ru/livestream/7c13a51576b9ff2601f08f5d57dd5169/index.m3u8?s=uiXES2ePt7xTpQnbJxn7Dg&e=2074684474&scheme=https"))
             }
         }
 
-        // 3. Keep original stream as fallback server
+        // Keep original stream as fallback server
         if (originalStreamUrl.isNotBlank() && list.none { it.url.equals(originalStreamUrl, ignoreCase = true) }) {
             val originalName = if (originalStreamUrl.contains("akamaized.net", ignoreCase = true) || originalStreamUrl.contains("tapmad", ignoreCase = true)) {
                 "Tapmad Live (BD IP / Akamai)"
@@ -4522,14 +4537,13 @@ class MediaRepository(private val context: Context) {
                         }
                     }
 
-                    // Ensure working non-Akamai servers come first
-                    val sortedServers = serversList.sortedBy { srv ->
-                        if (srv.url.contains("akamaized.net", ignoreCase = true)) 10 else 0
-                    }
+                    val sortedServers = serversList.distinctBy { it.url.trim().lowercase() }
 
-                    val primaryStream = sortedServers.firstOrNull { !it.url.contains("akamaized.net", ignoreCase = true) }?.url
-                        ?: sortedServers.firstOrNull()?.url
-                        ?: streamUrl
+                    val primaryStream = if (streamUrl.isNotBlank()) {
+                        streamUrl
+                    } else {
+                        sortedServers.firstOrNull()?.url ?: ""
+                    }
 
                     val cleanCat = categoryName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
                     val cleanVidName = videoName.replace("Tapmad BD", "", ignoreCase = true).replace("Tapmad", "", ignoreCase = true).trim()
