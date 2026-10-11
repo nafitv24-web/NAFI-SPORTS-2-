@@ -88,7 +88,15 @@ class MediaRepository(private val context: Context) {
         const val DEFAULT_MARQUEE_TEXT = "বাংলাদেশ ব্যাংকের নতুন মুদ্রানীতি ঘোষণা। পুঁজিবাজারে ঊর্ধ্বগতি। NAFI TV24 এ ক্রিকেট, ফুটবল ও লাইভ টিভি চ্যানেল সম্পূর্ণ বিনামূল্যে উপভোগ করুন।"
         const val DEFAULT_RTDB_URL = "https://nafitv24-live-default-rtdb.firebaseio.com/"
         const val DEFAULT_LIVE_TV_M3U_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Update%20Channel.m3u\nhttps://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
-        const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/sm-monirulislam/Upcoming-and-Live-Sports-Data/main/Sports_data.m3u"
+        const val DEFAULT_SPORTS_M3U_URL = "https://raw.githubusercontent.com/sm-monirulislam/SonyLiv_Event_Playlist/refs/heads/main/sonyLiv.m3u\n" +
+                "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/NAFI%20SPORTS.m3u\n" +
+                "https://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_sm.m3u\n" +
+                "https://gist.githubusercontent.com/albatr0ssss/3cff7a26be49b1d352c15f615067e7cd/raw/tapmad_bd.m3u\n" +
+                "https://raw.githubusercontent.com/srhady/SonyLiv/refs/heads/main/sonyliv_playlist.m3u\n" +
+                "https://raw.githubusercontent.com/srhady/willow-event/refs/heads/main/live_sports.m3u\n" +
+                "https://raw.githubusercontent.com/srhady/willow-event/refs/heads/main/primevideo_sports.m3u\n" +
+                "https://raw.githubusercontent.com/sm-monirulislam/Upcoming-and-Live-Sports-Data/refs/heads/main/Sports_data.m3u\n" +
+                "https://raw.githubusercontent.com/srhady/axsports/refs/heads/main/playlist.m3u"
         const val DEFAULT_TAPMAD_JSON_URL = "https://raw.githubusercontent.com/sm-monirulislam/Upcoming-and-Live-Sports-Data/main/Sports_data.json\nhttps://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/main/tapmad_data.json"
         const val DEFAULT_TAPMAD_M3U_URL = "https://raw.githubusercontent.com/sm-monirulislam/Upcoming-and-Live-Sports-Data/main/Sports_data.m3u\nhttps://raw.githubusercontent.com/sm-monirulislam/Tapmad_Auto_Update_Playlist/refs/heads/main/tapmad_sm.m3u"
         const val DEFAULT_MOVIES_JSON_URL = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/movies.json"
@@ -510,7 +518,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getCachedSportsMatches(): List<MediaItem> {
-        return loadListFromFileCache("cache_sports_v3.json").filterNot { it.id.startsWith("sport_default_") }
+        return loadListFromFileCache("cache_sports_v4.json").filterNot { it.id.startsWith("sport_default_") }
     }
 
     fun getCachedAdminLiveEvents(): List<MediaItem> {
@@ -553,7 +561,8 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
-        saveListToFileCache("cache_sports_v3.json", list.filterNot { it.id.startsWith("sport_default_") || isDemoChannel(it) })
+        saveListToFileCache("cache_sports_v4.json", list.filterNot { it.id.startsWith("sport_default_") || isDemoChannel(it) })
+        try { java.io.File(context.filesDir, "cache_sports_v3.json").delete() } catch (_: Exception) {}
         try { java.io.File(context.filesDir, "cache_sports_v2.json").delete() } catch (_: Exception) {}
     }
 
@@ -968,6 +977,9 @@ class MediaRepository(private val context: Context) {
 
     fun extractUrls(input: String): List<String> {
         if (input.isBlank()) return emptyList()
+        val urlRegex = Regex("""https?://[^\s,;'"<>]+""", RegexOption.IGNORE_CASE)
+        val matched = urlRegex.findAll(input).map { it.value.trim() }.filter { it.isNotBlank() }.toList()
+        if (matched.isNotEmpty()) return matched.distinct()
         return input.split(Regex("[\r\n,;]+"))
             .map { it.trim() }
             .filter { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
@@ -1256,6 +1268,9 @@ class MediaRepository(private val context: Context) {
     private suspend fun fetchSingleM3uUrl(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
         try {
             var raw = url.trim()
+            if (raw.contains(" ")) {
+                raw = raw.replace(" ", "%20")
+            }
             val headersMap = mutableMapOf<String, String>()
             if (raw.contains("|")) {
                 val pipeParts = raw.split("|", limit = 2)
@@ -1301,9 +1316,10 @@ class MediaRepository(private val context: Context) {
                 content = content.removePrefix("\uFEFF").trim()
             }
             if (content.startsWith("[") || content.startsWith("{")) {
-                val isMovieOrSeries = raw.contains("movie", ignoreCase = true) || raw.contains("series", ignoreCase = true) || content.contains("\"movies\"", ignoreCase = true) || content.contains("\"series\"", ignoreCase = true)
-                val defCat = if (isMovieOrSeries) "Movies" else "Live TV"
-                val defType = if (isMovieOrSeries) MediaType.MOVIE else MediaType.LIVE_TV
+                val isSports = raw.contains("sport", ignoreCase = true) || raw.contains("event", ignoreCase = true) || raw.contains("match", ignoreCase = true) || raw.contains("live", ignoreCase = true) || content.contains("\"sport\"", ignoreCase = true)
+                val isMovieOrSeries = !isSports && (raw.contains("movie", ignoreCase = true) || raw.contains("series", ignoreCase = true) || content.contains("\"movies\"", ignoreCase = true) || content.contains("\"series\"", ignoreCase = true))
+                val defCat = if (isSports) "Sports" else if (isMovieOrSeries) "Movies" else "Live TV"
+                val defType = if (isSports) MediaType.LIVE_EVENT else if (isMovieOrSeries) MediaType.MOVIE else MediaType.LIVE_TV
                 return@withContext parseMediaFromJsonString(content, defaultCategory = defCat, defaultType = defType)
             }
             parseM3uLines(content.lines())
@@ -1545,6 +1561,7 @@ class MediaRepository(private val context: Context) {
 
                 val isLivePattern = !isExplicitMovieUrl && !isExplicitSeriesUrl && (
                         streamUrl.contains(".m3u8", ignoreCase = true) ||
+                        streamUrl.contains(".mpd", ignoreCase = true) ||
                         streamUrl.contains("/hls/", ignoreCase = true) ||
                         streamUrl.contains("/live/", ignoreCase = true) ||
                         streamUrl.contains("edge-cache-token=", ignoreCase = true) ||
@@ -4259,14 +4276,14 @@ class MediaRepository(private val context: Context) {
     fun saveSportsM3uUrl(url: String) {
         prefs.edit().putString("saved_sports_m3u_url", url).apply()
         try {
-            val file = java.io.File(context.filesDir, "cache_sports_v3.json")
-            if (file.exists()) file.delete()
+            java.io.File(context.filesDir, "cache_sports_v4.json").delete()
+            java.io.File(context.filesDir, "cache_sports_v3.json").delete()
         } catch (_: Exception) {}
     }
 
     fun getSavedSportsM3uUrl(): String {
         val stored = prefs.getString("saved_sports_m3u_url", null)
-        if (stored.isNullOrBlank() || stored.contains("nfiptv24-max", ignoreCase = true) || stored.contains("srhady", ignoreCase = true)) {
+        if (stored.isNullOrBlank() || stored.contains("nfiptv24-max", ignoreCase = true)) {
             return DEFAULT_SPORTS_M3U_URL
         }
         return stored
@@ -4275,14 +4292,14 @@ class MediaRepository(private val context: Context) {
     fun saveTapmadJsonUrl(url: String) {
         prefs.edit().putString("saved_tapmad_json_url", url).apply()
         try {
-            val file = java.io.File(context.filesDir, "cache_sports_v3.json")
-            if (file.exists()) file.delete()
+            java.io.File(context.filesDir, "cache_sports_v4.json").delete()
+            java.io.File(context.filesDir, "cache_sports_v3.json").delete()
         } catch (_: Exception) {}
     }
 
     fun getSavedTapmadJsonUrl(): String {
         val stored = prefs.getString("saved_tapmad_json_url", null)
-        if (stored.isNullOrBlank() || stored.contains("srhady", ignoreCase = true)) {
+        if (stored.isNullOrBlank()) {
             return DEFAULT_TAPMAD_JSON_URL
         }
         return stored
@@ -4299,7 +4316,7 @@ class MediaRepository(private val context: Context) {
 
     fun getSavedTapmadM3uUrl(): String {
         val stored = prefs.getString("saved_tapmad_m3u_url", null)
-        if (stored.isNullOrBlank() || stored.contains("srhady", ignoreCase = true)) {
+        if (stored.isNullOrBlank()) {
             return DEFAULT_TAPMAD_M3U_URL
         }
         return stored
@@ -4413,7 +4430,8 @@ class MediaRepository(private val context: Context) {
             "baseball", "athletics", "golf", "chess", "sports", "খেলা", "match", "tournament",
             "ipl", "bpl", "psl", "cpl", "isl", "t20", "odi", "test series", "fifa", "uefa",
             "champions league", "premier league", "la liga", "laliga", "serie a", "bundesliga", "ligue 1",
-            "world cup", "asia cup", "copa america", "euro cup"
+            "world cup", "asia cup", "copa america", "euro cup", "archery", "boxing", "handball",
+            "horse riding", "jumping world cup", "table tennis", "swimming", "snooker", "vcl", "apl"
         )
         if (sportsKeywords.any { title.contains(it) || cat.contains(it) || desc.contains(it) }) {
             return true
@@ -4425,7 +4443,8 @@ class MediaRepository(private val context: Context) {
             "tsports", "a sports", "astro cricket", "supersport", "bein", "fox sports",
             "eurosport", "bt sport", "tnt sports", "sky sports", "ptv sports", "geo super",
             "ten sports", "sports 18", "sports18", "dd sports", "prime sports", "gazi tv sports",
-            "t-sports", "fancode", "tapmad"
+            "t-sports", "fancode", "tapmad", "pv-cdn.net", "sonydaimenew", "livesportsplay",
+            "prime video sports", "axsports"
         )
         if (sportsBroadcasters.any { title.contains(it) || cat.contains(it) || desc.contains(it) || url.contains(it) }) {
             return true
@@ -4445,13 +4464,10 @@ class MediaRepository(private val context: Context) {
             // ১. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা M3U প্লেলিস্টসমূহ (Sports M3U Playlist URLs)
             val sportsM3uJob = async {
                 val urlsRaw = getSavedSportsM3uUrl()
-                val urls = extractUrls(urlsRaw).toMutableList()
+                val urls = (extractUrls(urlsRaw) + extractUrls(DEFAULT_SPORTS_M3U_URL) + extractUrls(getSavedTapmadM3uUrl())).distinct().toMutableList()
                 val officialSportsUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
                 if (!urls.contains(officialSportsUrl)) {
                     urls.add(officialSportsUrl)
-                }
-                if (urls.isEmpty()) {
-                    urls.addAll(extractUrls(DEFAULT_SPORTS_M3U_URL))
                 }
                 val subJobs = urls.distinct().map { u ->
                     async {
