@@ -358,53 +358,15 @@ fun NafiTvMainApp(
                         }
                     }
 
-                    // ২. লাইভ ইভেন্ট / খেলাধুলা সমান্তরাল লোডিং (Live Events)
+                    // ২. লাইভ ইভেন্ট / খেলাধুলা সমান্তরাল লোডিং (Live Events - All Admin Playlists + Xtream + Sports APIs)
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.LIVE_EVENTS }
-                            val adminEventsJob = async {
-                                try {
-                                    repository.fetchAdminLiveEventsFromFirebase().filterNot { deleted.contains(it.id) }
-                                } catch (_: Exception) { emptyList() }
-                            }
-                            val sportsM3uUrl = repository.getSavedSportsM3uUrl()
-                            val sportsM3uJob = async {
-                                if (sportsM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(8000) {
-                                        try {
-                                            repository.parseM3uFromUrl(sportsM3uUrl).map {
-                                                it.copy(
-                                                    type = MediaType.LIVE_EVENT,
-                                                    isLive = true,
-                                                    status = if (it.status.isBlank()) "LIVE" else it.status
-                                                )
-                                            }.filterNot { deleted.contains(it.id) }
-                                        } catch (_: Exception) { emptyList() }
-                                    } ?: emptyList()
-                                } else emptyList()
-                            }
-                            val tapmadJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(8000) {
-                                    try {
-                                        repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
-                                    } catch (_: Exception) { emptyList() }
-                                } ?: emptyList()
-                            }
-
-                            val customSports = repository.getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
-                            val cachedAdmin = repository.getCachedAdminLiveEvents().filterNot { deleted.contains(it.id) }.map { it.copy(isAdminAdded = true) }
-
-                            val adminEvents = adminEventsJob.await()
-                            val allAdminSports = (adminEvents + customSports + cachedAdmin).distinctBy { it.id }
-                            val sportsM3u = sportsM3uJob.await()
-                            val tapmad = tapmadJob.await()
-
-                            val updatedSports = (allAdminSports + tapmad + sportsM3u).distinctBy { it.id }.filterNot { repository.isItemDeleted(it) }
-                            if (updatedSports.isNotEmpty()) {
+                            val adminPlaylistsSports = repository.fetchAllAdminPlaylistsSports()
+                            if (adminPlaylistsSports.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
-                                    sportsList = updatedSports
+                                    sportsList = adminPlaylistsSports
                                 }
-                                repository.saveCachedSportsMatches(sportsList)
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
