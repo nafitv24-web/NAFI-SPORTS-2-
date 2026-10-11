@@ -360,21 +360,44 @@ fun MoviesTabScreen(
                             hub.playlist?.let { repository.fetchPlaylistMoviesOnly(it) } ?: emptyList()
                         }
                         HubCategory.OTT_BRAND -> {
-                            // Filter current movies matching this OTT Brand tag
-                            val allAvailable = (movies.ifEmpty { repository.getCachedMoviesList() })
+                            // 1. Check if Admin added any custom playlist or Xtream account for this brand (e.g. Sony LIV, Hotstar, Netflix)
                             val brandTag = hub.brandTag.lowercase()
-                            allAvailable.filter { item ->
+                            val hubTitleLower = hub.title.lowercase()
+                            val adminPl = repository.getCustomPlaylists().firstOrNull {
+                                val t = it.title.lowercase()
+                                t.contains(brandTag) || t.contains(hubTitleLower) ||
+                                        (brandTag.contains("sony") && t.contains("sony")) ||
+                                        (brandTag.contains("zee") && t.contains("zee"))
+                            }
+                            val adminXtream = repository.getXtreamAccounts().firstOrNull {
+                                val t = it.name.lowercase()
+                                t.contains(brandTag) || t.contains(hubTitleLower) ||
+                                        (brandTag.contains("sony") && t.contains("sony"))
+                            }
+                            val adminMovies = when {
+                                adminPl != null -> repository.fetchPlaylistMoviesOnly(adminPl)
+                                adminXtream != null -> repository.fetchXtreamAccountMovies(adminXtream)
+                                else -> emptyList()
+                            }
+
+                            // 2. Filter current movies matching this OTT Brand tag
+                            val allAvailable = (movies.ifEmpty { repository.getCachedMoviesList() })
+                            val taggedMovies = allAvailable.filter { item ->
                                 val cat = item.category.lowercase()
                                 val title = item.title.lowercase()
                                 val desc = (item.description ?: "").lowercase()
                                 cat.contains(brandTag) || title.contains(brandTag) || desc.contains(brandTag)
-                            }.ifEmpty {
+                            }
+                            val combined = (adminMovies + taggedMovies).distinctBy { it.id }
+                            if (combined.isNotEmpty()) {
+                                combined
+                            } else {
                                 when (hub.id) {
                                     "ott_hoichoi", "ott_chorki" -> allAvailable.filter {
                                         it.category.lowercase().contains("bangla") || it.title.lowercase().contains("bangla")
                                     }
                                     "ott_sonyliv", "ott_zee5" -> allAvailable.filter {
-                                        it.category.lowercase().contains("hindi") || it.category.lowercase().contains("bollywood")
+                                        it.category.lowercase().contains("hindi") || it.category.lowercase().contains("bollywood") || it.category.lowercase().contains("sony")
                                     }
                                     else -> allAvailable
                                 }

@@ -1588,15 +1588,24 @@ class MediaRepository(private val context: Context) {
                         currentGroup.contains("cricket", ignoreCase = true) ||
                         currentGroup.contains("football", ignoreCase = true) ||
                         currentGroup.contains("soccer", ignoreCase = true) ||
-                        currentGroup.contains("hockey", ignoreCase = true)
+                        currentGroup.contains("hockey", ignoreCase = true) ||
+                        cleanTitle.contains("sony ten", ignoreCase = true) ||
+                        cleanTitle.contains("sony six", ignoreCase = true) ||
+                        cleanTitle.contains("sony liv", ignoreCase = true) ||
+                        cleanTitle.contains("star sports", ignoreCase = true) ||
+                        cleanTitle.contains("t sports", ignoreCase = true) ||
+                        cleanTitle.contains("willow", ignoreCase = true) ||
+                        cleanTitle.contains("astro cricket", ignoreCase = true) ||
+                        cleanTitle.contains("supersport", ignoreCase = true)
 
                 val detectedSportCategory = when {
-                    cleanTitle.contains("cricket", ignoreCase = true) || currentGroup.contains("cricket", ignoreCase = true) || cleanTitle.contains("ipl", ignoreCase = true) || cleanTitle.contains("bpl", ignoreCase = true) || cleanTitle.contains("psl", ignoreCase = true) || cleanTitle.contains("t20", ignoreCase = true) || cleanTitle.contains("odi", ignoreCase = true) || cleanTitle.contains("test series", ignoreCase = true) || cleanTitle.contains("willow", ignoreCase = true) -> "Cricket"
+                    cleanTitle.contains("cricket", ignoreCase = true) || currentGroup.contains("cricket", ignoreCase = true) || cleanTitle.contains("ipl", ignoreCase = true) || cleanTitle.contains("bpl", ignoreCase = true) || cleanTitle.contains("psl", ignoreCase = true) || cleanTitle.contains("t20", ignoreCase = true) || cleanTitle.contains("odi", ignoreCase = true) || cleanTitle.contains("test series", ignoreCase = true) || cleanTitle.contains("willow", ignoreCase = true) || cleanTitle.contains("astro cricket", ignoreCase = true) -> "Cricket"
                     cleanTitle.contains("football", ignoreCase = true) || currentGroup.contains("football", ignoreCase = true) || cleanTitle.contains("soccer", ignoreCase = true) || cleanTitle.contains("fifa", ignoreCase = true) || cleanTitle.contains("uefa", ignoreCase = true) || cleanTitle.contains("league", ignoreCase = true) || cleanTitle.contains("laliga", ignoreCase = true) || cleanTitle.contains("premier league", ignoreCase = true) -> "Football"
                     cleanTitle.contains("hockey", ignoreCase = true) || currentGroup.contains("hockey", ignoreCase = true) -> "Hockey"
                     cleanTitle.contains("badminton", ignoreCase = true) || currentGroup.contains("badminton", ignoreCase = true) -> "Badminton"
                     cleanTitle.contains("kabaddi", ignoreCase = true) || currentGroup.contains("kabaddi", ignoreCase = true) -> "Kabaddi"
                     cleanTitle.contains("wwe", ignoreCase = true) || cleanTitle.contains("wrestling", ignoreCase = true) -> "WWE"
+                    cleanTitle.contains("sony liv", ignoreCase = true) || cleanTitle.contains("sonyliv", ignoreCase = true) -> "Sony LIV"
                     isSportsItem || isAkamaiOrTapmad -> if (currentGroup.isNotBlank() && !currentGroup.equals("Live TV", ignoreCase = true)) currentGroup else "Sports"
                     else -> currentGroup
                 }
@@ -4249,6 +4258,10 @@ class MediaRepository(private val context: Context) {
 
     fun saveSportsM3uUrl(url: String) {
         prefs.edit().putString("saved_sports_m3u_url", url).apply()
+        try {
+            val file = java.io.File(context.filesDir, "cache_sports_v3.json")
+            if (file.exists()) file.delete()
+        } catch (_: Exception) {}
     }
 
     fun getSavedSportsM3uUrl(): String {
@@ -4261,6 +4274,10 @@ class MediaRepository(private val context: Context) {
 
     fun saveTapmadJsonUrl(url: String) {
         prefs.edit().putString("saved_tapmad_json_url", url).apply()
+        try {
+            val file = java.io.File(context.filesDir, "cache_sports_v3.json")
+            if (file.exists()) file.delete()
+        } catch (_: Exception) {}
     }
 
     fun getSavedTapmadJsonUrl(): String {
@@ -4375,20 +4392,68 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * এডমিন প্যানেল থেকে শুধুমাত্র 'sports match' অপশনে কনফিগার করা প্লেলিস্ট (Sports M3U URLs),
-     * স্পোর্টস JSON API এবং পাবলিশ করা স্পোর্টস ম্যাচ থেকে সমস্ত খেলা লোড করে (Only from Admin Sports Match option).
+     * খেলাধুলা, স্পোর্টস ম্যাচ, লাইভ স্পোর্টস সম্প্রচার বা স্পোর্টস চ্যানেল কি না তা বুদ্ধিমত্তার সাথে শনাক্ত করে।
+     * সাধারণ নিউজ বা এন্টারটেইনমেন্ট চ্যানেল বাদ দিয়ে শুধুমাত্র খেলা ও স্পোর্টস ইভেন্ট ফিল্টার করে।
+     */
+    fun isSportsMatchOrChannel(item: MediaItem): Boolean {
+        val title = item.title.lowercase()
+        val cat = item.category.lowercase()
+        val desc = (item.description ?: "").lowercase()
+        val url = item.streamUrl.lowercase()
+
+        // ১. সরাসরি ম্যাচ বা ফিক্সচার ইন্ডিকেটর (vs, v, @, -)
+        if (title.contains(" vs ") || title.contains(" v ") || title.contains(" @ ")) {
+            return true
+        }
+
+        // ২. স্পোর্টস ও গেমস কি-ওয়ার্ড
+        val sportsKeywords = listOf(
+            "cricket", "football", "soccer", "hockey", "badminton", "kabaddi", "tennis",
+            "wwe", "ufc", "racing", "f1", "rugby", "basketball", "nba", "volleyball",
+            "baseball", "athletics", "golf", "chess", "sports", "খেলা", "match", "tournament",
+            "ipl", "bpl", "psl", "cpl", "isl", "t20", "odi", "test series", "fifa", "uefa",
+            "champions league", "premier league", "la liga", "laliga", "serie a", "bundesliga", "ligue 1",
+            "world cup", "asia cup", "copa america", "euro cup"
+        )
+        if (sportsKeywords.any { title.contains(it) || cat.contains(it) || desc.contains(it) }) {
+            return true
+        }
+
+        // ৩. স্পোর্টস ব্রডকাস্টার চ্যানেল ও ওটিটি নেটওয়ার্ক (Sony LIV, Sony Ten, T Sports, Willow, etc.)
+        val sportsBroadcasters = listOf(
+            "sony ten", "sony six", "sony liv", "sonyliv", "star sports", "t sports", "willow",
+            "tsports", "a sports", "astro cricket", "supersport", "bein", "fox sports",
+            "eurosport", "bt sport", "tnt sports", "sky sports", "ptv sports", "geo super",
+            "ten sports", "sports 18", "sports18", "dd sports", "prime sports", "gazi tv sports",
+            "t-sports", "fancode", "tapmad"
+        )
+        if (sportsBroadcasters.any { title.contains(it) || cat.contains(it) || desc.contains(it) || url.contains(it) }) {
+            return true
+        }
+        return false
+    }
+
+    /**
+     * এডমিন প্যানেল থেকে 'sports match' অপশন, Sony LIV, NAFI TV এবং সেন্ট্রাল/কাস্টম প্লেলিস্টে
+     * কনফিগার করা সমস্ত খেলা ও লাইভ স্পোর্টস ইভেন্ট লোড করে।
      */
     suspend fun fetchAllAdminPlaylistsSports(): List<MediaItem> = withContext(Dispatchers.IO) {
         val deleted = getDeletedIds()
         val allSports = mutableListOf<MediaItem>()
 
         coroutineScope {
-            // 1. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা M3U প্লেলিস্টসমূহ (Sports M3U Playlist URLs)
+            // ১. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা M3U প্লেলিস্টসমূহ (Sports M3U Playlist URLs)
             val sportsM3uJob = async {
                 val urlsRaw = getSavedSportsM3uUrl()
-                val urls = extractUrls(urlsRaw)
-                val activeUrls = if (urls.isEmpty()) extractUrls(DEFAULT_SPORTS_M3U_URL) else urls
-                val subJobs = activeUrls.map { u ->
+                val urls = extractUrls(urlsRaw).toMutableList()
+                val officialSportsUrl = "https://raw.githubusercontent.com/nafitv24-web/NAFI-TV/refs/heads/main/Sports%20Channel%20NF.m3u"
+                if (!urls.contains(officialSportsUrl)) {
+                    urls.add(officialSportsUrl)
+                }
+                if (urls.isEmpty()) {
+                    urls.addAll(extractUrls(DEFAULT_SPORTS_M3U_URL))
+                }
+                val subJobs = urls.distinct().map { u ->
                     async {
                         try {
                             fetchSingleM3uUrl(u).map { item ->
@@ -4407,7 +4472,47 @@ class MediaRepository(private val context: Context) {
                 subJobs.awaitAll().flatten()
             }
 
-            // 2. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা লাইভ স্পোর্টস JSON API (Live Events & Tapmad JSON APIs)
+            // ২. এডমিন প্যানেলে তৈরি করা কাস্টম প্লেলিস্টসমূহ (Sony LIV, NAFI TV ও অন্যান্য প্লেলিস্টের খেলা)
+            val adminCustomPlaylistsJob = async {
+                try {
+                    val allPlaylists = (getAdminPlaylists() + getUserPlaylists()).distinctBy { it.id }
+                    val plJobs = allPlaylists.map { pl ->
+                        async {
+                            try {
+                                if (pl.url.isBlank()) return@async emptyList<MediaItem>()
+                                val items = fetchSingleM3uUrl(pl.url)
+                                val plTitleLower = pl.title.lowercase()
+                                val isDedicatedSportsPlaylist = plTitleLower.contains("sport") ||
+                                        plTitleLower.contains("খেলা") ||
+                                        plTitleLower.contains("cricket") ||
+                                        plTitleLower.contains("football") ||
+                                        plTitleLower.contains("match") ||
+                                        plTitleLower.contains("sony liv") ||
+                                        plTitleLower.contains("sonyliv") ||
+                                        plTitleLower.contains("events")
+
+                                items.filter { item ->
+                                    isDedicatedSportsPlaylist || isSportsMatchOrChannel(item)
+                                }.map { item ->
+                                    item.copy(
+                                        type = MediaType.LIVE_EVENT,
+                                        isAdminAdded = true,
+                                        isLive = true,
+                                        status = if (item.status.isBlank() || item.status.equals("Live TV", ignoreCase = true)) "LIVE" else item.status
+                                    )
+                                }
+                            } catch (_: Exception) {
+                                emptyList<MediaItem>()
+                            }
+                        }
+                    }
+                    plJobs.awaitAll().flatten()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+
+            // ৩. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা লাইভ স্পোর্টস JSON API (Tapmad & Sports APIs)
             val tapmadJob = async {
                 try {
                     fetchTapmadSportsMatches().map {
@@ -4421,7 +4526,7 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
-            // 3. এডমিন প্যানেল -> sports match অপশনে ম্যানুয়ালি তৈরি করা স্পোর্টস ম্যাচ (Firebase & Local Admin Events)
+            // ৪. এডমিন প্যানেল -> ম্যানুয়ালি তৈরি করা স্পোর্টস ম্যাচ (Firebase & Local Admin Events)
             val firebaseEventsJob = async {
                 try {
                     fetchAdminLiveEventsFromFirebase().map { it.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true) }
@@ -4430,18 +4535,48 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
+            // ৫. Xtream একাউন্টে থাকা লাইভ খেলা/স্পোর্টস চ্যানেল
+            val xtreamSportsJob = async {
+                try {
+                    val accounts = getXtreamAccounts().filter { it.isEnabled }
+                    val xJobs = accounts.map { acc ->
+                        async {
+                            try {
+                                val chs = fetchXtreamLiveStreamsOnly(acc.serverUrl, acc.username, acc.password)
+                                chs.filter { isSportsMatchOrChannel(it) }.map {
+                                    it.copy(
+                                        type = MediaType.LIVE_EVENT,
+                                        isAdminAdded = true,
+                                        isLive = true
+                                    )
+                                }
+                            } catch (_: Exception) {
+                                emptyList<MediaItem>()
+                            }
+                        }
+                    }
+                    xJobs.awaitAll().flatten()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+
             val cachedAdmin = getCachedAdminLiveEvents().map { it.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true) }
-            val customStreams = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT && (it.isAdminAdded || it.isFromAdmin) }.map { it.copy(isAdminAdded = true) }
+            val customStreams = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT || isSportsMatchOrChannel(it) }.map { it.copy(isAdminAdded = true, type = MediaType.LIVE_EVENT) }
 
             val sportsM3u = sportsM3uJob.await()
+            val customPlSports = adminCustomPlaylistsJob.await()
             val tapmad = tapmadJob.await()
             val fbEvents = firebaseEventsJob.await()
+            val xtreamSports = xtreamSportsJob.await()
 
             allSports.addAll(fbEvents)
             allSports.addAll(cachedAdmin)
             allSports.addAll(customStreams)
             allSports.addAll(sportsM3u)
+            allSports.addAll(customPlSports)
             allSports.addAll(tapmad)
+            allSports.addAll(xtreamSports)
         }
 
         val filtered = allSports.distinctBy { it.id }.filterNot { deleted.contains(it.id) || isItemDeleted(it) }

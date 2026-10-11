@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -3149,6 +3150,7 @@ fun EventsScreen(
     onSelectMedia: (MediaItem) -> Unit,
     onToggleFavorite: (String) -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedStatus by remember { mutableStateOf("All") }
 
@@ -3169,7 +3171,7 @@ fun EventsScreen(
         }
     }
 
-    val filteredSports = remember(sports, selectedCategory, selectedStatus, tickCount / 10L) {
+    val filteredSports = remember(sports, selectedCategory, selectedStatus, searchQuery, tickCount / 10L) {
         val filtered = sports.filter { item ->
             val isLive = isEventLiveNow(item, tickCount)
             val catMatches = when (selectedCategory) {
@@ -3188,7 +3190,19 @@ fun EventsScreen(
                 "Recent Results" -> !isLive && !item.isLive
                 else -> true
             }
-            catMatches && statusMatches
+            val searchMatches = if (searchQuery.isBlank()) {
+                true
+            } else {
+                val q = searchQuery.trim().lowercase()
+                item.title.lowercase().contains(q) ||
+                    item.category.lowercase().contains(q) ||
+                    (item.tournament?.lowercase()?.contains(q) == true) ||
+                    (item.team1?.lowercase()?.contains(q) == true) ||
+                    (item.team2?.lowercase()?.contains(q) == true) ||
+                    item.servers.any { s -> s.name.lowercase().contains(q) } ||
+                    (item.description?.lowercase()?.contains(q) == true)
+            }
+            catMatches && statusMatches && searchMatches
         }.distinctBy { it.id }
 
         // এডমিন প্যানেল থেকে যেগুলো খেলা এড করা হবে সেগুলো যেন সবার আগে আসে (Admin matches always first)
@@ -3203,6 +3217,56 @@ fun EventsScreen(
             .fillMaxSize()
             .background(Color(0xFF020617))
     ) {
+        // TOP SEARCH BAR FOR LIVE EVENTS & MATCHES
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .testTag("events_search_input"),
+            placeholder = {
+                Text(
+                    text = "খেলা, দল, চ্যানেল বা টুর্নামেন্ট সার্চ করুন (যেমন: Sony LIV, Cricket...)",
+                    color = Color(0xFF64748B),
+                    fontSize = 12.sp
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = "Search Matches",
+                    tint = Color(0xFF00E5FF),
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(
+                        onClick = { searchQuery = "" },
+                        modifier = Modifier.size(30.dp).testTag("events_search_clear_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Clear Search",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFF0F172A),
+                unfocusedContainerColor = Color(0xFF0F172A),
+                focusedBorderColor = Color(0xFF00E5FF),
+                unfocusedBorderColor = Color(0xFF334155),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            shape = RoundedCornerShape(14.dp),
+            singleLine = true
+        )
+
         // TOP FILTER HEADERS (Category chips and Status chips)
         Column(
             modifier = Modifier
@@ -3314,17 +3378,27 @@ fun EventsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.SportsSoccer,
+                        imageVector = if (searchQuery.isNotBlank()) Icons.Rounded.SearchOff else Icons.Rounded.SportsSoccer,
                         contentDescription = null,
                         tint = Color(0xFF475569),
                         modifier = Modifier.size(54.dp)
                     )
                     Text(
-                        text = "এই ফিল্টারে কোনো ম্যাচ পাওয়া যায়নি",
+                        text = if (searchQuery.isNotBlank()) "\"$searchQuery\" দিয়ে কোনো খেলা বা চ্যানেল পাওয়া যায়নি" else "এই ফিল্টারে কোনো ম্যাচ পাওয়া যায়নি",
                         color = Color(0xFF94A3B8),
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
                     )
+                    if (searchQuery.isNotBlank()) {
+                        Button(
+                            onClick = { searchQuery = "" },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("সার্চ রিসেট করুন", color = Color.White, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         } else {
