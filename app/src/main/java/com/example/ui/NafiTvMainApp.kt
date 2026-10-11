@@ -358,15 +358,13 @@ fun NafiTvMainApp(
                         }
                     }
 
-                    // ২. লাইভ ইভেন্ট / খেলাধুলা সমান্তরাল লোডিং (Live Events - All Admin Playlists + Xtream + Sports APIs)
+                    // ২. লাইভ ইভেন্ট / খেলাধুলা সমান্তরাল লোডিং (Live Events - Only from Admin Sports Match Playlists & APIs)
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.LIVE_EVENTS }
                             val adminPlaylistsSports = repository.fetchAllAdminPlaylistsSports()
-                            if (adminPlaylistsSports.isNotEmpty()) {
-                                withContext(Dispatchers.Main) {
-                                    sportsList = adminPlaylistsSports
-                                }
+                            withContext(Dispatchers.Main) {
+                                sportsList = adminPlaylistsSports
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()

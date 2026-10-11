@@ -510,7 +510,7 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getCachedSportsMatches(): List<MediaItem> {
-        return loadListFromFileCache("cache_sports_v2.json").filterNot { it.id.startsWith("sport_default_") }
+        return loadListFromFileCache("cache_sports_v3.json").filterNot { it.id.startsWith("sport_default_") }
     }
 
     fun getCachedAdminLiveEvents(): List<MediaItem> {
@@ -553,7 +553,8 @@ class MediaRepository(private val context: Context) {
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
-        saveListToFileCache("cache_sports_v2.json", list.filterNot { it.id.startsWith("sport_default_") || isDemoChannel(it) })
+        saveListToFileCache("cache_sports_v3.json", list.filterNot { it.id.startsWith("sport_default_") || isDemoChannel(it) })
+        try { java.io.File(context.filesDir, "cache_sports_v2.json").delete() } catch (_: Exception) {}
     }
 
     fun saveCachedAdminLiveEvents(list: List<MediaItem>) {
@@ -1579,24 +1580,15 @@ class MediaRepository(private val context: Context) {
 
                 val isAkamaiOrTapmad = streamUrl.contains("akamaized.net", ignoreCase = true) ||
                         streamUrl.contains("tapmad", ignoreCase = true)
-                val isSportsItem = mediaType == MediaType.LIVE_EVENT ||
+                val isExplicitMatch = cleanTitle.contains(" vs ", ignoreCase = true) ||
+                        cleanTitle.contains(" v ", ignoreCase = true) ||
+                        cleanTitle.contains(" @ ", ignoreCase = true)
+                val isSportsItem = mediaType == MediaType.LIVE_EVENT || isExplicitMatch ||
                         currentGroup.contains("sports", ignoreCase = true) ||
                         currentGroup.contains("cricket", ignoreCase = true) ||
                         currentGroup.contains("football", ignoreCase = true) ||
                         currentGroup.contains("soccer", ignoreCase = true) ||
-                        currentGroup.contains("hockey", ignoreCase = true) ||
-                        currentGroup.contains("badminton", ignoreCase = true) ||
-                        currentGroup.contains("kabaddi", ignoreCase = true) ||
-                        currentGroup.contains("wwe", ignoreCase = true) ||
-                        cleanTitle.contains(" vs ", ignoreCase = true) ||
-                        cleanTitle.contains(" v ", ignoreCase = true) ||
-                        cleanTitle.contains("T Sports", ignoreCase = true) ||
-                        cleanTitle.contains("Willow", ignoreCase = true) ||
-                        cleanTitle.contains("Star Sports", ignoreCase = true) ||
-                        cleanTitle.contains("Sony Ten", ignoreCase = true) ||
-                        cleanTitle.contains("Sony Sports", ignoreCase = true) ||
-                        cleanTitle.contains("SuperSport", ignoreCase = true) ||
-                        cleanTitle.contains("BeIN Sports", ignoreCase = true)
+                        currentGroup.contains("hockey", ignoreCase = true)
 
                 val detectedSportCategory = when {
                     cleanTitle.contains("cricket", ignoreCase = true) || currentGroup.contains("cricket", ignoreCase = true) || cleanTitle.contains("ipl", ignoreCase = true) || cleanTitle.contains("bpl", ignoreCase = true) || cleanTitle.contains("psl", ignoreCase = true) || cleanTitle.contains("t20", ignoreCase = true) || cleanTitle.contains("odi", ignoreCase = true) || cleanTitle.contains("test series", ignoreCase = true) || cleanTitle.contains("willow", ignoreCase = true) -> "Cricket"
@@ -1631,8 +1623,8 @@ class MediaRepository(private val context: Context) {
                     finalServers.firstOrNull()?.url ?: ""
                 }
 
-                val finalMediaType = if (isSportsItem || isAkamaiOrTapmad) MediaType.LIVE_EVENT else mediaType
-                val finalIsLive = if (isSportsItem || isAkamaiOrTapmad) true else (mediaType != MediaType.MOVIE)
+                val finalMediaType = if (mediaType == MediaType.LIVE_EVENT || isExplicitMatch) MediaType.LIVE_EVENT else mediaType
+                val finalIsLive = if (finalMediaType == MediaType.LIVE_EVENT || isAkamaiOrTapmad) true else (mediaType != MediaType.MOVIE)
 
                 items.add(
                     MediaItem(
@@ -4383,15 +4375,15 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * এডমিন প্যানেল থেকে কনফিগার করা সমস্ত M3U প্লেলিস্ট, কাস্টম প্লেলিস্ট, Xtream সার্ভার এবং
-     * স্পোর্টস API থেকে সমস্ত লাইভ ম্যাচ ও খেলাধুলা সমান্তরালভাবে লোড করে (All Sports from Admin Playlists).
+     * এডমিন প্যানেল থেকে শুধুমাত্র 'sports match' অপশনে কনফিগার করা প্লেলিস্ট (Sports M3U URLs),
+     * স্পোর্টস JSON API এবং পাবলিশ করা স্পোর্টস ম্যাচ থেকে সমস্ত খেলা লোড করে (Only from Admin Sports Match option).
      */
     suspend fun fetchAllAdminPlaylistsSports(): List<MediaItem> = withContext(Dispatchers.IO) {
         val deleted = getDeletedIds()
         val allSports = mutableListOf<MediaItem>()
 
         coroutineScope {
-            // 1. Primary Sports M3U URLs (Supports multiple URLs, newline or comma separated)
+            // 1. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা M3U প্লেলিস্টসমূহ (Sports M3U Playlist URLs)
             val sportsM3uJob = async {
                 val urlsRaw = getSavedSportsM3uUrl()
                 val urls = extractUrls(urlsRaw)
@@ -4415,101 +4407,21 @@ class MediaRepository(private val context: Context) {
                 subJobs.awaitAll().flatten()
             }
 
-            // 2. Tapmad / Sports JSON API endpoints
+            // 2. এডমিন প্যানেল -> sports match অপশনে যুক্ত করা লাইভ স্পোর্টস JSON API (Live Events & Tapmad JSON APIs)
             val tapmadJob = async {
                 try {
-                    fetchTapmadSportsMatches().map { it.copy(isAdminAdded = true) }
+                    fetchTapmadSportsMatches().map {
+                        it.copy(
+                            type = MediaType.LIVE_EVENT,
+                            isAdminAdded = true
+                        )
+                    }
                 } catch (_: Exception) {
                     emptyList()
                 }
             }
 
-            // 3. Admin & Custom Playlists added in Admin Panel (AdminTab.PLAYLISTS)
-            val adminPlaylistsJob = async {
-                val playlists = (getAdminPlaylists() + getUserPlaylists()).distinctBy { it.id }
-                val plJobs = playlists.map { pl ->
-                    async {
-                        try {
-                            val items = fetchPlaylistChannels(pl)
-                            val isSportsPlaylist = pl.title.contains("sport", ignoreCase = true) ||
-                                    pl.title.contains("cricket", ignoreCase = true) ||
-                                    pl.title.contains("football", ignoreCase = true) ||
-                                    pl.title.contains("khela", ignoreCase = true) ||
-                                    pl.title.contains("match", ignoreCase = true) ||
-                                    pl.title.contains("event", ignoreCase = true) ||
-                                    pl.title.contains("live", ignoreCase = true) ||
-                                    pl.url.contains("sport", ignoreCase = true) ||
-                                    pl.url.contains("cricket", ignoreCase = true) ||
-                                    (pl.description?.contains("sport", ignoreCase = true) == true)
-
-                            if (isSportsPlaylist) {
-                                items.map { item ->
-                                    item.copy(
-                                        type = MediaType.LIVE_EVENT,
-                                        isAdminAdded = true,
-                                        isLive = true,
-                                        status = if (item.status.isBlank() || item.status.equals("Live TV", ignoreCase = true)) "LIVE" else item.status
-                                    )
-                                }
-                            } else {
-                                // Extract any sports channels / matches from general admin playlists
-                                items.filter { item ->
-                                    val cat = item.category.lowercase()
-                                    val title = item.title.lowercase()
-                                    cat.contains("sport") || cat.contains("cricket") || cat.contains("football") ||
-                                    cat.contains("hockey") || cat.contains("wwe") || cat.contains("badminton") ||
-                                    cat.contains("kabaddi") || title.contains(" vs ") || title.contains(" v ") ||
-                                    title.contains("t sports") || title.contains("star sports") || title.contains("sony ten") ||
-                                    title.contains("willow") || title.contains("bein") || title.contains("supersport") ||
-                                    title.contains("cricket") || title.contains("football") || item.type == MediaType.LIVE_EVENT
-                                }.map { item ->
-                                    item.copy(
-                                        type = MediaType.LIVE_EVENT,
-                                        isAdminAdded = true,
-                                        isLive = true,
-                                        status = if (item.status.isBlank() || item.status.equals("Live TV", ignoreCase = true)) "LIVE" else item.status
-                                    )
-                                }
-                            }
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    }
-                }
-                plJobs.awaitAll().flatten()
-            }
-
-            // 4. Xtream Codes API live sports channels from added accounts
-            val xtreamSportsJob = async {
-                val activeAccounts = getActiveXtreamAccounts().filter { it.includeLive }
-                val xJobs = activeAccounts.map { acc ->
-                    async {
-                        try {
-                            val liveChannels = fetchXtreamLiveStreamsOnly(acc.serverUrl, acc.username, acc.password)
-                            liveChannels.filter { ch ->
-                                val cat = ch.category.lowercase()
-                                val title = ch.title.lowercase()
-                                cat.contains("sport") || cat.contains("cricket") || cat.contains("football") ||
-                                cat.contains("event") || cat.contains("match") || title.contains(" vs ") ||
-                                title.contains("t sports") || title.contains("star sports") || title.contains("sony ten") ||
-                                title.contains("willow") || title.contains("bein")
-                            }.map { ch ->
-                                ch.copy(
-                                    type = MediaType.LIVE_EVENT,
-                                    isAdminAdded = true,
-                                    isLive = true,
-                                    status = if (ch.status.isBlank() || ch.status.equals("Live TV", ignoreCase = true)) "LIVE" else ch.status
-                                )
-                            }
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    }
-                }
-                xJobs.awaitAll().flatten()
-            }
-
-            // 5. Firebase & Local Admin Custom Live Events
+            // 3. এডমিন প্যানেল -> sports match অপশনে ম্যানুয়ালি তৈরি করা স্পোর্টস ম্যাচ (Firebase & Local Admin Events)
             val firebaseEventsJob = async {
                 try {
                     fetchAdminLiveEventsFromFirebase().map { it.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true) }
@@ -4519,19 +4431,15 @@ class MediaRepository(private val context: Context) {
             }
 
             val cachedAdmin = getCachedAdminLiveEvents().map { it.copy(type = MediaType.LIVE_EVENT, isAdminAdded = true) }
-            val customStreams = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT }.map { it.copy(isAdminAdded = true) }
+            val customStreams = getCustomStreams().filter { it.type == MediaType.LIVE_EVENT && (it.isAdminAdded || it.isFromAdmin) }.map { it.copy(isAdminAdded = true) }
 
             val sportsM3u = sportsM3uJob.await()
             val tapmad = tapmadJob.await()
-            val adminPlSports = adminPlaylistsJob.await()
-            val xtreamSports = xtreamSportsJob.await()
             val fbEvents = firebaseEventsJob.await()
 
             allSports.addAll(fbEvents)
-            allSports.addAll(customStreams)
             allSports.addAll(cachedAdmin)
-            allSports.addAll(adminPlSports)
-            allSports.addAll(xtreamSports)
+            allSports.addAll(customStreams)
             allSports.addAll(sportsM3u)
             allSports.addAll(tapmad)
         }
