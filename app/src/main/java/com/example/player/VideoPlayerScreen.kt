@@ -72,6 +72,11 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
+import android.content.Intent
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import java.util.concurrent.TimeUnit
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -94,6 +99,54 @@ import com.example.util.DownloadState
 import com.example.ui.components.BreakingNewsTickerBar
 import com.example.data.MediaRepository
 import kotlinx.coroutines.delay
+
+fun launchExternalPlayer(
+    context: Context,
+    mediaTitle: String,
+    streamUrl: String,
+    headers: Map<String, String>? = null
+) {
+    try {
+        if (streamUrl.isBlank()) {
+            Toast.makeText(context, "কোনো স্ট্রিম লিংক নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cleanUrl = streamUrl.trim()
+        val uri = Uri.parse(cleanUrl)
+        val isHls = cleanUrl.contains(".m3u8", ignoreCase = true) || cleanUrl.contains("/hls/", ignoreCase = true)
+        val mimeType = if (isHls) "application/x-mpegURL" else "video/*"
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra("title", mediaTitle)
+            putExtra("displayName", mediaTitle)
+            putExtra("url", cleanUrl)
+            putExtra("secure_uri", true)
+
+            if (!headers.isNullOrEmpty()) {
+                val headerPairs = headers.flatMap { listOf(it.key, it.value) }.toTypedArray()
+                putExtra("headers", headerPairs)
+                val headerBundle = android.os.Bundle().apply {
+                    for ((k, v) in headers) {
+                        putString(k, v)
+                    }
+                }
+                putExtra("android.media.intent.extra.HTTP_HEADERS", headerBundle)
+                for ((k, v) in headers) {
+                    putExtra("http-header-$k", v)
+                }
+            }
+        }
+
+        val chooser = Intent.createChooser(intent, "প্লেয়ার নির্বাচন করুন (Network Stream / VLC / MX Player)")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        Toast.makeText(context, "এক্সটার্নাল প্লেয়ার খোলা সম্ভব হয়নি: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+    }
+}
 
 enum class MxDragType { NONE, VERTICAL_LEFT, VERTICAL_RIGHT, HORIZONTAL }
 
@@ -493,19 +546,6 @@ fun VideoPlayerScreen(
         }
     }
 
-    DisposableEffect(activity) {
-        onDispose {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
-                try {
-                    val params = PictureInPictureParams.Builder()
-                        .setAutoEnterEnabled(false)
-                        .build()
-                    activity.setPictureInPictureParams(params)
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
     // TV Remote OSD & Number Input
     var showChannelOsd by remember { mutableStateOf(false) }
     var channelOsdKey by remember { mutableLongStateOf(0L) }
@@ -596,26 +636,49 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Hide System Bars safely in fullscreen mode without corrupting Edge-to-Edge window
+    // Hide System Bars (Status Bar & Navigation Bar) completely in fullscreen mode
     DisposableEffect(isFullscreen, activity) {
         val window = activity?.window
         if (window != null) {
+            WindowCompat.setDecorFitsSystemWindows(window, !isFullscreen)
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (isFullscreen) {
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+                insetsController.hide(WindowInsetsCompat.Type.captionBar())
                 window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    window.attributes.layoutInDisplayCutoutMode =
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                )
             } else {
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
-                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
             }
         }
         onDispose {
             val w = activity?.window
             if (w != null) {
+                WindowCompat.setDecorFitsSystemWindows(w, true)
                 val insetsController = WindowCompat.getInsetsController(w, w.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
-                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                @Suppress("DEPRECATION")
+                w.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
             }
         }
     }
@@ -625,9 +688,13 @@ fun VideoPlayerScreen(
         if (isFullscreen) {
             val window = activity?.window
             if (window != null) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+                insetsController.hide(WindowInsetsCompat.Type.captionBar())
             }
         }
     }
@@ -793,14 +860,23 @@ fun VideoPlayerScreen(
         }
 
         // Tapmad / Akamai smart headers
-        val isTapmad = finalCleanUrl.contains("tapmad", ignoreCase = true) ||
-                finalCleanUrl.contains("akamaized.net", ignoreCase = true) ||
-                currentMedia.category.contains("tapmad", ignoreCase = true)
+        val isDirectAkamai = finalCleanUrl.contains("akamaized.net", ignoreCase = true) ||
+                finalCleanUrl.contains("saseries", ignoreCase = true)
+
+        val isTapmad = isDirectAkamai ||
+                finalCleanUrl.contains("tapmad", ignoreCase = true) ||
+                currentMedia.category.contains("tapmad", ignoreCase = true) ||
+                currentMedia.id.contains("tapmad", ignoreCase = true)
 
         if (isTapmad) {
-            if (extractedUa.isNullOrBlank()) extractedUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            if (extractedReferer.isNullOrBlank()) extractedReferer = "https://www.tapmad.com/"
-            if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://www.tapmad.com"
+            if (extractedUa.isNullOrBlank()) {
+                extractedUa = if (isDirectAkamai) "VLC/3.0.18 LibVLC/3.0.18" else "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            }
+            // For direct Akamai streams, only try tapmad.com referer on retryKey == 1 (retry mode 2)
+            if (!isDirectAkamai || playerRetryKey == 1) {
+                if (extractedReferer.isNullOrBlank()) extractedReferer = "https://www.tapmad.com/"
+                if (extractedOrigin.isNullOrBlank()) extractedOrigin = "https://www.tapmad.com"
+            }
         }
 
         // akr4m / bdtv IPTV restream server smart headers & compatibility
@@ -821,6 +897,7 @@ fun VideoPlayerScreen(
         val isM3u8Pattern = pathBeforeQuery.endsWith(".m3u8") ||
                 finalCleanUrl.contains(".m3u8", ignoreCase = true) ||
                 finalCleanUrl.contains("/hls/", ignoreCase = true) ||
+                isDirectAkamai ||
                 isToffee
 
         val isMovieFormat = pathBeforeQuery.endsWith(".mp4") ||
@@ -836,15 +913,17 @@ fun VideoPlayerScreen(
                 currentMedia.isSeries ||
                 isMovieLinkBd
 
-        val isXtreamStream = finalCleanUrl.contains("/live/", ignoreCase = true) ||
-                finalCleanUrl.contains("/movie/", ignoreCase = true) ||
-                finalCleanUrl.contains("/series/", ignoreCase = true) ||
+        val isXtreamStream = !isM3u8Pattern && !isDirectAkamai && (
                 finalCleanUrl.contains("fixtv123", ignoreCase = true) ||
                 finalCleanUrl.contains("rgkkw", ignoreCase = true) ||
                 finalCleanUrl.contains("growthtry", ignoreCase = true) ||
                 finalCleanUrl.contains("my-king", ignoreCase = true) ||
                 finalCleanUrl.contains("zerotv", ignoreCase = true) ||
-                isRgkkw
+                isRgkkw ||
+                (finalCleanUrl.contains("/live/", ignoreCase = true) && !finalCleanUrl.contains(".m3u8", ignoreCase = true)) ||
+                (finalCleanUrl.contains("/movie/", ignoreCase = true) && !finalCleanUrl.contains(".m3u8", ignoreCase = true)) ||
+                (finalCleanUrl.contains("/series/", ignoreCase = true) && !finalCleanUrl.contains(".m3u8", ignoreCase = true))
+        )
 
         val isTsStream = !isM3u8Pattern && !isMovieFormat && (pathBeforeQuery.endsWith(".ts") ||
                 finalCleanUrl.contains("video/mp2t", ignoreCase = true) ||
@@ -853,20 +932,28 @@ fun VideoPlayerScreen(
         val primaryUa = when {
             !extractedUa.isNullOrBlank() -> extractedUa!!
             isToffee -> "Toffee (Linux;Android 14)"
+            isDirectAkamai || isTapmad -> "VLC/3.0.18 LibVLC/3.0.18"
             isMovieLinkBd -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
             isTsStream || isAkr4m || isXtreamStream -> "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)"
             else -> "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         }
 
         // Multi-Agent fallback list for maximum online stream compatibility
-        val fallbackUserAgents = if (isMovieLinkBd) {
-            listOf(
+        val fallbackUserAgents = when {
+            isDirectAkamai || isTapmad -> listOf(
+                "VLC/3.0.18 LibVLC/3.0.18",
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                "ExoPlayerLib/2.19.1",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "IPTVSmartersPro/3.1.5.1 (Linux; Android 14)",
+                "Televizo/1.9.3 (Linux; Android 14)"
+            ).distinct()
+            isMovieLinkBd -> listOf(
                 primaryUa,
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
             ).distinct()
-        } else {
-            listOf(
+            else -> listOf(
                 primaryUa,
                 "VLC/3.0.18 LibVLC/3.0.18",
                 "Televizo/1.9.3 (Linux; Android 14)",
@@ -887,6 +974,7 @@ fun VideoPlayerScreen(
         val finalReferer = when {
             !extractedReferer.isNullOrBlank() -> extractedReferer
             isToffee -> "https://toffeelive.com/"
+            isDirectAkamai -> if (playerRetryKey == 1) "https://www.tapmad.com/" else if (playerRetryKey == 2) streamHostReferer else null
             isTapmad -> "https://www.tapmad.com/"
             isXtreamStream -> null
             isMovieLinkBd -> streamHostReferer ?: "https://fast.movielinkbd.app/"
@@ -895,13 +983,14 @@ fun VideoPlayerScreen(
         val finalOrigin = when {
             !extractedOrigin.isNullOrBlank() -> extractedOrigin
             isToffee -> "https://toffeelive.com"
+            isDirectAkamai -> if (playerRetryKey == 1) "https://www.tapmad.com" else if (playerRetryKey == 2) streamHostOrigin else null
             isTapmad -> "https://www.tapmad.com"
             isXtreamStream -> null
             isMovieLinkBd -> streamHostOrigin ?: "https://fast.movielinkbd.app"
             else -> streamHostOrigin
         }
 
-        val suppressReferer = (playerRetryKey == 1) || isXtreamStream
+        val suppressReferer = (isDirectAkamai && playerRetryKey != 1 && playerRetryKey != 2) || (playerRetryKey == 1 && !isDirectAkamai) || isXtreamStream
         if (!finalReferer.isNullOrBlank() && !suppressReferer) {
             requestHeaders["Referer"] = finalReferer
         }
@@ -931,17 +1020,21 @@ fun VideoPlayerScreen(
         }
 
         requestHeaders["Accept"] = "*/*"
-        requestHeaders["Connection"] = "keep-alive"
-        requestHeaders["Cache-Control"] = "no-cache"
-        if (isTsStream || isXtreamStream || isMovieLinkBd) {
+        if ((isTsStream || isXtreamStream || isMovieLinkBd) && !isM3u8Pattern) {
             requestHeaders["Accept-Encoding"] = "identity"
         }
         requestHeaders.putAll(dynamicHeaders)
 
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(8000)
-            .setReadTimeoutMs(15000)
+        val okHttpClient = okhttp3.OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+            .build()
+
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent(finalUserAgent)
             .setTransferListener(bandwidthMeter)
             .setDefaultRequestProperties(requestHeaders)
@@ -1414,6 +1507,20 @@ fun VideoPlayerScreen(
                             return
                         }
 
+                        // Auto-retry with alternate User-Agent / header configurations (up to 3 retries)
+                        if (playerRetryKey < 3) {
+                            val nextRetry = playerRetryKey + 1
+                            val retryMsg = if (isDirectAkamai || isTapmad) {
+                                "Tapmad / Akamai স্ট্রিম পুনরায় সংযোগ হচ্ছে (মোড ${nextRetry + 1})..."
+                            } else {
+                                "স্ট্রিম বিকল্প মোডে পুনরায় চেষ্টা চলছে (${nextRetry + 1}/4)..."
+                            }
+                            android.widget.Toast.makeText(context, retryMsg, android.widget.Toast.LENGTH_SHORT).show()
+                            playerRetryKey = nextRetry
+                            errorMessage = null
+                            return
+                        }
+
                         // 2. Multi-Server Fast Auto-Switch:
                         // If this channel has alternative servers (e.g. Sports 1 failed -> immediately try Sports 2),
                         // directly switch to the next server without waiting!
@@ -1433,24 +1540,9 @@ fun VideoPlayerScreen(
                             return
                         }
 
-                        val isAkamaiOrTapmad = currentUrl.contains("akamaized.net", ignoreCase = true) ||
-                                currentUrl.contains("tapmad", ignoreCase = true) ||
-                                currentMedia.category.contains("tapmad", ignoreCase = true)
-
-                        if (is403Or401 && isAkamaiOrTapmad) {
-                            val promoServerIdx = allServers.indexOfFirst { it.url.contains("Tapmadpromo", ignoreCase = true) || it.url.contains("promo", ignoreCase = true) }
-                            if (promoServerIdx != -1 && promoServerIdx != selectedServerIndex) {
-                                android.widget.Toast.makeText(context, "লাইভ ব্রডকাস্ট এখনো শুরু হয়নি। বিকল্প প্রোমো সার্ভারে সংযোগ করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
-                                pendingServerSwitchIndex = promoServerIdx
-                                return
-                            }
-                            errorMessage = "⚠️ এই লাইভ ইভেন্টটির সম্প্রচার এখনো শুরু হয়নি (Upcoming Event) অথবা ব্রডকাস্টার সংযোগ বিচ্ছিন্ন রয়েছে। ম্যাচ শুরু হওয়া মাত্রই লাইভ স্ট্রিমিং স্বয়ংক্রিয়ভাবে সচল হবে।"
-                            return
-                        }
-
-                        // 3. All servers exhausted or single server failed -> Instant Auto-Skip to next channel (only for Live TV/Events):
+                        // 3. For Tapmad or single server streams, provide clear message and allow opening in External Player:
                         val activeServerName = currentServers.getOrNull(selectedServerIndex)?.name?.takeIf { it.isNotBlank() } ?: "সার্ভার ${selectedServerIndex + 1}"
-                        if (isAutoSwitchOnFailureEnabled && (currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT)) {
+                        if (isAutoSwitchOnFailureEnabled && (currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT) && !isDirectAkamai) {
                             android.widget.Toast.makeText(
                                 context,
                                 "⚠️ '${currentMedia.title}' সংযোগ করা যায়নি। পরবর্তী চ্যানেলে যাওয়া হচ্ছে...",
@@ -1462,18 +1554,18 @@ fun VideoPlayerScreen(
                             pendingChannelSwitchDelta = 1
                             return
                         }
-                        errorMessage = "$activeServerName: ভিডিও সংযোগ করা সম্ভব হয়নি। বিকল্প সার্ভার বেছে নিন অথবা পুনরায় চেষ্টা করুন।"
+                        errorMessage = "$activeServerName: ভিডিও সংযোগ করা সম্ভব হয়নি। 'Network Stream / এক্সটার্নাল প্লেয়ার' দিয়ে চালাতে পারেন।"
                     }
                 })
             }
     }
 
     // Dead / Unplayable Channel Auto-Skip Watchdog:
-    // If a selected channel hangs or fails to play within 4.5 seconds (or if stream link is blank),
+    // If a selected channel hangs or fails to play within 15 seconds (or if stream link is blank),
     // automatically and forcibly skips to the next server or next channel without waiting for user permission!
     val isChannelOrLive = currentMedia.isLive || currentMedia.type == MediaType.LIVE_TV || currentMedia.type == MediaType.LIVE_EVENT
-    LaunchedEffect(currentMedia.id, currentUrl, hasStartedPlaying, isAutoSwitchOnFailureEnabled, errorMessage) {
-        if (!hasStartedPlaying && errorMessage == null && isAutoSwitchOnFailureEnabled && isChannelOrLive) {
+    LaunchedEffect(currentMedia.id, currentUrl, hasStartedPlaying, isAutoSwitchOnFailureEnabled) {
+        if (!hasStartedPlaying && isAutoSwitchOnFailureEnabled && isChannelOrLive) {
             // Immediate check: if stream URL is blank, skip without waiting
             if (currentUrl.isBlank()) {
                 delay(800)
@@ -1492,8 +1584,8 @@ fun VideoPlayerScreen(
                 return@LaunchedEffect
             }
 
-            // Normal timeout: 4.5 seconds
-            delay(4500)
+            // Timeout: 15 seconds (gives ample time for Akamai HLS playlist negotiation)
+            delay(15000)
             if (!hasStartedPlaying) {
                 val allServers = currentMedia.getAllServers()
                 if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
@@ -1501,7 +1593,7 @@ fun VideoPlayerScreen(
                     val nextServerName = allServers.getOrNull(nextIdx)?.name ?: "সার্ভার ${nextIdx + 1}"
                     android.widget.Toast.makeText(context, "বিকল্প সার্ভার ($nextServerName) চেষ্টা করা হচ্ছে...", android.widget.Toast.LENGTH_SHORT).show()
                     pendingServerSwitchIndex = nextIdx
-                } else {
+                } else if (!isDirectAkamai) {
                     android.widget.Toast.makeText(
                         context,
                         "⚠️ '${currentMedia.title}' চ্যানেলটি সচল নয়। স্বয়ংক্রিয়ভাবে পরবর্তী চ্যানেলে যাওয়া হচ্ছে...",
@@ -1511,6 +1603,8 @@ fun VideoPlayerScreen(
                     playerRetryKey = 0
                     forceWebEngine = false
                     pendingChannelSwitchDelta = 1
+                } else {
+                    errorMessage = "স্ট্রিম সংযোগে বিলম্ব হচ্ছে। 'Network Stream / এক্সটার্নাল প্লেয়ার' দিয়ে চেষ্টা করুন।"
                 }
             }
         }
@@ -1564,35 +1658,10 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Cleanup on dispose and manage background lifecycle cleanly
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, exoPlayer) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
-                    try {
-                        if (!isInPipMode) {
-                            exoPlayer.pause()
-                        }
-                    } catch (_: Exception) {}
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                    try {
-                        if (!isInPipMode && exoPlayer.playbackState != Player.STATE_IDLE) {
-                            exoPlayer.play()
-                        }
-                    } catch (_: Exception) {}
-                }
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
+    // Cleanup on dispose
+    DisposableEffect(exoPlayer) {
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            try {
-                exoPlayer.release()
-            } catch (_: Exception) {}
+            exoPlayer.release()
         }
     }
 
@@ -2125,6 +2194,9 @@ fun VideoPlayerScreen(
                             try {
                                 setEnableComposeSurfaceSyncWorkaround(true)
                             } catch (_: Throwable) {}
+                            try {
+                                (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
+                            } catch (_: Throwable) {}
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -2241,6 +2313,9 @@ fun VideoPlayerScreen(
                             try {
                                 setEnableComposeSurfaceSyncWorkaround(true)
                             } catch (_: Throwable) {}
+                            try {
+                                (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
+                            } catch (_: Throwable) {}
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -2324,6 +2399,14 @@ fun VideoPlayerScreen(
                     onNextChannel = if (playlist.size > 1) {
                         { switchChannel(1) }
                     } else null,
+                    onLaunchExternalPlayer = {
+                        launchExternalPlayer(
+                            context = context,
+                            mediaTitle = currentMedia.title,
+                            streamUrl = currentUrl,
+                            headers = requestHeaders
+                        )
+                    },
                     isAutoSwitchEnabled = isAutoSwitchOnFailureEnabled,
                     onToggleAutoSwitch = { nextState ->
                         isAutoSwitchOnFailureEnabled = nextState
@@ -2412,6 +2495,14 @@ fun VideoPlayerScreen(
                         }
                     },
                     onEnterPip = { enterPictureInPictureMode() },
+                    onLaunchExternalPlayer = {
+                        launchExternalPlayer(
+                            context = context,
+                            mediaTitle = currentMedia.title,
+                            streamUrl = currentUrl,
+                            headers = requestHeaders
+                        )
+                    },
                     onToggleFullscreen = { toggleFullscreen() },
                     onToggleChannelDrawer = { showQuickChannelDrawer = !showQuickChannelDrawer },
                     onOpenSettings = { showPlayerSettingsDialog = true },
@@ -2918,6 +3009,25 @@ fun VideoPlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
+                            launchExternalPlayer(
+                                context = context,
+                                mediaTitle = currentMedia.title,
+                                streamUrl = currentUrl,
+                                headers = requestHeaders
+                            )
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.OpenInNew,
+                            contentDescription = "Network Stream Player",
+                            tint = Color(0xFFA855F7),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = {
                             toggleFullscreen()
                             android.widget.Toast.makeText(context, "টিভি মোড (TV Mode) সক্রিয় করা হয়েছে", android.widget.Toast.LENGTH_SHORT).show()
                         },
@@ -3047,6 +3157,9 @@ fun VideoPlayerScreen(
                                 keepScreenOn = true
                                 try {
                                     setEnableComposeSurfaceSyncWorkaround(true)
+                                } catch (_: Throwable) {}
+                                try {
+                                    (videoSurfaceView as? android.view.SurfaceView)?.setZOrderMediaOverlay(true)
                                 } catch (_: Throwable) {}
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -3261,6 +3374,24 @@ fun VideoPlayerScreen(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                     ) {
                                         Text("পুনরায় চেষ্টা", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            launchExternalPlayer(
+                                                context = context,
+                                                mediaTitle = currentMedia.title,
+                                                streamUrl = currentUrl,
+                                                headers = requestHeaders
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6), contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Network Stream / অন্য প্লেয়ার", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
 
                                     if (servers.size > 1) {
@@ -4958,6 +5089,7 @@ private fun FullscreenErrorOverlay(
     onSwitchToWebPlayer: (() -> Unit)? = null,
     onNextServer: (() -> Unit)? = null,
     onNextChannel: (() -> Unit)? = null,
+    onLaunchExternalPlayer: (() -> Unit)? = null,
     isAutoSwitchEnabled: Boolean = true,
     onToggleAutoSwitch: ((Boolean) -> Unit)? = null
 ) {
@@ -4987,6 +5119,18 @@ private fun FullscreenErrorOverlay(
                         Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("পুনরায় চেষ্টা", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (onLaunchExternalPlayer != null) {
+                        Button(
+                            onClick = onLaunchExternalPlayer,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6), contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Network Stream / অন্য প্লেয়ার", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
                     if (onNextServer != null) {
@@ -5356,6 +5500,7 @@ private fun FullscreenControlsOverlay(
     onNextEpisode: (() -> Unit)? = null,
     onToggleAspect: () -> Unit,
     onEnterPip: () -> Unit = {},
+    onLaunchExternalPlayer: (() -> Unit)? = null,
     onToggleFullscreen: () -> Unit,
     onToggleChannelDrawer: () -> Unit,
     onOpenSettings: () -> Unit = {},
@@ -5511,6 +5656,18 @@ private fun FullscreenControlsOverlay(
                     size = 38.dp,
                     iconSize = 22.dp
                 )
+
+                // Play in External Video Player (Network Stream Player / VLC / MX Player)
+                if (onLaunchExternalPlayer != null) {
+                    TvPlayerIconButton(
+                        onClick = onLaunchExternalPlayer,
+                        icon = Icons.Rounded.OpenInNew,
+                        contentDescription = "External Player",
+                        tint = Color(0xFFA855F7),
+                        size = 38.dp,
+                        iconSize = 22.dp
+                    )
+                }
 
                 // Player Settings
                 TvPlayerIconButton(
