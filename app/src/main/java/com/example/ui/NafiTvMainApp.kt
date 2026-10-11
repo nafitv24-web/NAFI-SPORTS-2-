@@ -370,7 +370,7 @@ fun NafiTvMainApp(
                             val sportsM3uUrl = repository.getSavedSportsM3uUrl()
                             val sportsM3uJob = async {
                                 if (sportsM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
+                                    kotlinx.coroutines.withTimeoutOrNull(8000) {
                                         try {
                                             repository.parseM3uFromUrl(sportsM3uUrl).map {
                                                 it.copy(
@@ -384,7 +384,7 @@ fun NafiTvMainApp(
                                 } else emptyList()
                             }
                             val tapmadJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(3500) {
+                                kotlinx.coroutines.withTimeoutOrNull(8000) {
                                     try {
                                         repository.fetchTapmadSportsMatches().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }

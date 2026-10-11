@@ -1432,12 +1432,20 @@ fun VideoPlayerScreen(
                         // If this channel has alternative servers (e.g. Sports 1 failed -> immediately try Sports 2),
                         // directly switch to the next server without waiting!
                         val allServers = currentMedia.getAllServers()
+                        val isAkamai403 = (is403Or401 || isParsingOrContainerError) &&
+                                (currentUrl.contains("akamaized.net", ignoreCase = true) || currentUrl.contains("tapmad", ignoreCase = true))
+
                         if (allServers.size > 1 && selectedServerIndex < allServers.size - 1) {
                             val nextIdx = selectedServerIndex + 1
                             val nextServerName = allServers.getOrNull(nextIdx)?.name ?: "সার্ভার ${nextIdx + 1}"
+                            val switchMsg = if (isAkamai403) {
+                                "ট্যাপমাড আকামাই সার্ভার টোকেন সুরক্ষিত। সক্রিয় বিকল্প সার্ভারে ($nextServerName) সুইচ করা হচ্ছে..."
+                            } else {
+                                "বিকল্প সার্ভার ($nextServerName) চালু হচ্ছে..."
+                            }
                             android.widget.Toast.makeText(
                                 context,
-                                "বিকল্প সার্ভার ($nextServerName) চালু হচ্ছে...",
+                                switchMsg,
                                 android.widget.Toast.LENGTH_SHORT
                             ).show()
                             errorMessage = null
@@ -1445,6 +1453,27 @@ fun VideoPlayerScreen(
                             forceWebEngine = false
                             pendingServerSwitchIndex = nextIdx
                             return
+                        }
+
+                        // 2.1 Dynamic Match Server Resolution for single-stream Tapmad / Sports items
+                        if (isAkamai403 || currentMedia.category.contains("cricket", ignoreCase = true) || currentMedia.type == MediaType.LIVE_EVENT) {
+                            try {
+                                val resolved = com.example.data.MediaRepository(context).resolveWorkingSportsServers(currentMedia.title, currentUrl)
+                                val fallbackServer = resolved.firstOrNull {
+                                    !it.url.contains("akamaized.net", ignoreCase = true) && !it.url.equals(currentUrl, ignoreCase = true)
+                                }
+                                if (fallbackServer != null && playerRetryKey < 2) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "ট্যাপমাড আকামাই ৪0৩ সুরক্ষিত। লাইভ বিকল্প সার্ভার (${fallbackServer.name}) চালু হচ্ছে...",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                    currentUrl = fallbackServer.url
+                                    playerRetryKey++
+                                    errorMessage = null
+                                    return
+                                }
+                            } catch (_: Exception) {}
                         }
 
                         // 3. All servers exhausted or single server failed -> Instant Auto-Skip to next channel (only for Live TV/Events):

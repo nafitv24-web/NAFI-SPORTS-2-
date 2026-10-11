@@ -100,10 +100,14 @@ fun LiveTvTabScreen(
     val coroutineScope = rememberCoroutineScope()
     val firstChannelFocusRequester = remember { FocusRequester() }
 
-    // Asynchronous background preparation so tab switch is 0ms instantaneous without UI lag
-    var isAsyncPreparing by remember { mutableStateOf(channels.isNotEmpty()) }
-    var preparedChannels by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var preparedCategories by remember { mutableStateOf<List<String>>(listOf("ALL")) }
+    // Instantaneous 0ms channel preparation from incoming channels
+    var isAsyncPreparing by remember { mutableStateOf(false) }
+    var preparedChannels by remember { mutableStateOf(channels) }
+    var preparedCategories by remember {
+        mutableStateOf(
+            listOf("ALL", "FAVORITE") + channels.mapNotNull { it.category?.takeIf { c -> c.isNotBlank() } }.distinct()
+        )
+    }
 
     LaunchedEffect(channels, isAdultHidden, repository) {
         if (channels.isEmpty()) {
@@ -177,6 +181,18 @@ fun LiveTvTabScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
+        if (isLoading && preparedChannels.isNotEmpty()) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.5.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = Color(0xFF00E5FF),
+                trackColor = Color(0xFF1E293B)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
         // Search and Filter Header
         Row(
             modifier = Modifier.fillMaxWidth(),
