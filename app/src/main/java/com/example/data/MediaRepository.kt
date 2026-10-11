@@ -3119,6 +3119,7 @@ class MediaRepository(private val context: Context) {
                             includeLive = obj.optBoolean("includeLive", true),
                             includeVod = obj.optBoolean("includeVod", true),
                             includeSeries = obj.optBoolean("includeSeries", true),
+                            logoUrl = obj.optString("logoUrl", null).takeIf { it?.isNotBlank() == true },
                             lastSyncTime = obj.optLong("lastSyncTime", 0L),
                             statusMessage = obj.optString("statusMessage", null).takeIf { it?.isNotBlank() == true }
                         )
@@ -3139,6 +3140,7 @@ class MediaRepository(private val context: Context) {
                 includeLive = true,
                 includeVod = true,
                 includeSeries = true,
+                logoUrl = null,
                 statusMessage = "সক্রিয় (Active)"
             )
             list.add(defaultAcc)
@@ -3177,6 +3179,7 @@ class MediaRepository(private val context: Context) {
             obj.put("includeLive", a.includeLive)
             obj.put("includeVod", a.includeVod)
             obj.put("includeSeries", a.includeSeries)
+            if (a.logoUrl != null) obj.put("logoUrl", a.logoUrl)
             obj.put("lastSyncTime", a.lastSyncTime)
             obj.put("statusMessage", a.statusMessage ?: "")
             arr.put(obj)
@@ -3236,10 +3239,10 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
-            // High-speed parallel category fetch (up to 32 top categories concurrently in batches of 16 for ultra-fast loading)
-            val selectedCats = targetCatIds.take(36)
+            // High-speed parallel category fetch (top prioritized categories for fast loading)
+            val selectedCats = targetCatIds.take(20)
             coroutineScope {
-                selectedCats.chunked(12).forEach { chunk ->
+                selectedCats.chunked(10).forEach { chunk ->
                     val chunkJobs = chunk.map { catId ->
                         async {
                             try {
@@ -3475,7 +3478,87 @@ class MediaRepository(private val context: Context) {
         allItems.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
     }
 
+    fun getCachedXtreamAccountMovies(accId: String): List<MediaItem> {
+        return loadListFromFileCache("cache_xtream_mov_${accId}.json")
+    }
+
+    fun saveCachedXtreamAccountMovies(accId: String, list: List<MediaItem>) {
+        saveListToFileCache("cache_xtream_mov_${accId}.json", list)
+    }
+
+    suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cached = getCachedXtreamAccountMovies(account.id)
+        if (cached.isNotEmpty()) {
+            return@withContext cached
+        }
+        val subItems = mutableListOf<MediaItem>()
+        coroutineScope {
+            val vodJob = if (account.includeVod) async { fetchXtreamVodOnly(account.serverUrl, account.username, account.password) } else null
+            val seriesJob = if (account.includeSeries) async { fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password) } else null
+            vodJob?.await()?.let { subItems.addAll(it) }
+            seriesJob?.await()?.let { subItems.addAll(it) }
+        }
+        val strictlyMovies = subItems.filter { item ->
+            !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+        }.map {
+            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+        }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+        if (strictlyMovies.isNotEmpty()) {
+            saveCachedXtreamAccountMovies(account.id, strictlyMovies)
+        }
+        strictlyMovies
+    }
+
+    fun getCachedPlaylistMovies(playlistId: String): List<MediaItem> {
+        return loadListFromFileCache("cache_pl_mov_${playlistId}.json")
+    }
+
+    fun saveCachedPlaylistMovies(playlistId: String, list: List<MediaItem>) {
+        saveListToFileCache("cache_pl_mov_${playlistId}.json", list)
+    }
+
+    suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cached = getCachedPlaylistMovies(playlist.id)
+        if (cached.isNotEmpty()) {
+            return@withContext cached
+        }
+        val allItems = if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
+            val subItems = mutableListOf<MediaItem>()
+            coroutineScope {
+                val vodJob = async { fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password) }
+                val seriesJob = async { fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password) }
+                subItems.addAll(vodJob.await())
+                subItems.addAll(seriesJob.await())
+            }
+            subItems
+        } else {
+            fetchPlaylistChannels(playlist)
+        }
+
+        // STRICT FILTER: Absolutely NO Live TV!
+        val strictlyMovies = allItems.filter { item ->
+            val isExplicitLive = item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
+                    item.category.contains("Live TV", ignoreCase = true) ||
+                    item.category.contains("Sports", ignoreCase = true) ||
+                    item.category.contains("News", ignoreCase = true) ||
+                    (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
+            !isExplicitLive
+        }.map {
+            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+        }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+        if (strictlyMovies.isNotEmpty()) {
+            saveCachedPlaylistMovies(playlist.id, strictlyMovies)
+        }
+        strictlyMovies
+    }
+
     suspend fun fetchAllXtreamMoviesFast(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cached = getCachedMoviesList()
+        if (cached.isNotEmpty()) {
+            return@withContext cached
+        }
         fetchAllXtreamMoviesAndSeries()
     }
 

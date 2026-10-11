@@ -1,13 +1,14 @@
 package com.example.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,43 +29,42 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
@@ -77,11 +77,66 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.data.MediaRepository
 import com.example.model.MediaItem
-
+import com.example.model.MediaType
+import com.example.model.MovieProvider
+import com.example.model.PlaylistInfo
+import com.example.model.XtreamAccount
 import com.example.ui.components.NafiLogoLoadingView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Representation of an Admin-configured Xtream server, Playlist, or OTT Platform Hub
+ * displayed in circular icon style matching IMG_20261011_152459.jpg
+ */
+enum class HubCategory {
+    XTREAM, PLAYLIST, OTT_BRAND, PROVIDER
+}
+
+data class MovieHubItem(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val hubCategory: HubCategory,
+    val logoUrl: String? = null,
+    val brandTag: String = "",
+    val serverHost: String = "",
+    val xtreamAccount: XtreamAccount? = null,
+    val playlist: PlaylistInfo? = null,
+    val provider: MovieProvider? = null,
+    val gradientColors: List<Color> = listOf(Color(0xFF1E1B4B), Color(0xFF0F172A)),
+    val accentColor: Color = Color(0xFF00E5FF)
+)
+
+/**
+ * Strict Gatekeeper: Guarantees that absolutely NO Live TV channel, Sports event,
+ * or TV broadcast ever appears in the Movies section. ONLY movies and web series are allowed.
+ */
+fun isPureMovieOrSeries(item: MediaItem): Boolean {
+    if (item.isLive) return false
+    if (item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT) return false
+
+    val cat = item.category.lowercase()
+    val liveKeywords = listOf(
+        "live tv", "sports", "cricket", "football", "news", "bangladesh tv", "bd tv",
+        "indian tv", "telecom", "channel", "live-event", "live matches", "sport"
+    )
+    if (liveKeywords.any { cat.contains(it) }) return false
+
+    val title = item.title.lowercase()
+    if (title.contains(" vs ") || title.contains(" v ") || (title.contains(" live ") && !title.contains("alive"))) return false
+
+    val url = item.streamUrl.lowercase()
+    if (url.contains("/live/") && !url.contains("/movie/") && !url.contains("/series/")) return false
+    if (url.endsWith(".m3u8") && (cat.contains("tv") || title.contains("tv") || cat.contains("channel"))) {
+        if (!url.contains("movie") && !url.contains("vod") && !url.contains("series")) return false
+    }
+
+    return true
+}
 
 @Composable
 fun MoviesTabScreen(
@@ -90,97 +145,296 @@ fun MoviesTabScreen(
     isLoading: Boolean = false,
     isTvMode: Boolean = false,
     isAdultHidden: Boolean = true,
-    repository: com.example.data.MediaRepository? = null,
+    repository: MediaRepository? = null,
     onSelectMedia: (MediaItem) -> Unit,
     onSelectMediaWithPlaylist: ((MediaItem, List<MediaItem>) -> Unit)? = null,
     onToggleFavorite: (String) -> Unit,
     onOpenOfflineDownloads: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedTypeFilter by remember { mutableStateOf("ALL") }
+    var isGridViewActive by remember { mutableStateOf(false) }
+
+    // Dialog state
     var selectedSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
+    var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
+
+    // Active Selected Server or OTT Platform Hub
+    var selectedHub by remember { mutableStateOf<MovieHubItem?>(null) }
+    var isHubLoading by remember { mutableStateOf(false) }
+    val hubMoviesCache = remember { mutableStateMapOf<String, List<MediaItem>>() }
+
+    // BackHandler: If inside a selected server, back press pops back to All Movies showcase
+    BackHandler(enabled = selectedHub != null) {
+        selectedHub = null
+        selectedCategory = "All"
+        searchQuery = ""
+    }
 
     val handleItemSelect: (MediaItem) -> Unit = { item ->
-        if ((item.isSeries || item.type == com.example.model.MediaType.SERIES) && repository != null) {
+        if ((item.isSeries || item.type == MediaType.SERIES) && repository != null) {
             selectedSeriesForDialog = item
         } else {
             onSelectMedia(item)
         }
     }
 
-    // Fast initial fallback if movies list is currently empty
-    val effectiveSourceMovies = remember(movies) {
-        val src = if (movies.isNotEmpty()) movies
-        else repository?.getInitialMoviesSeries() ?: repository?.getDefaultBuiltinMovies() ?: emptyList()
-        src.sortedByDescending { it.movieSortWeight }
+    // Build the list of Admin-added Xtream Servers, Playlists, and OTT Brand Hubs
+    // Matching IMG_20261011_152459.jpg
+    val adminHubs = remember(repository) {
+        val hubs = mutableListOf<MovieHubItem>()
+
+        // 1. Preset Official OTT Brands matching IMG_20261011_152459.jpg exactly
+        val ottBrands = listOf(
+            MovieHubItem(
+                id = "ott_netflix",
+                title = "Netflix",
+                subtitle = "অরিজিনাল মুভি ও সিরিজ",
+                brandTag = "NETFLIX",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBIO3ih/9e630327e04e2e0a9dac340d97a12930/Netflix_Symbol_PMS.png",
+                gradientColors = listOf(Color(0xFFE50914), Color(0xFF141414)),
+                accentColor = Color(0xFFE50914)
+            ),
+            MovieHubItem(
+                id = "ott_hotstar",
+                title = "Hotstar",
+                subtitle = "ব্লকবাস্টার ও স্পেশালস",
+                brandTag = "HOTSTAR",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/320px-Disney%2B_Hotstar_logo.svg.png",
+                gradientColors = listOf(Color(0xFF0F1035), Color(0xFF1F4172)),
+                accentColor = Color(0xFF38BDF8)
+            ),
+            MovieHubItem(
+                id = "ott_sonyliv",
+                title = "SonyLIV",
+                subtitle = "সনি প্রিমিয়াম মুভি",
+                brandTag = "SONY LIV",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png",
+                gradientColors = listOf(Color(0xFF2E0249), Color(0xFF0F044C)),
+                accentColor = Color(0xFFC084FC)
+            ),
+            MovieHubItem(
+                id = "ott_zee5",
+                title = "ZEE5",
+                subtitle = "জি৫ সিনেমা ও সিরিজ",
+                brandTag = "ZEE5",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Zee5_Official_logo.svg/320px-Zee5_Official_logo.svg.png",
+                gradientColors = listOf(Color(0xFF700B97), Color(0xFF3E065F)),
+                accentColor = Color(0xFFA855F7)
+            ),
+            MovieHubItem(
+                id = "ott_prime",
+                title = "Prime Video",
+                subtitle = "আমাজন এক্সক্লুসিভ",
+                brandTag = "AMAZON PRIME",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/320px-Amazon_Prime_Video_logo.svg.png",
+                gradientColors = listOf(Color(0xFF00A8E1), Color(0xFF0A192F)),
+                accentColor = Color(0xFF00A8E1)
+            ),
+            MovieHubItem(
+                id = "ott_hoichoi",
+                title = "hoichoi",
+                subtitle = "সেরা বাংলা সিনেমা ও সিরিজ",
+                brandTag = "HOICHOI",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Hoichoi_logo.svg/320px-Hoichoi_logo.svg.png",
+                gradientColors = listOf(Color(0xFFDC2626), Color(0xFF450A0A)),
+                accentColor = Color(0xFFEF4444)
+            ),
+            MovieHubItem(
+                id = "ott_chorki",
+                title = "Chorki",
+                subtitle = "ফিল্ম, ফান ও ফুর্তি",
+                brandTag = "CHORKI",
+                hubCategory = HubCategory.OTT_BRAND,
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Chorki_logo.png/320px-Chorki_logo.png",
+                gradientColors = listOf(Color(0xFFD97706), Color(0xFF451A03)),
+                accentColor = Color(0xFFF59E0B)
+            )
+        )
+        hubs.addAll(ottBrands)
+
+        if (repository != null) {
+            // 2. Xtream Codes Accounts configured in Admin Panel
+            val xtreamAccounts = repository.getXtreamAccounts().filter { it.isEnabled }
+            val xtreamGradients = listOf(
+                listOf(Color(0xFF0F766E), Color(0xFF042F2E)), // Emerald/Cyan
+                listOf(Color(0xFF1D4ED8), Color(0xFF0F172A)), // Royal Blue
+                listOf(Color(0xFF7C3AED), Color(0xFF3B0764)), // Purple/Violet
+                listOf(Color(0xFFBE123C), Color(0xFF4C0519))  // Crimson
+            )
+            xtreamAccounts.forEachIndexed { idx, acc ->
+                val grad = xtreamGradients[idx % xtreamGradients.size]
+                val cleanHost = acc.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                hubs.add(
+                    MovieHubItem(
+                        id = acc.id,
+                        title = acc.name.ifBlank { "Xtream Server ${idx + 1}" },
+                        subtitle = "Xtream Codes • VOD & Series",
+                        hubCategory = HubCategory.XTREAM,
+                        serverHost = cleanHost,
+                        xtreamAccount = acc,
+                        logoUrl = acc.logoUrl,
+                        gradientColors = grad,
+                        accentColor = Color(0xFF06B6D4)
+                    )
+                )
+            }
+
+            // 3. Custom & Admin Movie Playlists configured in Admin Panel
+            val customPlaylists = repository.getCustomPlaylists()
+            val plGradients = listOf(
+                listOf(Color(0xFFC2410C), Color(0xFF431407)), // Amber/Orange
+                listOf(Color(0xFF0369A1), Color(0xFF082F49)), // Sky Blue
+                listOf(Color(0xFF4338CA), Color(0xFF1E1B4B))  // Indigo
+            )
+            customPlaylists.forEachIndexed { idx, pl ->
+                val grad = plGradients[idx % plGradients.size]
+                val cleanHost = if (!pl.serverUrl.isNullOrBlank()) {
+                    pl.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                } else if (pl.url.isNotBlank()) {
+                    pl.url.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                } else "Playlist"
+                hubs.add(
+                    MovieHubItem(
+                        id = pl.id,
+                        title = pl.title.ifBlank { "Playlist ${idx + 1}" },
+                        subtitle = if (pl.type.equals("XTREAM", ignoreCase = true)) "Xtream Playlist" else "M3U Movie Playlist",
+                        hubCategory = HubCategory.PLAYLIST,
+                        serverHost = cleanHost,
+                        playlist = pl,
+                        logoUrl = pl.logoUrl,
+                        gradientColors = grad,
+                        accentColor = Color(0xFFF59E0B)
+                    )
+                )
+            }
+
+            // 4. Saved Movie M3U URL if set in Admin panel
+            val savedMoviesM3u = repository.getSavedMoviesM3uUrl()
+            if (savedMoviesM3u.isNotBlank() && hubs.none { it.serverHost.contains("movies.json") || it.id == "saved_movies_m3u" }) {
+                hubs.add(
+                    MovieHubItem(
+                        id = "saved_movies_m3u",
+                        title = "NAFI OTT VOD",
+                        subtitle = "Cloud Movie Library",
+                        hubCategory = HubCategory.PLAYLIST,
+                        serverHost = savedMoviesM3u.substringBefore("?").takeLast(25),
+                        playlist = PlaylistInfo(
+                            id = "saved_movies_m3u",
+                            title = "NAFI OTT VOD",
+                            url = savedMoviesM3u,
+                            type = "M3U",
+                            isAdmin = true
+                        ),
+                        gradientColors = listOf(Color(0xFF0284C7), Color(0xFF0B132B)),
+                        accentColor = Color(0xFF00E5FF)
+                    )
+                )
+            }
+        }
+
+        hubs.distinctBy { it.id }
     }
 
-    // Asynchronous background preparation so tab switch is 0ms instantaneous without UI freeze
-    val initPriorityList = listOf(
-        "BANGLA (2026)", "BANGLA (2025)", "BANGLA (2024)", "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies", "BANGLA",
-        "STAR JALSHA", "ZEE BANGLA", "SUN BANGLA", "COLORS BANGLA", "HOICHOI", "Chorki/Bangla",
-        "HUM TV", "PAKISTANI DRAMA", "HINDI TV SERIES", "STAR PLUS", "STAR BHARAT",
-        "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR", "SONY LIV"
-    )
-
-    var isAsyncPreparing by remember { mutableStateOf(false) }
-    var preparedMovies by remember { mutableStateOf(effectiveSourceMovies) }
-    var preparedCategorizedMovies by remember {
-        mutableStateOf<List<Pair<String, List<MediaItem>>>>(
-            if (effectiveSourceMovies.isNotEmpty()) {
-                val grouped = LinkedHashMap<String, MutableList<MediaItem>>()
-                for (m in effectiveSourceMovies) {
-                    val cat = m.category.trim()
-                    if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true)) {
-                        grouped.getOrPut(cat) { mutableListOf() }.add(m)
+    // Load Hub Movies on-demand when user clicks an Xtream Server, Playlist, or OTT Platform Hub
+    LaunchedEffect(selectedHub) {
+        val hub = selectedHub ?: return@LaunchedEffect
+        if (!hubMoviesCache.containsKey(hub.id) && repository != null) {
+            isHubLoading = true
+            withContext(Dispatchers.IO) {
+                try {
+                    val hubMoviesList = when (hub.hubCategory) {
+                        HubCategory.XTREAM -> {
+                            hub.xtreamAccount?.let { repository.fetchXtreamAccountMovies(it) } ?: emptyList()
+                        }
+                        HubCategory.PLAYLIST -> {
+                            hub.playlist?.let { repository.fetchPlaylistMoviesOnly(it) } ?: emptyList()
+                        }
+                        HubCategory.OTT_BRAND -> {
+                            // Filter current movies matching this OTT Brand tag
+                            val allAvailable = (movies.ifEmpty { repository.getCachedMoviesList() })
+                            val brandTag = hub.brandTag.lowercase()
+                            allAvailable.filter { item ->
+                                val cat = item.category.lowercase()
+                                val title = item.title.lowercase()
+                                val desc = (item.description ?: "").lowercase()
+                                cat.contains(brandTag) || title.contains(brandTag) || desc.contains(brandTag)
+                            }.ifEmpty {
+                                when (hub.id) {
+                                    "ott_hoichoi", "ott_chorki" -> allAvailable.filter {
+                                        it.category.lowercase().contains("bangla") || it.title.lowercase().contains("bangla")
+                                    }
+                                    "ott_sonyliv", "ott_zee5" -> allAvailable.filter {
+                                        it.category.lowercase().contains("hindi") || it.category.lowercase().contains("bollywood")
+                                    }
+                                    else -> allAvailable
+                                }
+                            }
+                        }
+                        HubCategory.PROVIDER -> {
+                            emptyList()
+                        }
+                    }
+                    val strictlyPure = hubMoviesList.filter { isPureMovieOrSeries(it) }
+                    withContext(Dispatchers.Main) {
+                        hubMoviesCache[hub.id] = strictlyPure
+                        isHubLoading = false
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    withContext(Dispatchers.Main) {
+                        hubMoviesCache[hub.id] = emptyList()
+                        isHubLoading = false
                     }
                 }
-                val rawPairs = grouped.map { (cat, list) -> cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight } }
-                rawPairs.sortedWith(
-                    compareBy<Pair<String, List<MediaItem>>> { pair ->
-                        val cat = pair.first
-                        val idx = initPriorityList.indexOfFirst { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) }
-                        if (idx != -1) idx else 999
-                    }.thenByDescending { pair ->
-                        pair.second.firstOrNull()?.movieSortWeight ?: 0L
-                    }
-                )
-            } else emptyList()
-        )
-    }
-    var preparedCategories by remember {
-        mutableStateOf<List<String>>(
-            if (preparedCategorizedMovies.isNotEmpty()) {
-                val uniqueCats = preparedCategorizedMovies.map { it.first }
-                listOf("All", "ডাউনলোডসমূহ") + uniqueCats
-            } else {
-                listOf("All", "ডাউনলোডসমূহ")
             }
-        )
+        }
     }
-    var preparedFeaturedMovies by remember {
-        mutableStateOf<List<MediaItem>>(
-            effectiveSourceMovies.filter { !it.logoUrl.isNullOrBlank() }.take(10).ifEmpty { effectiveSourceMovies.take(8) }
+
+    // The active source of movies: either the selected Hub's movies, or the general movies list
+    val currentActiveSourceMovies = remember(selectedHub, hubMoviesCache, movies, repository) {
+        val rawList = if (selectedHub != null) {
+            hubMoviesCache[selectedHub!!.id] ?: repository?.getCachedXtreamAccountMovies(selectedHub!!.id) ?: repository?.getCachedPlaylistMovies(selectedHub!!.id) ?: emptyList()
+        } else {
+            if (movies.isNotEmpty()) movies else repository?.getInitialMoviesSeries() ?: repository?.getDefaultBuiltinMovies() ?: emptyList()
+        }
+        // STRICT FILTER: Absolutely NO Live TV!
+        rawList.filter { isPureMovieOrSeries(it) }.map {
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+        }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+    }
+
+    // Filter adult content and type (Movie / Series)
+    var preparedMovies by remember { mutableStateOf(currentActiveSourceMovies) }
+    var preparedCategorizedMovies by remember { mutableStateOf<List<Pair<String, List<MediaItem>>>>(emptyList()) }
+    var preparedCategories by remember { mutableStateOf<List<String>>(listOf("All", "ডাউনলোডসমূহ")) }
+    var preparedFeaturedMovies by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+
+    val priorityList = remember {
+        listOf(
+            "BANGLA (2026)", "BANGLA (2025)", "BANGLA (2024)", "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies", "BANGLA",
+            "STAR JALSHA", "ZEE BANGLA", "SUN BANGLA", "COLORS BANGLA", "HOICHOI", "Chorki/Bangla",
+            "HUM TV", "PAKISTANI DRAMA", "HINDI TV SERIES", "STAR PLUS", "STAR BHARAT",
+            "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR", "SONY LIV"
         )
     }
 
-    LaunchedEffect(movies, isAdultHidden, selectedTypeFilter, repository) {
-        val sourceList = if (movies.isNotEmpty()) movies else repository?.getInitialMoviesSeries() ?: repository?.getDefaultBuiltinMovies() ?: emptyList()
-        if (sourceList.isEmpty()) {
-            preparedMovies = emptyList()
-            preparedCategories = listOf("All", "ডাউনলোডসমূহ")
-            preparedCategorizedMovies = emptyList()
-            preparedFeaturedMovies = emptyList()
-            isAsyncPreparing = false
-            return@LaunchedEffect
-        }
+    LaunchedEffect(currentActiveSourceMovies, isAdultHidden, selectedTypeFilter, repository) {
         withContext(Dispatchers.Default) {
             val shouldFilterAdult = isAdultHidden || (repository?.isAdultContentHidden() == true)
             val adultFiltered = if (shouldFilterAdult && repository != null) {
                 val hiddenIds = repository.getHiddenItemIds()
                 val hiddenKeywords = repository.getHiddenKeywords().map { it.lowercase() }
-                sourceList.filterNot { m ->
+                currentActiveSourceMovies.filterNot { m ->
                     if (repository.isAdultCategory(m.category) || repository.isAdultMedia(m) || repository.isMediaHidden(m)) return@filterNot true
                     if (hiddenIds.contains(m.id)) return@filterNot true
                     if (hiddenKeywords.isNotEmpty()) {
@@ -191,21 +445,21 @@ fun MoviesTabScreen(
                 }
             } else if (shouldFilterAdult) {
                 val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
-                sourceList.filterNot { m ->
+                currentActiveSourceMovies.filterNot { m ->
                     val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
                     adultWords.any { txt.contains(it) }
                 }
             } else {
-                sourceList
+                currentActiveSourceMovies
             }
 
             val typeFiltered = when (selectedTypeFilter) {
-                "MOVIE" -> adultFiltered.filter { !it.isSeries && it.type != com.example.model.MediaType.SERIES }
-                "SERIES" -> adultFiltered.filter { it.isSeries || it.type == com.example.model.MediaType.SERIES }
+                "MOVIE" -> adultFiltered.filter { !it.isSeries && it.type != MediaType.SERIES }
+                "SERIES" -> adultFiltered.filter { it.isSeries || it.type == MediaType.SERIES }
                 else -> adultFiltered
             }.sortedByDescending { it.movieSortWeight }
 
-            // High performance O(N) grouping in a single pass instead of N * M iterations!
+            // Group into Categories
             val groupedMap = LinkedHashMap<String, MutableList<MediaItem>>()
             for (m in typeFiltered) {
                 val cat = m.category.trim()
@@ -217,12 +471,6 @@ fun MoviesTabScreen(
                 cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
             }
 
-            val priorityList = listOf(
-                "BANGLA (2026)", "BANGLA (2025)", "BANGLA (2024)", "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies", "BANGLA",
-                "STAR JALSHA", "ZEE BANGLA", "SUN BANGLA", "COLORS BANGLA", "HOICHOI", "Chorki/Bangla",
-                "HUM TV", "PAKISTANI DRAMA", "HINDI TV SERIES", "STAR PLUS", "STAR BHARAT",
-                "COLORS HINDI", "ZEE TV", "NETFLIX", "AMAZON PRIME", "DISNEY+HOTSTAR", "SONY LIV"
-            )
             val sortedCatPairs = catPairs.sortedWith(
                 compareBy<Pair<String, List<MediaItem>>> { pair ->
                     val cat = pair.first
@@ -239,14 +487,13 @@ fun MoviesTabScreen(
             val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
 
             val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }.sortedByDescending { it.movieSortWeight }
-            val featured = if (withLogos.isNotEmpty()) withLogos.take(10) else typeFiltered.take(8)
+            val featured = if (withLogos.isNotEmpty()) withLogos.take(8) else typeFiltered.take(6)
 
             withContext(Dispatchers.Main) {
                 preparedMovies = typeFiltered
                 preparedCategories = allCats
                 preparedCategorizedMovies = sortedCatPairs
                 preparedFeaturedMovies = featured
-                isAsyncPreparing = false
             }
         }
     }
@@ -255,7 +502,7 @@ fun MoviesTabScreen(
     val featuredMovies = preparedFeaturedMovies
     val categorizedMovies = preparedCategorizedMovies
 
-    // Filtered movies when search query is active or a single category is selected
+    // Filtered movies when search query or category filter is active
     val filteredMovies = remember(preparedMovies, searchQuery, selectedCategory, favoriteIds) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
@@ -283,31 +530,22 @@ fun MoviesTabScreen(
             .fillMaxSize()
             .background(Color(0xFF020617))
     ) {
-        if (isLoading && preparedMovies.isNotEmpty()) {
-            androidx.compose.material3.LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.5.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = Color(0xFF00E5FF),
-                trackColor = Color(0xFF1E293B)
-            )
-        }
-
-        // TOP SEARCH BAR & DOWNLOAD BUTTON (Matching Screenshot 1)
+        // -------------------------------------------------------------
+        // 1. TOP HEADER: SEARCH BAR + DOWNLOAD + VIEW MODE TOGGLE
+        // -------------------------------------------------------------
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        "মুভি ও ওয়েব সিরিজ খুঁজুন (যেমন: Jawan, Toofan, Leo)",
+                        if (selectedHub != null) "খুঁজুন: ${selectedHub!!.title}..." else "মুভি ও সিরিজ খুঁজুন (যেমন: Jawan, Toofan, Leo)",
                         color = Color(0xFF64748B),
                         fontSize = 12.sp,
                         maxLines = 1,
@@ -327,58 +565,209 @@ fun MoviesTabScreen(
                             Icon(
                                 imageVector = Icons.Rounded.Close,
                                 contentDescription = "Clear",
-                                tint = Color.White
+                                tint = Color(0xFF94A3B8)
                             )
                         }
                     }
                 },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
                     focusedBorderColor = Color(0xFF00E5FF),
                     unfocusedBorderColor = Color(0xFF1E293B),
                     focusedContainerColor = Color(0xFF0F172A),
-                    unfocusedContainerColor = Color(0xFF0F172A)
+                    unfocusedContainerColor = Color(0xFF0F172A),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
                 ),
-                singleLine = true
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
             )
 
-            // Right Download Square Button
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f)),
+            // Grid / Shelves toggle
+            IconButton(
+                onClick = { isGridViewActive = !isGridViewActive },
                 modifier = Modifier
-                    .size(50.dp)
-                    .clickable { onOpenOfflineDownloads() }
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF0F172A))
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Download,
-                        contentDescription = "Downloads",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(22.dp)
+                Icon(
+                    imageVector = if (isGridViewActive) Icons.Rounded.ViewCarousel else Icons.Rounded.GridView,
+                    contentDescription = "Toggle View",
+                    tint = if (isGridViewActive) Color(0xFF00E5FF) else Color(0xFF94A3B8)
+                )
+            }
+
+            // Offline Downloads Button
+            IconButton(
+                onClick = onOpenOfflineDownloads,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF0F172A))
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Download,
+                    contentDescription = "Downloads",
+                    tint = Color(0xFF10B981)
+                )
+            }
+        }
+
+        // -------------------------------------------------------------
+        // 2. HORIZONTAL SCROLLABLE OTT PLATFORMS CIRCULAR ROW (ডানে-বামে স্ক্রোল)
+        // Exactly matches the user uploaded reference image IMG_20261011_152459.jpg
+        // -------------------------------------------------------------
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // "সব" (All Platforms) circular icon
+                item(key = "all_ott_platforms") {
+                    val isAllSelected = selectedHub == null
+                    OttCircularBrandIcon(
+                        title = "সকল",
+                        logoUrl = null,
+                        isSelected = isAllSelected,
+                        accentColor = Color(0xFF00E5FF),
+                        isTvMode = isTvMode,
+                        isAllIcon = true,
+                        onClick = {
+                            selectedHub = null
+                            selectedCategory = "All"
+                        }
+                    )
+                }
+
+                // Dynamic OTT Platforms & Movie Servers (Netflix, Hotstar, SonyLIV, ZEE5, Prime Video, hoichoi, Xtream, Playlists)
+                items(adminHubs, key = { it.id }) { hub ->
+                    val isSelected = selectedHub?.id == hub.id
+                    OttCircularBrandIcon(
+                        title = hub.title,
+                        logoUrl = hub.logoUrl,
+                        isSelected = isSelected,
+                        accentColor = hub.accentColor,
+                        isTvMode = isTvMode,
+                        isAllIcon = false,
+                        onClick = {
+                            selectedHub = if (selectedHub?.id == hub.id) null else hub
+                            selectedCategory = "All"
+                        }
                     )
                 }
             }
         }
 
-        // TYPE FILTER CHIPS: ALL / MOVIES / SERIES
+        // -------------------------------------------------------------
+        // 3. ACTIVE HUB TOP INDICATOR BANNER (Visible when user clicked a Hub)
+        // -------------------------------------------------------------
+        AnimatedVisibility(visible = selectedHub != null) {
+            if (selectedHub != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF0F172A),
+                    border = BorderStroke(1.dp, selectedHub!!.accentColor.copy(alpha = 0.6f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = selectedHub!!.title,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = selectedHub!!.accentColor.copy(alpha = 0.25f),
+                                        border = BorderStroke(0.5.dp, selectedHub!!.accentColor)
+                                    ) {
+                                        Text(
+                                            text = when (selectedHub!!.hubCategory) {
+                                                HubCategory.XTREAM -> "XTREAM"
+                                                HubCategory.PLAYLIST -> "PLAYLIST"
+                                                HubCategory.OTT_BRAND -> "OTT HUB"
+                                                else -> "HUB"
+                                            },
+                                            color = selectedHub!!.accentColor,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = if (isHubLoading) "সার্ভার থেকে মুভি সিঙ্ক হচ্ছে..." else "${preparedMovies.size} টি মুভি ও সিরিজ প্রস্তুত",
+                                    color = if (isHubLoading) Color(0xFFF59E0B) else Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        // Back to all hubs button
+                        Button(
+                            onClick = {
+                                selectedHub = null
+                                selectedCategory = "All"
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("সকল প্ল্যাটফর্ম", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // -------------------------------------------------------------
+        // 4. TYPE FILTER CHIPS: ALL / MOVIES / SERIES
+        // -------------------------------------------------------------
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 2.dp),
+                .padding(horizontal = 14.dp, vertical = 3.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val typeOptions = listOf(
                 "ALL" to "সকল কনটেন্ট",
-                "MOVIE" to "🎬 মুভি",
-                "SERIES" to "🍿 সিরিজ"
+                "MOVIE" to "🎬 শুধুমাত্র মুভি",
+                "SERIES" to "🍿 ওয়েব সিরিজ"
             )
             typeOptions.forEach { (typeKey, typeLabel) ->
                 val isSelected = selectedTypeFilter == typeKey
@@ -399,48 +788,43 @@ fun MoviesTabScreen(
                     Text(
                         text = typeLabel,
                         color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                        fontSize = 11.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 7.dp)
+                        modifier = Modifier.padding(vertical = 6.dp)
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // CATEGORY FILTER CHIPS ROW (Horizontal Scroll)
+        // -------------------------------------------------------------
+        // 5. CATEGORY FILTER CHIPS ROW (Horizontal Scroll)
+        // -------------------------------------------------------------
         LazyRow(
             contentPadding = PaddingValues(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 10.dp)
+            modifier = Modifier.padding(vertical = 4.dp)
         ) {
             items(categories) { cat ->
                 val isSelected = selectedCategory == cat
-                var isCatFocused by remember { mutableStateOf(false) }
-
                 val isDownloadTab = cat == "ডাউনলোডসমূহ"
 
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = when {
-                        isDownloadTab -> Color(0xFF0F766E)
-                        isSelected -> Color(0xFF2563EB)
-                        else -> Color(0xFF1E293B)
+                        isDownloadTab -> Color(0xFF065F46)
+                        isSelected -> Color(0xFF00E5FF)
+                        else -> Color(0xFF0F172A)
                     },
                     border = BorderStroke(
                         1.dp,
                         when {
-                            isCatFocused -> Color(0xFFFFD600)
-                            isDownloadTab -> Color(0xFF14B8A6)
-                            isSelected -> Color(0xFF3B82F6)
-                            else -> Color(0xFF334155)
+                            isDownloadTab -> Color(0xFF10B981)
+                            isSelected -> Color(0xFF00E5FF)
+                            else -> Color(0xFF1E293B)
                         }
                     ),
                     modifier = Modifier
-                        .onFocusChanged { isCatFocused = it.isFocused }
-                        .focusable()
                         .clickable {
                             if (isDownloadTab) {
                                 onOpenOfflineDownloads()
@@ -450,22 +834,17 @@ fun MoviesTabScreen(
                         }
                 ) {
                     Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (isDownloadTab) {
-                            Icon(
-                                imageVector = Icons.Rounded.Download,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
+                            Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = Color(0xFF34D399), modifier = Modifier.size(13.dp))
                         }
                         Text(
                             text = cat,
-                            color = Color.White,
-                            fontSize = 12.sp,
+                            color = if (isSelected && !isDownloadTab) Color.Black else Color.White,
+                            fontSize = 11.5.sp,
                             fontWeight = if (isSelected || isDownloadTab) FontWeight.Bold else FontWeight.Medium
                         )
                     }
@@ -473,26 +852,16 @@ fun MoviesTabScreen(
             }
         }
 
-        // Safety timeout so user is never trapped in excessive loading
-        var loadingTimeoutReached by remember { mutableStateOf(false) }
-        LaunchedEffect(isLoading, isAsyncPreparing) {
-            if (isLoading || isAsyncPreparing) {
-                loadingTimeoutReached = false
-                kotlinx.coroutines.delay(1800)
-                loadingTimeoutReached = true
-            } else {
-                loadingTimeoutReached = false
-            }
-        }
-
-        // MAIN CONTENT AREA
-        if ((isLoading || isAsyncPreparing) && preparedMovies.isEmpty() && !loadingTimeoutReached) {
+        // -------------------------------------------------------------
+        // 6. MAIN CONTENT AREA (Netflix / Disney+ Hotstar UI)
+        // -------------------------------------------------------------
+        if (isHubLoading) {
             NafiLogoLoadingView(
-                title = "মুভি ও ওয়েব সিরিজ লোড হচ্ছে...",
-                subtitle = "অনুগ্রহ করে অপেক্ষা করুন, মুভি ক্যাটালগ প্রস্তুত হচ্ছে...",
+                title = "${selectedHub?.title ?: "সার্ভার"} থেকে মুভি লোড হচ্ছে...",
+                subtitle = "অনুগ্রহ করে অপেক্ষা করুন, হাই-স্পিড VOD ডাটা সিঙ্ক হচ্ছে...",
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (preparedMovies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank()) {
+        } else if (preparedMovies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank() && !isLoading && selectedHub != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -510,36 +879,46 @@ fun MoviesTabScreen(
                         modifier = Modifier.size(54.dp)
                     )
                     Text(
-                        text = "কোনো মুভি বা সিরিজ পাওয়া যায়নি",
+                        text = "${selectedHub!!.title} এ কোনো মুভি পাওয়া যায়নি",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
                     Text(
-                        text = "মুভি এম৩ইউ অথবা ক্লাউড থেকে লোড করা হচ্ছে না। মেনু থেকে চেক করুন।",
+                        text = "এডমিন প্যানেল থেকে এই সার্ভারের ক্রেডেনশিয়াল বা প্লেলিস্ট চেক করুন।",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center
                     )
+                    Button(
+                        onClick = { selectedHub = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("সকল ওটিটি সার্ভারে ফিরে যান", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
-        } else if (searchQuery.isBlank() && selectedCategory == "All") {
-            // HOME / ALL VIEW: FEATURED BANNER + CATEGORY CAROUSELS (Matching Screenshot 1)
+        } else if (searchQuery.isBlank() && selectedCategory == "All" && !isGridViewActive) {
+            // =========================================================
+            // NETFLIX / DISNEY+ HOTSTAR HOME BROWSING VIEW
+            // =========================================================
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                // 1. FEATURED SPOTLIGHT BANNER SLIDER / CAROUSEL (নতুন মুভি স্বয়ংক্রিয়ভাবে বাম দিকে আসা যাওয়া করবে)
-                if (featuredMovies.isNotEmpty()) {
+                // -----------------------------------------------------
+                // (A) NETFLIX HERO SPOTLIGHT BILLBOARD (Featured Banner)
+                // -----------------------------------------------------
+                if (featuredMovies.isNotEmpty() && selectedHub == null) {
                     item {
                         val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
 
-                        // Auto-sliding loop smoothly scrolling to the next movie banner every 6 seconds (pauses during user interaction)
                         LaunchedEffect(pagerState.pageCount) {
                             if (pagerState.pageCount > 1) {
                                 while (true) {
-                                    kotlinx.coroutines.delay(6000L)
+                                    kotlinx.coroutines.delay(6500L)
                                     if (!pagerState.isScrollInProgress) {
                                         val nextPage = (pagerState.currentPage + 1) % pagerState.pageCount
                                         pagerState.animateScrollToPage(nextPage)
@@ -558,41 +937,27 @@ fun MoviesTabScreen(
                                 state = pagerState,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(210.dp)
+                                    .height(230.dp)
                             ) { page ->
                                 val currentMovie = featuredMovies[page]
                                 var isBannerFocused by remember { mutableStateOf(false) }
 
-                                val bannerModifier = if (isTvMode) {
-                                    val bannerScale by animateFloatAsState(
-                                        targetValue = if (isBannerFocused) 1.02f else 1.0f,
-                                        animationSpec = tween(150, easing = FastOutSlowInEasing),
-                                        label = "bannerScale_$page"
-                                    )
-                                    Modifier
-                                        .scale(bannerScale)
-                                        .fillMaxSize()
-                                        .onFocusChanged { isBannerFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable { handleItemSelect(currentMovie) }
-                                } else {
-                                    Modifier
-                                        .fillMaxSize()
-                                        .clickable { handleItemSelect(currentMovie) }
-                                }
-
                                 Surface(
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = RoundedCornerShape(18.dp),
                                     color = Color(0xFF0F172A),
                                     border = BorderStroke(
                                         1.dp,
                                         if (isTvMode && isBannerFocused) Color(0xFFFFD600) else Color(0xFF1E293B)
                                     ),
-                                    shadowElevation = if (isTvMode && isBannerFocused) 6.dp else 2.dp,
-                                    modifier = bannerModifier
+                                    shadowElevation = 4.dp,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .onFocusChanged { isBannerFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable { handleItemSelect(currentMovie) }
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        // Background Banner Image
+                                        // Backdrop Poster Image
                                         if (!currentMovie.logoUrl.isNullOrBlank()) {
                                             AsyncImage(
                                                 model = currentMovie.logoUrl,
@@ -612,85 +977,149 @@ fun MoviesTabScreen(
                                             )
                                         }
 
-                                        // Dark Gradient Overlays for High Contrast
+                                        // Dark Gradient Cinematic Vignette (Netflix Style)
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .background(
                                                     Brush.verticalGradient(
                                                         colors = listOf(
-                                                            Color.Black.copy(alpha = 0.2f),
-                                                            Color.Black.copy(alpha = 0.5f),
-                                                            Color.Black.copy(alpha = 0.95f)
+                                                            Color.Transparent,
+                                                            Color(0xFF020617).copy(alpha = 0.4f),
+                                                            Color(0xFF020617).copy(alpha = 0.95f)
                                                         )
                                                     )
                                                 )
                                         )
 
-                                        // Top-Start Corner Active Badge on Banner
-                                        val isBannerActive = com.example.util.ChannelStatusManager.isChannelActive(currentMovie)
-                                        if (isBannerActive) {
-                                            Surface(
-                                                shape = RoundedCornerShape(topStart = 16.dp, bottomEnd = 8.dp),
-                                                color = Color(0xFF064E3B).copy(alpha = 0.95f),
-                                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.8f)),
-                                                modifier = Modifier.align(Alignment.TopStart)
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(6.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color(0xFF10B981))
-                                                    )
-                                                    Text(
-                                                        text = "সচল",
-                                                        color = Color(0xFF6EE7B7),
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
+                                        // Badge: TOP 10 / TRENDING
+                                        Surface(
+                                            shape = RoundedCornerShape(bottomEnd = 10.dp),
+                                            color = Color(0xFFE50914),
+                                            modifier = Modifier.align(Alignment.TopStart)
+                                        ) {
+                                            Text(
+                                                text = if (currentMovie.isSeries) "🔥 শীর্ষ ট্রেন্ডিং সিরিজ" else "🔥 শীর্ষ ব্লকবাস্টার মুভি",
+                                                color = Color.White,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                            )
                                         }
 
-                                        // Banner Content
+                                        // Movie Info at Bottom
                                         Column(
                                             modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(14.dp),
-                                            verticalArrangement = Arrangement.Bottom
+                                                .align(Alignment.BottomStart)
+                                                .padding(14.dp)
                                         ) {
-                                            // Main Title (Marquee effect if long title)
                                             Text(
                                                 text = currentMovie.title,
                                                 color = Color.White,
                                                 fontSize = 18.sp,
-                                                fontWeight = FontWeight.Bold,
+                                                fontWeight = FontWeight.Black,
                                                 maxLines = 1,
                                                 modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                                             )
 
                                             Spacer(modifier = Modifier.height(2.dp))
 
-                                            // Subtitle / Description
-                                            Text(
-                                                text = currentMovie.description?.takeIf { it.isNotBlank() }
-                                                    ?: "এইচডি কোয়ালিটিতে সম্পূর্ণ মুভি/সিরিজ উপভোগ করুন।",
-                                                color = Color(0xFFCBD5E1),
-                                                fontSize = 11.5.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            // Metadata Row: Rating, Year, Category
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFD600), modifier = Modifier.size(13.dp))
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text(
+                                                        text = currentMovie.rating ?: "8.5",
+                                                        color = Color(0xFFFFD600),
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+
+                                                Text(
+                                                    text = "•",
+                                                    color = Color(0xFF64748B),
+                                                    fontSize = 11.sp
+                                                )
+
+                                                Text(
+                                                    text = currentMovie.year ?: "2026",
+                                                    color = Color(0xFFCBD5E1),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+
+                                                Text(
+                                                    text = "•",
+                                                    color = Color(0xFF64748B),
+                                                    fontSize = 11.sp
+                                                )
+
+                                                Text(
+                                                    text = currentMovie.category,
+                                                    color = Color(0xFF38BDF8),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            // Action Buttons (Play Now + Details)
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Button(
+                                                    onClick = { handleItemSelect(currentMovie) },
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("প্লে করুন", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                }
+
+                                                Button(
+                                                    onClick = { selectedMovieForDetails = currentMovie },
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.9f)),
+                                                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.Info, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("বিবরণ", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp)
+                                                }
+
+                                                IconButton(
+                                                    onClick = { onToggleFavorite(currentMovie.id) },
+                                                    modifier = Modifier.size(34.dp)
+                                                ) {
+                                                    val isFav = favoriteIds.contains(currentMovie.id)
+                                                    Icon(
+                                                        imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                                        contentDescription = "Favorite",
+                                                        tint = if (isFav) Color(0xFFEF4444) else Color.White,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            // Sliding Dots Indicator for Carousel
+                            // Carousel Dots Indicator
                             if (featuredMovies.size > 1) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -702,9 +1131,9 @@ fun MoviesTabScreen(
                                         Box(
                                             modifier = Modifier
                                                 .padding(horizontal = 3.dp)
-                                                .height(5.dp)
+                                                .height(4.dp)
                                                 .width(if (isSelected) 18.dp else 5.dp)
-                                                .clip(RoundedCornerShape(3.dp))
+                                                .clip(RoundedCornerShape(2.dp))
                                                 .background(if (isSelected) Color(0xFF00E5FF) else Color(0xFF475569).copy(alpha = 0.6f))
                                         )
                                     }
@@ -714,13 +1143,15 @@ fun MoviesTabScreen(
                     }
                 }
 
-                // 2. CATEGORIZED HORIZONTAL CAROUSELS
+                // -----------------------------------------------------
+                // (B) CATEGORIZED HORIZONTAL CAROUSELS (Netflix Shelves)
+                // -----------------------------------------------------
                 items(categorizedMovies, key = { it.first }) { (categoryName, catMovies) ->
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Section Header: "🎬 NAFI OTT • BANGLA" ----- "সব (15)"
+                        // Section Header: "🎬 BANGLA (2026)" ----- "সব (15)"
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -743,7 +1174,10 @@ fun MoviesTabScreen(
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .clickable { selectedCategory = categoryName }
+                                    .clickable {
+                                        selectedCategory = categoryName
+                                        isGridViewActive = true
+                                    }
                                     .padding(vertical = 4.dp, horizontal = 6.dp)
                             )
                         }
@@ -767,7 +1201,9 @@ fun MoviesTabScreen(
                 }
             }
         } else {
-            // FILTERED OR SEARCH VIEW (Grid Layout)
+            // =========================================================
+            // FILTERED, SEARCH, OR DEDICATED GRID VIEW
+            // =========================================================
             if (filteredMovies.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -792,7 +1228,7 @@ fun MoviesTabScreen(
                             fontSize = 15.sp
                         )
                         Text(
-                            text = "অন্য কি-ওয়ার্ড দিয়ে সার্চ করুন অথবা ক্যাটাগরি পরিবর্তন করুন।",
+                            text = "অন্য কি-ওয়ার্ড দিয়ে সার্চ করুন অথবা ক্যাটাগরি ফিল্টার পরিবর্তন করুন।",
                             color = Color(0xFF94A3B8),
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center
@@ -819,95 +1255,173 @@ fun MoviesTabScreen(
                 }
             }
         }
+    }
 
-        if (selectedSeriesForDialog != null && repository != null) {
+    // Series Dialog (Episodes & Seasons selection)
+    selectedSeriesForDialog?.let { seriesItem ->
+        if (repository != null) {
             SeriesDetailsDialog(
-                series = selectedSeriesForDialog!!,
+                series = seriesItem,
                 repository = repository,
                 isTvMode = isTvMode,
-                onPlayEpisode = { epMedia ->
-                    val epPlaylist = if (epMedia.episodes.isNotEmpty()) {
-                        epMedia.episodes.map { it.toMediaItem(epMedia) }
-                    } else if (selectedSeriesForDialog?.episodes?.isNotEmpty() == true) {
-                        selectedSeriesForDialog!!.episodes.map { it.toMediaItem(selectedSeriesForDialog!!) }
-                    } else {
-                        listOf(epMedia)
-                    }
-                    if (onSelectMediaWithPlaylist != null) {
-                        onSelectMediaWithPlaylist(epMedia, epPlaylist)
-                    } else {
-                        onSelectMedia(epMedia)
-                    }
+                onDismiss = { selectedSeriesForDialog = null },
+                onPlayEpisode = { episodeItem ->
                     selectedSeriesForDialog = null
-                },
-                onDismiss = { selectedSeriesForDialog = null }
+                    onSelectMedia(episodeItem)
+                }
             )
         }
+    }
+
+    // Movie Details Dialog
+    selectedMovieForDetails?.let { movieItem ->
+        MovieDetailsDownloadDialog(
+            movie = movieItem,
+            isFavorite = favoriteIds.contains(movieItem.id),
+            onToggleFavorite = { onToggleFavorite(movieItem.id) },
+            onDismiss = { selectedMovieForDetails = null },
+            onPlayOnline = { mediaToPlay, _ ->
+                selectedMovieForDetails = null
+                onSelectMedia(mediaToPlay)
+            },
+            onPlayOffline = { mediaToPlay ->
+                selectedMovieForDetails = null
+                onSelectMedia(mediaToPlay)
+            }
+        )
     }
 }
 
 /**
- * Helper to determine the movie language for badge display
- * (e.g., "বাংলা", "হিন্দি", "হিন্দি ডাবড", "তামিল", "তেলেগু", "ইংরেজি", etc.)
- * Returns "NFT" when no specific language is confirmed.
+ * Circular OTT Brand Icon matching IMG_20261011_152459.jpg
+ * Double metallic ring, circular clipped logo/icon, text underneath, left-right scrollable.
+ */
+@Composable
+fun OttCircularBrandIcon(
+    title: String,
+    logoUrl: String?,
+    isSelected: Boolean,
+    accentColor: Color,
+    isTvMode: Boolean,
+    isAllIcon: Boolean = false,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(if (isTvMode) 78.dp else 68.dp)
+            .clickable { onClick() }
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+    ) {
+        // Double metallic/illuminated glowing ring as seen in the uploaded reference photo
+        Box(
+            modifier = Modifier
+                .size(if (isTvMode) 68.dp else 60.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isSelected) accentColor.copy(alpha = 0.25f)
+                    else Color(0xFF0F172A)
+                )
+                .border(
+                    width = if (isSelected) 3.dp else if (isFocused) 2.5.dp else 2.dp,
+                    brush = if (isSelected) {
+                        Brush.sweepGradient(listOf(Color(0xFF00E5FF), Color.White, Color(0xFF00E5FF)))
+                    } else if (isFocused) {
+                        Brush.sweepGradient(listOf(Color(0xFFFFD600), Color.White, Color(0xFFFFD600)))
+                    } else {
+                        // Sleek metallic silver rim from IMG_20261011_152459.jpg
+                        Brush.sweepGradient(
+                            listOf(
+                                Color(0xFF94A3B8),
+                                Color(0xFF334155),
+                                Color(0xFFE2E8F0),
+                                Color(0xFF475569),
+                                Color(0xFF94A3B8)
+                            )
+                        )
+                    },
+                    shape = CircleShape
+                )
+                .padding(3.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF0A0F1D)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isAllIcon) {
+                // All Hubs icon
+                Icon(
+                    imageVector = Icons.Rounded.Movie,
+                    contentDescription = null,
+                    tint = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            } else if (!logoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = logoUrl,
+                    contentDescription = title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = title.take(2).uppercase(),
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 17.sp
+                )
+            }
+
+            // Glow overlay when selected
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF00E5FF).copy(alpha = 0.18f))
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(5.dp))
+
+        // Text below: "Netflix", "Hotstar", "SonyLIV", etc.
+        Text(
+            text = title,
+            color = if (isSelected) Color(0xFF00E5FF) else if (isFocused) Color(0xFFFFD600) else Color.White,
+            fontSize = 11.5.sp,
+            fontWeight = if (isSelected || isFocused) FontWeight.Bold else FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/**
+ * Intelligent Language Badge Extractor for Posters
  */
 fun getMovieLanguageBadge(movie: MediaItem): String {
-    // Remove network/playlist tags like "BDIX", "NAFI OTT" before scanning language
-    val cleanCategory = movie.category.replace("BDIX", "", ignoreCase = true)
-        .replace("NAFI OTT", "", ignoreCase = true)
-        .replace("NAFI_OTT", "", ignoreCase = true)
-    val cleanTitle = movie.title.replace("BDIX", "", ignoreCase = true)
-    val cleanDesc = (movie.description ?: "").replace("BDIX", "", ignoreCase = true)
-
-    val textToScan = "$cleanCategory $cleanTitle $cleanDesc".lowercase()
-
+    val textToScan = "${movie.title} ${movie.category} ${movie.genre ?: ""} ${movie.description ?: ""}".lowercase()
     return when {
-        // Specific Dubbed Tags
-        textToScan.contains("bangla dubbed") || textToScan.contains("bangla-dubbed") || textToScan.contains("বাংলা ডাবড") || textToScan.contains("বাংলা ডাবিং") -> "বাংলা ডাবড"
-        textToScan.contains("hindi dubbed") || textToScan.contains("hindi-dubbed") || textToScan.contains("dubbed in hindi") || textToScan.contains("হিন্দি ডাবড") || textToScan.contains("হিন্দি ডাবিং") -> "হিন্দি ডাবড"
-        textToScan.contains("tamil dubbed") || textToScan.contains("তামিল ডাবড") -> "তামিল ডাবড"
-        textToScan.contains("telugu dubbed") || textToScan.contains("তেলেগু ডাবড") -> "তেলেগু ডাবড"
-        textToScan.contains("english dubbed") || textToScan.contains("ইংরেজি ডাবড") -> "ইংরেজি ডাবড"
-
-        // Tamil / Telugu / Malayalam / Kannada / South
-        textToScan.contains("tamil") || textToScan.contains("তামিল") || textToScan.contains("kollywood") -> "তামিল"
-        textToScan.contains("telugu") || textToScan.contains("তেলেগু") || textToScan.contains("tollywood") -> "তেলেগু"
-        textToScan.contains("malayalam") || textToScan.contains("মালায়ালাম") || textToScan.contains("mollywood") -> "মালায়ালাম"
-        textToScan.contains("kannada") || textToScan.contains("কন্নড়") || textToScan.contains("sandalwood") -> "কন্নড়"
-        textToScan.contains("south movie") || textToScan.contains("south indian") || textToScan.contains("সাউথ") -> "সাউথ"
-
-        // Hindi / Bollywood / Hindi Shows
-        textToScan.contains("hindi") || textToScan.contains("হিন্দি") || textToScan.contains("bollywood") ||
-                textToScan.contains("khatron ke khiladi") || textToScan.contains("kapil show") ||
-                textToScan.contains("bigg boss") || textToScan.contains("indian idol") ||
-                textToScan.contains("dance deewane") || textToScan.contains("roadies") ||
-                textToScan.contains("splitsvilla") || textToScan.contains("anupamaa") ||
-                textToScan.contains("tmkoc") || textToScan.contains("taarak mehta") -> "হিন্দি"
-
-        // Bangla / Dhallywood / Tollywood Bangla
-        textToScan.contains("bangla") || textToScan.contains("bengali") || textToScan.contains("বাংলা") ||
-                textToScan.contains("dhallywood") || textToScan.contains("bangladesh") ||
-                textToScan.contains("hoichoi") || textToScan.contains("chorki") ||
-                textToScan.contains("kolkata") || textToScan.contains("নাটক") || textToScan.contains("natok") -> "বাংলা"
-
-        // Korean / K-Drama
-        textToScan.contains("korean") || textToScan.contains("k-drama") || textToScan.contains("kdrama") ||
-                textToScan.contains("k drama") || textToScan.contains("কোরিয়ান") || textToScan.contains("korea") -> "কোরিয়ান"
-
-        // Anime / Japanese
-        textToScan.contains("anime") || textToScan.contains("japanese") || textToScan.contains("অ্যানিমে") ||
-                textToScan.contains("japan") -> "অ্যানিমে"
-
-        // Turkish
-        textToScan.contains("turkish") || textToScan.contains("তুর্কি") || textToScan.contains("turkey") ||
-                textToScan.contains("kurulus") || textToScan.contains("ertugrul") || textToScan.contains("osman") -> "তুর্কি"
-
-        // English / Hollywood
+        textToScan.contains("bangla dubbed") || textToScan.contains("বাংলা ডাবড") -> "বাংলা ডাবড"
+        textToScan.contains("hindi dubbed") || textToScan.contains("হিন্দি ডাবড") -> "হিন্দি ডাবড"
+        textToScan.contains("bangla") || textToScan.contains("বাংলা") || textToScan.contains("bd") || textToScan.contains("kolkata") -> "বাংলা"
+        textToScan.contains("hindi") || textToScan.contains("হিন্দি") || textToScan.contains("bollywood") -> "হিন্দি"
+        textToScan.contains("tamil") || textToScan.contains("তামিল") -> "তামিল"
+        textToScan.contains("telugu") || textToScan.contains("তেলেগু") -> "তেলেগু"
+        textToScan.contains("malayalam") || textToScan.contains("মালায়ালাম") -> "মালায়ালাম"
+        textToScan.contains("south") || textToScan.contains("সাউথ") -> "সাউথ"
+        textToScan.contains("korean") || textToScan.contains("কোরিয়ান") || textToScan.contains("k-drama") -> "কোরিয়ান"
+        textToScan.contains("anime") || textToScan.contains("অ্যানিমে") -> "অ্যানিমে"
+        textToScan.contains("turkish") || textToScan.contains("তুর্কি") -> "তুর্কি"
         textToScan.contains("english") || textToScan.contains("ইংরেজি") || textToScan.contains("hollywood") ||
                 textToScan.contains("marvel") || textToScan.contains("dc comics") || textToScan.contains("hbo") ||
                 textToScan.contains("netflix original") -> "ইংরেজি"
-
-        // If no explicit tag or language pattern is matched, show NFT
         else -> "NFT"
     }
 }
@@ -994,7 +1508,7 @@ fun MoviePosterCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    if (movie.isSeries || movie.type == com.example.model.MediaType.SERIES) {
+                    if (movie.isSeries || movie.type == MediaType.SERIES) {
                         Surface(
                             shape = RoundedCornerShape(
                                 topStart = 12.dp,
@@ -1013,7 +1527,6 @@ fun MoviePosterCard(
                             )
                         }
                     }
-                    // Top Left Language Badge (বাংলা / হিন্দি / ইংরেজি etc.)
                     Surface(
                         shape = RoundedCornerShape(
                             topStart = 12.dp,

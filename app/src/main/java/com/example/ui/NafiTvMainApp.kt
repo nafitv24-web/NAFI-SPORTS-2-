@@ -415,8 +415,15 @@ fun NafiTvMainApp(
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.MOVIES }
+                            val cachedMovies = repository.getCachedMoviesList()
+                            if (cachedMovies.isNotEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    moviesList = (cachedMovies + moviesList).distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                                }
+                            }
+
                             val xtreamMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(25000) {
+                                kotlinx.coroutines.withTimeoutOrNull(4500) {
                                     try {
                                         repository.fetchAllXtreamMoviesFast().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }

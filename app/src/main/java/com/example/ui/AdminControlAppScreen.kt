@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -213,6 +214,15 @@ fun AdminControlAppScreen(
     var editMovieCategory by remember { mutableStateOf("Movies") }
     var editMovieServers by remember { mutableStateOf<List<StreamServer>>(emptyList()) }
     var editMovieCategoryDropdownExpanded by remember { mutableStateOf(false) }
+
+    // OTT Movie Hubs & Server Form State
+    var ottHubName by remember { mutableStateOf("") }
+    var ottHubType by remember { mutableStateOf("XTREAM") } // "XTREAM" or "M3U"
+    var ottHubUrl by remember { mutableStateOf("") }
+    var ottHubUsername by remember { mutableStateOf("") }
+    var ottHubPassword by remember { mutableStateOf("") }
+    var ottHubLogoUrl by remember { mutableStateOf("") }
+    var ottHubIsSaving by remember { mutableStateOf(false) }
 
     // Playlist Form State
     var playlistTitle by remember { mutableStateOf("") }
@@ -2779,6 +2789,424 @@ fun AdminControlAppScreen(
                     it.url.contains("movie", ignoreCase = true) ||
                     it.description?.contains("মুভি", ignoreCase = true) == true ||
                     it.description?.contains("movie", ignoreCase = true) == true
+                }
+
+                // 0. OTT Movie Hub & Server Creator (Netflix, Hotstar, Xtream, Playlist)
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Dns, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(22.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("🎬 ওটিটি মুভি সার্ভার ও প্লেলিস্ট যোগ করুন (Add Movie Server / Hub)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                            }
+                            Text(
+                                text = "নেটফ্লিক্স, হটস্টার, হইচই, চরকি বা এক্সট্রিম সার্ভার যোগ করুন। মুভি সেকশনে এগুলো ব্র্যান্ড কার্ড হিসেবে শো করবে এবং ইউজাররা ক্লিক করলেই সব মুভি লোড হয়ে দেখতে পারবেন:",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+
+                            // 1-Click OTT Brand Presets
+                            Text("⚡ দ্রুত প্রিসেট সিলেক্ট করুন (1-Click OTT Brand Presets):", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                val presets = listOf(
+                                    Triple("🍿 Netflix", "Netflix Hub", "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBIO3ih/9e630327e04e2e0a9dac340d97a12930/Netflix_Symbol_PMS.png"),
+                                    Triple("🌟 Hotstar", "Disney+ Hotstar", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/320px-Disney%2B_Hotstar_logo.svg.png"),
+                                    Triple("🔵 Prime", "Prime Video", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/320px-Amazon_Prime_Video_logo.svg.png"),
+                                    Triple("🔴 Sony LIV", "Sony LIV", "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png"),
+                                    Triple("🟣 ZEE5", "ZEE5 Movies", "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Zee5_Official_logo.svg/320px-Zee5_Official_logo.svg.png"),
+                                    Triple("🟡 Hoichoi", "Hoichoi (হইচই)", "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Hoichoi_logo.svg/320px-Hoichoi_logo.svg.png"),
+                                    Triple("🟢 Chorki", "Chorki (চরকি)", "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Chorki_logo.png/320px-Chorki_logo.png"),
+                                    Triple("⚡ Xtream", "Starshare Xtream Server", ""),
+                                    Triple("📁 M3U Playlist", "মুভি ও সিরিজ প্লেলিস্ট", "")
+                                )
+                                items(presets) { (chipLabel, presetName, presetLogo) ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF0F172A),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.clickable {
+                                            ottHubName = presetName
+                                            if (presetLogo.isNotBlank()) ottHubLogoUrl = presetLogo
+                                        }
+                                    ) {
+                                        Text(chipLabel, color = Color.White, fontSize = 10.5.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                                    }
+                                }
+                            }
+
+                            // Type Selector: XTREAM vs M3U
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val isXtream = ottHubType == "XTREAM"
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isXtream) Color(0xFF0284C7) else Color(0xFF0F172A),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isXtream) Color(0xFF00E5FF) else Color(0xFF334155)),
+                                    modifier = Modifier.weight(1f).clickable { ottHubType = "XTREAM" }
+                                ) {
+                                    Text("⚡ Xtream Codes API", color = if (isXtream) Color.White else Color(0xFF94A3B8), fontSize = 11.5.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 7.dp))
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (!isXtream) Color(0xFF0284C7) else Color(0xFF0F172A),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (!isXtream) Color(0xFF00E5FF) else Color(0xFF334155)),
+                                    modifier = Modifier.weight(1f).clickable { ottHubType = "M3U" }
+                                ) {
+                                    Text("📁 M3U Playlist URL", color = if (!isXtream) Color.White else Color(0xFF94A3B8), fontSize = 11.5.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 7.dp))
+                                }
+                            }
+
+                            // Platform / Server Name
+                            OutlinedTextField(
+                                value = ottHubName,
+                                onValueChange = { ottHubName = it },
+                                label = { Text("প্ল্যাটফর্ম / সার্ভারের নাম (যেমন: Netflix, Hotstar, Starshare)", fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true
+                            )
+
+                            // Logo URL
+                            OutlinedTextField(
+                                value = ottHubLogoUrl,
+                                onValueChange = { ottHubLogoUrl = it },
+                                label = { Text("লোগো / পোস্টার URL (Logo Image URL - ঐচ্ছিক)", fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = customFieldColors(),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true
+                            )
+
+                            if (ottHubType == "XTREAM") {
+                                // Xtream Host
+                                OutlinedTextField(
+                                    value = ottHubUrl,
+                                    onValueChange = { ottHubUrl = it },
+                                    label = { Text("সার্ভার URL (যেমন: http://server.com:8080)", fontSize = 11.sp) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = customFieldColors(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    singleLine = true
+                                )
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = ottHubUsername,
+                                        onValueChange = { ottHubUsername = it },
+                                        label = { Text("ইউজারনেম (Username)", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = ottHubPassword,
+                                        onValueChange = { ottHubPassword = it },
+                                        label = { Text("পাসওয়ার্ড (Password)", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = customFieldColors(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        singleLine = true
+                                    )
+                                }
+                            } else {
+                                // M3U Playlist URL
+                                OutlinedTextField(
+                                    value = ottHubUrl,
+                                    onValueChange = { ottHubUrl = it },
+                                    label = { Text("M3U / JSON মুভি প্লেলিস্ট লিংক (Playlist URL)", fontSize = 11.sp) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = customFieldColors(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    singleLine = true
+                                )
+                            }
+
+                            // Save Button
+                            Button(
+                                onClick = {
+                                    if (ottHubName.isBlank()) {
+                                        Toast.makeText(context, "অনুগ্রহ করে সার্ভার বা প্ল্যাটফর্মের নাম দিন", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    if (ottHubUrl.isBlank()) {
+                                        Toast.makeText(context, "অনুগ্রহ করে সার্ভার বা প্লেলিস্টের লিংক দিন", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+
+                                    ottHubIsSaving = true
+                                    coroutineScope.launch {
+                                        try {
+                                            if (ottHubType == "XTREAM") {
+                                                val acc = com.example.model.XtreamAccount(
+                                                    id = "xtream_ott_${System.currentTimeMillis()}",
+                                                    name = ottHubName.trim(),
+                                                    serverUrl = ottHubUrl.trim(),
+                                                    username = ottHubUsername.trim(),
+                                                    password = ottHubPassword.trim(),
+                                                    isEnabled = true,
+                                                    includeLive = false, // Pure movies!
+                                                    includeVod = true,
+                                                    includeSeries = true,
+                                                    logoUrl = ottHubLogoUrl.trim().takeIf { it.isNotBlank() },
+                                                    lastSyncTime = System.currentTimeMillis(),
+                                                    statusMessage = "সক্রিয় (Active)"
+                                                )
+                                                repository.saveXtreamAccount(acc)
+                                                xtreamAccountsList = repository.getXtreamAccounts()
+                                            } else {
+                                                val newPl = PlaylistInfo(
+                                                    id = "pl_ott_${System.currentTimeMillis()}",
+                                                    title = ottHubName.trim(),
+                                                    url = ottHubUrl.trim(),
+                                                    logoUrl = ottHubLogoUrl.trim().takeIf { it.isNotBlank() },
+                                                    description = "OTT Movie Playlist",
+                                                    type = "M3U",
+                                                    isAdmin = true
+                                                )
+                                                repository.saveAdminPlaylist(newPl)
+                                                repository.pushPlaylistToFirebase(newPl)
+                                            }
+                                            onDataChanged()
+                                            Toast.makeText(context, "✅ '$ottHubName' মুভি সেকশনে যুক্ত হয়েছে! ইউজাররা ক্লিক করে সব মুভি দেখতে পারবেন।", Toast.LENGTH_LONG).show()
+                                            // Reset
+                                            ottHubName = ""
+                                            ottHubUrl = ""
+                                            ottHubUsername = ""
+                                            ottHubPassword = ""
+                                            ottHubLogoUrl = ""
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "ত্রুটি: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        } finally {
+                                            ottHubIsSaving = false
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(44.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                                shape = RoundedCornerShape(10.dp),
+                                enabled = !ottHubIsSaving
+                            ) {
+                                if (ottHubIsSaving) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("সংরক্ষণ হচ্ছে...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                } else {
+                                    Icon(Icons.Rounded.CloudDone, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("ওটিটি মুভি সার্ভার সংরক্ষণ ও সিঙ্ক করুন", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Configured OTT Platforms List in Admin Panel
+                val activeOttXtream = xtreamAccountsList.filter { it.includeVod || it.includeSeries }
+                val activeOttPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists()).filter {
+                    it.type.equals("M3U", ignoreCase = true) || it.title.contains("ott", ignoreCase = true) || it.id.startsWith("pl_ott_")
+                }
+                if (activeOttXtream.isNotEmpty() || activeOttPlaylists.isNotEmpty()) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF06B6D4).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Dns, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("📋 কনফিগার করা ওটিটি প্ল্যাটফর্মসমূহ (${activeOttXtream.size + activeOttPlaylists.size} টি)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                }
+                                Text("মুভি সেকশনের শীর্ষে এই সার্ভারগুলো গোলাকার আইকন আকারে দেখা যাবে:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+
+                                // List of Xtream OTT servers
+                                activeOttXtream.forEach { acc ->
+                                    Card(
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                // Circular preview icon with metallic border
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF1E293B))
+                                                        .border(
+                                                            1.5.dp,
+                                                            Brush.sweepGradient(listOf(Color(0xFF94A3B8), Color(0xFF334155), Color(0xFFCBD5E1), Color(0xFF94A3B8))),
+                                                            CircleShape
+                                                        )
+                                                        .padding(2.dp)
+                                                        .clip(CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (!acc.logoUrl.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = acc.logoUrl,
+                                                            contentDescription = acc.name,
+                                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                            contentScale = ContentScale.Crop
+                                                        )
+                                                    } else {
+                                                        Text(acc.name.take(2).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    }
+                                                }
+
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(acc.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFF0891B2).copy(alpha = 0.3f)) {
+                                                            Text("XTREAM", color = Color(0xFF38BDF8), fontSize = 8.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                        }
+                                                    }
+                                                    Text(acc.serverUrl, color = Color(0xFF94A3B8), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        ottHubName = acc.name
+                                                        ottHubUrl = acc.serverUrl
+                                                        ottHubUsername = acc.username
+                                                        ottHubPassword = acc.password
+                                                        ottHubLogoUrl = acc.logoUrl ?: ""
+                                                        ottHubType = "XTREAM"
+                                                        Toast.makeText(context, "ফর্ম এ লোড হয়েছে, পরিবর্তন করে সেভ করুন", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        repository.deleteXtreamAccount(acc.id)
+                                                        xtreamAccountsList = repository.getXtreamAccounts()
+                                                        onDataChanged()
+                                                        Toast.makeText(context, "মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // List of M3U OTT playlists
+                                activeOttPlaylists.forEach { pl ->
+                                    Card(
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF1E293B))
+                                                        .border(
+                                                            1.5.dp,
+                                                            Brush.sweepGradient(listOf(Color(0xFF94A3B8), Color(0xFF334155), Color(0xFFCBD5E1), Color(0xFF94A3B8))),
+                                                            CircleShape
+                                                        )
+                                                        .padding(2.dp)
+                                                        .clip(CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (!pl.logoUrl.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = pl.logoUrl,
+                                                            contentDescription = pl.title,
+                                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                            contentScale = ContentScale.Crop
+                                                        )
+                                                    } else {
+                                                        Text(pl.title.take(2).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    }
+                                                }
+
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(pl.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFD97706).copy(alpha = 0.3f)) {
+                                                            Text("M3U", color = Color(0xFFF59E0B), fontSize = 8.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                        }
+                                                    }
+                                                    Text(pl.url, color = Color(0xFF94A3B8), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        ottHubName = pl.title
+                                                        ottHubUrl = pl.url
+                                                        ottHubLogoUrl = pl.logoUrl ?: ""
+                                                        ottHubType = "M3U"
+                                                        Toast.makeText(context, "ফর্ম এ লোড হয়েছে, পরিবর্তন করে সেভ করুন", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        repository.deleteAdminPlaylist(pl.id)
+                                                        repository.deleteCustomPlaylist(pl.id)
+                                                        onDataChanged()
+                                                        Toast.makeText(context, "মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // 1. Primary M3U / JSON Playlist Manager for Movies
