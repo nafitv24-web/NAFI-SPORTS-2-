@@ -182,88 +182,13 @@ fun MoviesTabScreen(
         }
     }
 
-    // Build the list of Admin-added Xtream Servers, Playlists, and OTT Brand Hubs
-    // Matching IMG_20261011_152459.jpg
+    // Build the list of Admin-added Xtream Servers, Playlists, and OTT Platforms
+    // Only includes what was added from the Admin Panel (No extra dummy demos like unconfigured Hotstar/Netflix)
     val adminHubs = remember(repository) {
         val hubs = mutableListOf<MovieHubItem>()
 
-        // 1. Preset Official OTT Brands matching IMG_20261011_152459.jpg exactly
-        val ottBrands = listOf(
-            MovieHubItem(
-                id = "ott_netflix",
-                title = "Netflix",
-                subtitle = "অরিজিনাল মুভি ও সিরিজ",
-                brandTag = "NETFLIX",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBIO3ih/9e630327e04e2e0a9dac340d97a12930/Netflix_Symbol_PMS.png",
-                gradientColors = listOf(Color(0xFFE50914), Color(0xFF141414)),
-                accentColor = Color(0xFFE50914)
-            ),
-            MovieHubItem(
-                id = "ott_hotstar",
-                title = "Hotstar",
-                subtitle = "ব্লকবাস্টার ও স্পেশালস",
-                brandTag = "HOTSTAR",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/320px-Disney%2B_Hotstar_logo.svg.png",
-                gradientColors = listOf(Color(0xFF0F1035), Color(0xFF1F4172)),
-                accentColor = Color(0xFF38BDF8)
-            ),
-            MovieHubItem(
-                id = "ott_sonyliv",
-                title = "SonyLIV",
-                subtitle = "সনি প্রিমিয়াম মুভি",
-                brandTag = "SONY LIV",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png",
-                gradientColors = listOf(Color(0xFF2E0249), Color(0xFF0F044C)),
-                accentColor = Color(0xFFC084FC)
-            ),
-            MovieHubItem(
-                id = "ott_zee5",
-                title = "ZEE5",
-                subtitle = "জি৫ সিনেমা ও সিরিজ",
-                brandTag = "ZEE5",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Zee5_Official_logo.svg/320px-Zee5_Official_logo.svg.png",
-                gradientColors = listOf(Color(0xFF700B97), Color(0xFF3E065F)),
-                accentColor = Color(0xFFA855F7)
-            ),
-            MovieHubItem(
-                id = "ott_prime",
-                title = "Prime Video",
-                subtitle = "আমাজন এক্সক্লুসিভ",
-                brandTag = "AMAZON PRIME",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/320px-Amazon_Prime_Video_logo.svg.png",
-                gradientColors = listOf(Color(0xFF00A8E1), Color(0xFF0A192F)),
-                accentColor = Color(0xFF00A8E1)
-            ),
-            MovieHubItem(
-                id = "ott_hoichoi",
-                title = "hoichoi",
-                subtitle = "সেরা বাংলা সিনেমা ও সিরিজ",
-                brandTag = "HOICHOI",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Hoichoi_logo.svg/320px-Hoichoi_logo.svg.png",
-                gradientColors = listOf(Color(0xFFDC2626), Color(0xFF450A0A)),
-                accentColor = Color(0xFFEF4444)
-            ),
-            MovieHubItem(
-                id = "ott_chorki",
-                title = "Chorki",
-                subtitle = "ফিল্ম, ফান ও ফুর্তি",
-                brandTag = "CHORKI",
-                hubCategory = HubCategory.OTT_BRAND,
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Chorki_logo.png/320px-Chorki_logo.png",
-                gradientColors = listOf(Color(0xFFD97706), Color(0xFF451A03)),
-                accentColor = Color(0xFFF59E0B)
-            )
-        )
-        hubs.addAll(ottBrands)
-
         if (repository != null) {
-            // 2. Xtream Codes Accounts configured in Admin Panel
+            // 1. Xtream Codes Accounts configured in Admin Panel
             val xtreamAccounts = repository.getXtreamAccounts().filter { it.isEnabled }
             val xtreamGradients = listOf(
                 listOf(Color(0xFF0F766E), Color(0xFF042F2E)), // Emerald/Cyan
@@ -274,6 +199,27 @@ fun MoviesTabScreen(
             xtreamAccounts.forEachIndexed { idx, acc ->
                 val grad = xtreamGradients[idx % xtreamGradients.size]
                 val cleanHost = acc.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                val nameLower = acc.name.lowercase()
+                val logo = acc.logoUrl?.takeIf { it.isNotBlank() } ?: when {
+                    nameLower.contains("netflix") -> "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBIO3ih/9e630327e04e2e0a9dac340d97a12930/Netflix_Symbol_PMS.png"
+                    nameLower.contains("hotstar") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/320px-Disney%2B_Hotstar_logo.svg.png"
+                    nameLower.contains("sony") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png"
+                    nameLower.contains("zee") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Zee5_Official_logo.svg/320px-Zee5_Official_logo.svg.png"
+                    nameLower.contains("prime") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/320px-Amazon_Prime_Video_logo.svg.png"
+                    nameLower.contains("hoichoi") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Hoichoi_logo.svg/320px-Hoichoi_logo.svg.png"
+                    nameLower.contains("chorki") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Chorki_logo.png/320px-Chorki_logo.png"
+                    else -> null
+                }
+                val accent = when {
+                    nameLower.contains("netflix") -> Color(0xFFE50914)
+                    nameLower.contains("hotstar") -> Color(0xFF38BDF8)
+                    nameLower.contains("sony") -> Color(0xFFC084FC)
+                    nameLower.contains("zee") -> Color(0xFFA855F7)
+                    nameLower.contains("prime") -> Color(0xFF00A8E1)
+                    nameLower.contains("hoichoi") -> Color(0xFFEF4444)
+                    nameLower.contains("chorki") -> Color(0xFFF59E0B)
+                    else -> Color(0xFF06B6D4)
+                }
                 hubs.add(
                     MovieHubItem(
                         id = acc.id,
@@ -282,14 +228,14 @@ fun MoviesTabScreen(
                         hubCategory = HubCategory.XTREAM,
                         serverHost = cleanHost,
                         xtreamAccount = acc,
-                        logoUrl = acc.logoUrl,
+                        logoUrl = logo,
                         gradientColors = grad,
-                        accentColor = Color(0xFF06B6D4)
+                        accentColor = accent
                     )
                 )
             }
 
-            // 3. Custom & Admin Movie Playlists configured in Admin Panel
+            // 2. Custom & Admin Movie Playlists configured in Admin Panel
             val customPlaylists = repository.getCustomPlaylists()
             val plGradients = listOf(
                 listOf(Color(0xFFC2410C), Color(0xFF431407)), // Amber/Orange
@@ -303,6 +249,27 @@ fun MoviesTabScreen(
                 } else if (pl.url.isNotBlank()) {
                     pl.url.removePrefix("http://").removePrefix("https://").substringBefore("/")
                 } else "Playlist"
+                val nameLower = pl.title.lowercase()
+                val logo = pl.logoUrl?.takeIf { it.isNotBlank() } ?: when {
+                    nameLower.contains("netflix") -> "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBIO3ih/9e630327e04e2e0a9dac340d97a12930/Netflix_Symbol_PMS.png"
+                    nameLower.contains("hotstar") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/320px-Disney%2B_Hotstar_logo.svg.png"
+                    nameLower.contains("sony") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png"
+                    nameLower.contains("zee") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Zee5_Official_logo.svg/320px-Zee5_Official_logo.svg.png"
+                    nameLower.contains("prime") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/320px-Amazon_Prime_Video_logo.svg.png"
+                    nameLower.contains("hoichoi") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Hoichoi_logo.svg/320px-Hoichoi_logo.svg.png"
+                    nameLower.contains("chorki") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Chorki_logo.png/320px-Chorki_logo.png"
+                    else -> null
+                }
+                val accent = when {
+                    nameLower.contains("netflix") -> Color(0xFFE50914)
+                    nameLower.contains("hotstar") -> Color(0xFF38BDF8)
+                    nameLower.contains("sony") -> Color(0xFFC084FC)
+                    nameLower.contains("zee") -> Color(0xFFA855F7)
+                    nameLower.contains("prime") -> Color(0xFF00A8E1)
+                    nameLower.contains("hoichoi") -> Color(0xFFEF4444)
+                    nameLower.contains("chorki") -> Color(0xFFF59E0B)
+                    else -> Color(0xFFF59E0B)
+                }
                 hubs.add(
                     MovieHubItem(
                         id = pl.id,
@@ -311,14 +278,14 @@ fun MoviesTabScreen(
                         hubCategory = HubCategory.PLAYLIST,
                         serverHost = cleanHost,
                         playlist = pl,
-                        logoUrl = pl.logoUrl,
+                        logoUrl = logo,
                         gradientColors = grad,
-                        accentColor = Color(0xFFF59E0B)
+                        accentColor = accent
                     )
                 )
             }
 
-            // 4. Saved Movie M3U URL if set in Admin panel
+            // 3. Saved Movie M3U URL if set in Admin panel
             val savedMoviesM3u = repository.getSavedMoviesM3uUrl()
             if (savedMoviesM3u.isNotBlank() && hubs.none { it.serverHost.contains("movies.json") || it.id == "saved_movies_m3u" }) {
                 hubs.add(
@@ -641,50 +608,52 @@ fun MoviesTabScreen(
 
         // -------------------------------------------------------------
         // 2. HORIZONTAL SCROLLABLE OTT PLATFORMS CIRCULAR ROW (ডানে-বামে স্ক্রোল)
-        // Exactly matches the user uploaded reference image IMG_20261011_152459.jpg
+        // Only shown when Admin has configured movie servers, playlists or OTT platforms
         // -------------------------------------------------------------
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-        ) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
+        if (adminHubs.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
             ) {
-                // "সব" (All Platforms) circular icon
-                item(key = "all_ott_platforms") {
-                    val isAllSelected = selectedHub == null
-                    OttCircularBrandIcon(
-                        title = "সকল",
-                        logoUrl = null,
-                        isSelected = isAllSelected,
-                        accentColor = Color(0xFF00E5FF),
-                        isTvMode = isTvMode,
-                        isAllIcon = true,
-                        onClick = {
-                            selectedHub = null
-                            selectedCategory = "All"
-                        }
-                    )
-                }
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // "সব" (All Platforms) circular icon
+                    item(key = "all_ott_platforms") {
+                        val isAllSelected = selectedHub == null
+                        OttCircularBrandIcon(
+                            title = "সকল",
+                            logoUrl = null,
+                            isSelected = isAllSelected,
+                            accentColor = Color(0xFF00E5FF),
+                            isTvMode = isTvMode,
+                            isAllIcon = true,
+                            onClick = {
+                                selectedHub = null
+                                selectedCategory = "All"
+                            }
+                        )
+                    }
 
-                // Dynamic OTT Platforms & Movie Servers (Netflix, Hotstar, SonyLIV, ZEE5, Prime Video, hoichoi, Xtream, Playlists)
-                items(adminHubs, key = { it.id }) { hub ->
-                    val isSelected = selectedHub?.id == hub.id
-                    OttCircularBrandIcon(
-                        title = hub.title,
-                        logoUrl = hub.logoUrl,
-                        isSelected = isSelected,
-                        accentColor = hub.accentColor,
-                        isTvMode = isTvMode,
-                        isAllIcon = false,
-                        onClick = {
-                            selectedHub = if (selectedHub?.id == hub.id) null else hub
-                            selectedCategory = "All"
-                        }
-                    )
+                    // Dynamic OTT Platforms & Movie Servers (Only Admin Configured)
+                    items(adminHubs, key = { it.id }) { hub ->
+                        val isSelected = selectedHub?.id == hub.id
+                        OttCircularBrandIcon(
+                            title = hub.title,
+                            logoUrl = hub.logoUrl,
+                            isSelected = isSelected,
+                            accentColor = hub.accentColor,
+                            isTvMode = isTvMode,
+                            isAllIcon = false,
+                            onClick = {
+                                selectedHub = if (selectedHub?.id == hub.id) null else hub
+                                selectedCategory = "All"
+                            }
+                        )
+                    }
                 }
             }
         }
