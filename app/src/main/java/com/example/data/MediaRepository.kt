@@ -982,8 +982,7 @@ class MediaRepository(private val context: Context) {
     fun getInitialMoviesSeries(): List<MediaItem> {
         val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
         val cached = getCachedMoviesList().filterNot { isItemDeleted(it) || isDemoChannel(it) }
-        val builtin = getDefaultBuiltinMovies()
-        val baseList = (cached + builtin).distinctBy { it.id }
+        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
         return (customMov + baseList).distinctBy { it.id }.filterNot { isItemDeleted(it) || isDemoChannel(it) }.sortedByDescending { it.movieSortWeight }
     }
 
@@ -1833,44 +1832,33 @@ class MediaRepository(private val context: Context) {
                         streamUrl.endsWith(".avi", ignoreCase = true) ||
                         isPixeldrain
 
-                // Clean display title
-                val cleanTitle = currentTitle.ifEmpty { "Channel $currentId" }
-                val stableId = "m3u_" + java.lang.Math.abs((cleanTitle + "_" + streamUrl).hashCode()).toString()
-
                 val isExplicitSeriesUrl = streamUrl.contains("/series/", ignoreCase = true)
 
-                val isMovieGroupOrTitle = currentGroup.contains("movie", ignoreCase = true) ||
-                        currentGroup.contains("cinema", ignoreCase = true) ||
-                        currentGroup.contains("vod", ignoreCase = true) ||
-                        currentGroup.contains("film", ignoreCase = true) ||
-                        currentGroup.contains("মুভি", ignoreCase = true) ||
-                        currentGroup.contains("সিনেমা", ignoreCase = true) ||
-                        cleanTitle.contains("movie", ignoreCase = true) ||
-                        cleanTitle.contains("cinema", ignoreCase = true) ||
-                        cleanTitle.contains("মুভি", ignoreCase = true) ||
-                        cleanTitle.contains("সিনেমা", ignoreCase = true)
-
-                val isSeriesGroupOrTitle = currentGroup.contains("series", ignoreCase = true) ||
-                        currentGroup.contains("web series", ignoreCase = true) ||
-                        currentGroup.contains("drama", ignoreCase = true) ||
-                        currentGroup.contains("serial", ignoreCase = true) ||
-                        currentGroup.contains("নাটক", ignoreCase = true) ||
-                        cleanTitle.contains("season ", ignoreCase = true) ||
-                        cleanTitle.contains("episode ", ignoreCase = true)
-
-                val isExplicitMatch = cleanTitle.contains(" vs ", ignoreCase = true) ||
-                        cleanTitle.contains(" v ", ignoreCase = true) ||
-                        cleanTitle.contains(" @ ", ignoreCase = true)
-
-                val isLiveCategory = !isMovieGroupOrTitle && !isSeriesGroupOrTitle && !isExplicitMovieUrl && !isExplicitSeriesUrl && (
-                        currentGroup.contains("live tv", ignoreCase = true) ||
-                        currentGroup.contains("sports", ignoreCase = true) ||
+                val isLivePattern = !isExplicitMovieUrl && !isExplicitSeriesUrl && (
+                        streamUrl.contains(".m3u8", ignoreCase = true) ||
+                        streamUrl.contains(".mpd", ignoreCase = true) ||
+                        streamUrl.contains("/hls/", ignoreCase = true) ||
+                        streamUrl.contains("/live/", ignoreCase = true) ||
+                        streamUrl.contains("edge-cache-token=", ignoreCase = true) ||
+                        currentGroup.contains("live", ignoreCase = true) ||
+                        currentGroup.contains("tv", ignoreCase = true) ||
                         currentGroup.contains("news", ignoreCase = true) ||
-                        streamUrl.contains("/live/", ignoreCase = true)
+                        currentGroup.contains("sports", ignoreCase = true)
                 )
 
-                val isMovieOrVod = isExplicitMovieUrl || (isMovieGroupOrTitle && !isLiveCategory)
-                val isSeries = isExplicitSeriesUrl || (isSeriesGroupOrTitle && !isLiveCategory && !isMovieOrVod)
+                val isMovieOrVod = isExplicitMovieUrl || (!isLivePattern && (
+                        currentGroup.contains("movie", ignoreCase = true) ||
+                        currentGroup.contains("cinema", ignoreCase = true) ||
+                        currentGroup.contains("vod", ignoreCase = true) ||
+                        currentGroup.contains("film", ignoreCase = true)
+                ))
+
+                val isSeries = isExplicitSeriesUrl || (!isLivePattern && !isMovieOrVod && (
+                        currentGroup.contains("series", ignoreCase = true) ||
+                        currentGroup.contains("web series", ignoreCase = true) ||
+                        currentGroup.contains("drama", ignoreCase = true) ||
+                        currentGroup.contains("serial", ignoreCase = true)
+                ))
 
                 val mediaType = when {
                     isSeries -> MediaType.SERIES
@@ -1878,8 +1866,15 @@ class MediaRepository(private val context: Context) {
                     else -> MediaType.LIVE_TV
                 }
 
+                // Clean display title
+                val cleanTitle = currentTitle.ifEmpty { "Channel $currentId" }
+                val stableId = "m3u_" + java.lang.Math.abs((cleanTitle + "_" + streamUrl).hashCode()).toString()
+
                 val isAkamaiOrTapmad = streamUrl.contains("akamaized.net", ignoreCase = true) ||
                         streamUrl.contains("tapmad", ignoreCase = true)
+                val isExplicitMatch = cleanTitle.contains(" vs ", ignoreCase = true) ||
+                        cleanTitle.contains(" v ", ignoreCase = true) ||
+                        cleanTitle.contains(" @ ", ignoreCase = true)
                 val isSportsItem = mediaType == MediaType.LIVE_EVENT || isExplicitMatch ||
                         currentGroup.contains("sports", ignoreCase = true) ||
                         currentGroup.contains("cricket", ignoreCase = true) ||
@@ -1911,31 +1906,16 @@ class MediaRepository(private val context: Context) {
                     resolveWorkingSportsServers(cleanTitle, streamUrl, currentTvgId ?: currentId.toString())
                 } else emptyList()
 
-                val (_, extractedServerName) = extractMatchBaseAndServer(cleanTitle)
-                val defaultServerName = if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else extractedServerName
-                val currentStreamServer = StreamServer(
-                    name = defaultServerName,
-                    url = streamUrl,
-                    drmScheme = currentDrmScheme,
-                    drmLicenseUrl = currentDrmLicenseUrl,
-                    drmLicenseKey = currentDrmKey,
-                    userAgent = currentUserAgent,
-                    referrer = currentReferrer,
-                    cookie = currentCookie,
-                    origin = currentOrigin,
-                    customHeaders = if (currentCustomHeaders.isNotEmpty()) currentCustomHeaders.toMap() else null,
-                    manifestType = currentManifestType
-                )
-
                 val finalServers = if (resolvedServers.isNotEmpty()) {
                     val sList = mutableListOf<StreamServer>()
                     if (streamUrl.isNotBlank() && resolvedServers.none { it.url.trim().equals(streamUrl.trim(), ignoreCase = true) }) {
-                        sList.add(currentStreamServer)
+                        val sName = if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else "সার্ভার ১ (Main)"
+                        sList.add(StreamServer(sName, streamUrl))
                     }
                     sList.addAll(resolvedServers)
                     sList.distinctBy { it.url.trim().lowercase() }
                 } else {
-                    listOf(currentStreamServer)
+                    listOf(StreamServer(if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else "সার্ভার ১ (Main)", streamUrl))
                 }
 
                 val finalStreamUrl = if (streamUrl.isNotBlank()) {
@@ -3893,24 +3873,20 @@ class MediaRepository(private val context: Context) {
         val accounts = getActiveXtreamAccounts()
         val allItems = mutableListOf<MediaItem>()
         if (accounts.isEmpty()) {
-            // No custom Xtream accounts configured: return empty without blocking or hitting dead servers
-            return@withContext emptyList()
+            coroutineScope {
+                val vodJob = async { fetchXtreamVodOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
+                val seriesJob = async { fetchXtreamSeriesOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
+                allItems.addAll(vodJob.await())
+                allItems.addAll(seriesJob.await())
+            }
         } else {
             coroutineScope {
                 val jobs = accounts.map { acc ->
                     async {
                         val subItems = mutableListOf<MediaItem>()
                         coroutineScope {
-                            val vodJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (acc.includeVod) async {
-                                kotlinx.coroutines.withTimeoutOrNull(6000) {
-                                    fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password)
-                                } ?: emptyList()
-                            } else null
-                            val seriesJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (acc.includeSeries) async {
-                                kotlinx.coroutines.withTimeoutOrNull(6000) {
-                                    fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password)
-                                } ?: emptyList()
-                            } else null
+                            val vodJob = if (acc.includeVod) async { fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password) } else null
+                            val seriesJob = if (acc.includeSeries) async { fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password) } else null
                             vodJob?.await()?.let { subItems.addAll(it) }
                             seriesJob?.await()?.let { subItems.addAll(it) }
                         }
@@ -3933,21 +3909,13 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedXtreamAccountMovies(account.id)
-        if (!forceRefresh && cached.isNotEmpty()) {
+        if (!forceRefresh && cached.size > 2000) {
             return@withContext cached
         }
         val subItems = mutableListOf<MediaItem>()
         coroutineScope {
-            val vodJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (account.includeVod) async {
-                kotlinx.coroutines.withTimeoutOrNull(6000) {
-                    fetchXtreamVodOnly(account.serverUrl, account.username, account.password)
-                } ?: emptyList()
-            } else null
-            val seriesJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (account.includeSeries) async {
-                kotlinx.coroutines.withTimeoutOrNull(6000) {
-                    fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password)
-                } ?: emptyList()
-            } else null
+            val vodJob = if (account.includeVod) async { fetchXtreamVodOnly(account.serverUrl, account.username, account.password) } else null
+            val seriesJob = if (account.includeSeries) async { fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password) } else null
             vodJob?.await()?.let { subItems.addAll(it) }
             seriesJob?.await()?.let { subItems.addAll(it) }
         }
@@ -3971,169 +3939,54 @@ class MediaRepository(private val context: Context) {
         saveListToFileCache("cache_pl_mov_${playlistId}.json", list)
     }
 
-    suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedPlaylistMovies(playlist.id)
-        if (!forceRefresh && cached.isNotEmpty()) {
+        if (cached.isNotEmpty()) {
             return@withContext cached
         }
         val allItems = if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
             val subItems = mutableListOf<MediaItem>()
             coroutineScope {
-                val vodJob = async {
-                    kotlinx.coroutines.withTimeoutOrNull(6000) {
-                        fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password)
-                    } ?: emptyList()
-                }
-                val seriesJob = async {
-                    kotlinx.coroutines.withTimeoutOrNull(6000) {
-                        fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password)
-                    } ?: emptyList()
-                }
+                val vodJob = async { fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password) }
+                val seriesJob = async { fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password) }
                 subItems.addAll(vodJob.await())
                 subItems.addAll(seriesJob.await())
             }
             subItems
         } else {
-            kotlinx.coroutines.withTimeoutOrNull(8000) {
-                fetchPlaylistChannels(playlist)
-            } ?: emptyList()
+            fetchPlaylistChannels(playlist)
         }
 
-        val isDedicatedMoviePlaylist = playlist.isMovieOnly ||
-                playlist.type.equals("MOVIE", ignoreCase = true) ||
-                playlist.id.startsWith("pl_ott_") ||
-                playlist.id.startsWith("pl_movie_") ||
-                playlist.title.contains("movie", ignoreCase = true) ||
-                playlist.title.contains("cinema", ignoreCase = true)
-
-        val strictlyMovies = if (isDedicatedMoviePlaylist) {
-            allItems.map {
-                if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
-            }
-        } else {
-            allItems.filter { item ->
-                val isExplicitLive = (item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
-                        item.category.contains("Live TV", ignoreCase = true) ||
-                        item.category.contains("Sports", ignoreCase = true) ||
-                        item.category.contains("News", ignoreCase = true) ||
-                        (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))) &&
-                        item.type != MediaType.MOVIE && item.type != MediaType.SERIES
-                !isExplicitLive
-            }.map {
-                if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
-            }
+        // STRICT FILTER: Absolutely NO Live TV!
+        val strictlyMovies = allItems.filter { item ->
+            val isExplicitLive = item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
+                    item.category.contains("Live TV", ignoreCase = true) ||
+                    item.category.contains("Sports", ignoreCase = true) ||
+                    item.category.contains("News", ignoreCase = true) ||
+                    (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
+            !isExplicitLive
+        }.map {
+            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
         }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
 
         if (strictlyMovies.isNotEmpty()) {
             saveCachedPlaylistMovies(playlist.id, strictlyMovies)
         }
-        strictlyMovies.ifEmpty { cached }
+        strictlyMovies
     }
 
     suspend fun fetchAllXtreamMoviesFast(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedMoviesList()
-        if (!forceRefresh && cached.isNotEmpty()) {
+        if (!forceRefresh && cached.size > 2000) {
             return@withContext cached
         }
         val loaded = fetchAllXtreamMoviesAndSeries()
         if (loaded.isNotEmpty()) {
-            saveCachedMoviesList((loaded + cached).distinctBy { it.id })
-            (loaded + cached).distinctBy { it.id }
+            saveCachedMoviesList(loaded)
+            loaded
         } else {
             cached
         }
-    }
-
-    /**
-     * প্লেলিস্ট স্টিম সার্ভার থেকে যত মুভি রয়েছে সবগুলো যেন মুভি অপশনে আসে
-     * Aggregates all movies from all stream servers, playlists, built-in library, and cache.
-     */
-    suspend fun extractAllMoviesFromAllPlaylistsAndServers(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
-        val cached = getCachedMoviesList()
-        val builtin = getDefaultBuiltinMovies()
-        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }
-        val deleted = getDeletedIds()
-
-        val allMovies = mutableListOf<MediaItem>()
-        allMovies.addAll(cached)
-        allMovies.addAll(builtin)
-        allMovies.addAll(customMov)
-
-        // 1. All Movie Playlists & VOD Playlists
-        try {
-            val allPlaylists = (getAdminPlaylists() + getUserPlaylists()).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
-            val moviePlaylists = allPlaylists.filter { pl ->
-                pl.isMovieOnly ||
-                pl.type.equals("MOVIE", ignoreCase = true) ||
-                pl.id.startsWith("pl_ott_") ||
-                pl.id.startsWith("pl_movie_") ||
-                pl.title.contains("movie", ignoreCase = true) ||
-                pl.title.contains("cinema", ignoreCase = true) ||
-                pl.title.contains("vod", ignoreCase = true) ||
-                pl.title.contains("film", ignoreCase = true) ||
-                pl.title.contains("ott", ignoreCase = true) ||
-                !pl.serverUrl.isNullOrBlank() ||
-                getCachedPlaylistMovies(pl.id).isNotEmpty()
-            }
-            coroutineScope {
-                val plJobs = moviePlaylists.map { pl ->
-                    async {
-                        try {
-                            fetchPlaylistMoviesOnly(pl, forceRefresh)
-                        } catch (_: Exception) { emptyList() }
-                    }
-                }
-                plJobs.awaitAll().forEach { plMovies ->
-                    allMovies.addAll(plMovies)
-                }
-            }
-        } catch (_: Exception) {}
-
-        // 2. Xtream Accounts
-        try {
-            val xtreamAccs = getXtreamAccounts().filter { it.isEnabled && (it.includeVod || it.includeSeries) }
-            if (xtreamAccs.isNotEmpty()) {
-                coroutineScope {
-                    val xtreamJobs = xtreamAccs.map { acc ->
-                        async {
-                            try {
-                                fetchXtreamAccountMovies(acc, forceRefresh)
-                            } catch (_: Exception) { emptyList() }
-                        }
-                    }
-                    xtreamJobs.awaitAll().forEach { accMovies ->
-                        allMovies.addAll(accMovies)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        // 3. Remote M3U / JSON movies
-        try {
-            val remoteUrl = getSavedMoviesM3uUrl()
-            if (remoteUrl.isNotBlank()) {
-                val remoteMovies = kotlinx.coroutines.withTimeoutOrNull(6000) {
-                    try {
-                        if (remoteUrl.endsWith(".json", ignoreCase = true) || remoteUrl.contains("movies.json", ignoreCase = true)) {
-                            fetchMoviesFromJsonUrl(remoteUrl)
-                        } else {
-                            parseM3uFromUrl(remoteUrl).map { it.copy(type = MediaType.MOVIE, isLive = false) }
-                        }
-                    } catch (_: Exception) { emptyList() }
-                } ?: emptyList()
-                allMovies.addAll(remoteMovies)
-            }
-        } catch (_: Exception) {}
-
-        val result = allMovies
-            .distinctBy { it.id }
-            .filterNot { deleted.contains(it.id) || isItemDeleted(it) }
-            .sortedByDescending { it.movieSortWeight }
-
-        if (result.isNotEmpty()) {
-            saveCachedMoviesList(result)
-        }
-        result
     }
 
     suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -4383,8 +4236,7 @@ class MediaRepository(private val context: Context) {
                                 password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
                                 type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
                                 isAdmin = obj.optBoolean("isAdmin", false),
-                                isReadOnly = obj.optBoolean("isReadOnly", false),
-                                isMovieOnly = obj.optBoolean("isMovieOnly", false) || obj.optString("type").equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_")
+                                isReadOnly = obj.optBoolean("isReadOnly", false)
                             )
                         )
                     }
@@ -4422,7 +4274,6 @@ class MediaRepository(private val context: Context) {
             obj.put("type", p.type)
             obj.put("isAdmin", false)
             obj.put("isReadOnly", false)
-            obj.put("isMovieOnly", p.isMovieOnly)
             arr.put(obj)
         }
         prefs.edit().putString("user_playlists", arr.toString()).apply()
@@ -4460,8 +4311,7 @@ class MediaRepository(private val context: Context) {
                             password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
                             type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
                             isAdmin = true,
-                            isReadOnly = true,
-                            isMovieOnly = obj.optBoolean("isMovieOnly", false) || obj.optString("type").equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_")
+                            isReadOnly = true
                         )
                     )
                 }
@@ -4498,7 +4348,6 @@ class MediaRepository(private val context: Context) {
             obj.put("type", p.type)
             obj.put("isAdmin", true)
             obj.put("isReadOnly", true)
-            obj.put("isMovieOnly", p.isMovieOnly)
             arr.put(obj)
         }
         prefs.edit().putString("admin_playlists", arr.toString()).apply()
@@ -4990,253 +4839,6 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * খেলার শিরোনাম থেকে মূল খেলার নাম (Base Match Name) এবং সার্ভার বা কোয়ালিটির নাম (Server Name) আলাদা করে।
-     * উদাহরণ:
-     * - "Pumas UNAM Vs Cruz Azul - TUDN MEXICO FHD" -> ("Pumas UNAM Vs Cruz Azul", "TUDN MEXICO FHD")
-     * - "Pumas UNAM Vs Cruz Azul - LOW QUALITY (USE VPN)" -> ("Pumas UNAM Vs Cruz Azul", "LOW QUALITY (USE VPN)")
-     * - "canes - STREAM TV + HD" -> ("canes", "STREAM TV + HD")
-     * - "canes - HD QUALITY 2" -> ("canes", "HD QUALITY 2")
-     * - "canes - PREMIERE2 SPORTS FHD" -> ("canes", "PREMIERE2 SPORTS FHD")
-     */
-    fun extractMatchBaseAndServer(rawTitle: String): Pair<String, String> {
-        var title = rawTitle.trim()
-        if (title.isBlank()) return Pair("Live Match", "সার্ভার ১ (Main)")
-
-        // Strip common prefix badges
-        title = title.replace(Regex("""^(?:\[LIVE\]|LIVE\s*[-:|]\s*|🔴\s*)""", RegexOption.IGNORE_CASE), "").trim()
-
-        // 1. Check for " - "
-        if (title.contains(" - ")) {
-            val lastIdx = title.lastIndexOf(" - ")
-            val left = title.substring(0, lastIdx).trim()
-            val right = title.substring(lastIdx + 3).trim()
-            if (left.isNotBlank() && right.isNotBlank()) {
-                return Pair(left, right)
-            }
-        }
-
-        // 2. Check for " | "
-        if (title.contains(" | ")) {
-            val lastIdx = title.lastIndexOf(" | ")
-            val left = title.substring(0, lastIdx).trim()
-            val right = title.substring(lastIdx + 3).trim()
-            if (left.isNotBlank() && right.isNotBlank()) {
-                return Pair(left, right)
-            }
-        }
-
-        // 3. Check for " : "
-        if (title.contains(" : ")) {
-            val lastIdx = title.lastIndexOf(" : ")
-            val left = title.substring(0, lastIdx).trim()
-            val right = title.substring(lastIdx + 3).trim()
-            if (left.isNotBlank() && right.isNotBlank()) {
-                return Pair(left, right)
-            }
-        }
-
-        // 4. Check for bracket suffixes: "Match Name [Server Name]"
-        val bracketMatch = Regex("""^(.*?)\s*\[(.*?)\]$""").find(title)
-        if (bracketMatch != null) {
-            val left = bracketMatch.groupValues[1].trim()
-            val right = bracketMatch.groupValues[2].trim()
-            if (left.isNotBlank() && right.isNotBlank()) {
-                return Pair(left, right)
-            }
-        }
-
-        // 5. Check for parentheses suffixes: "Match Name (Server Name)"
-        val parenMatch = Regex("""^(.*?)\s*\((.*?)\)$""").find(title)
-        if (parenMatch != null) {
-            val left = parenMatch.groupValues[1].trim()
-            val right = parenMatch.groupValues[2].trim()
-            if (left.isNotBlank() && right.isNotBlank() && !right.matches(Regex("""^\d{4}$"""))) {
-                return Pair(left, right)
-            }
-        }
-
-        return Pair(title, "সার্ভার ১ (Main)")
-    }
-
-    /**
-     * একই খেলার ভিন্ন ভিন্ন সম্প্রচারকে শনাক্ত করার জন্য সমন্বিত গ্রুপিং কি (Grouping Key) তৈরি করে।
-     */
-    fun getMatchGroupingKey(item: MediaItem): String {
-        val (baseTitle, _) = extractMatchBaseAndServer(item.title)
-        val normalizedTitle = baseTitle.lowercase()
-            .replace(Regex("""\b(vs|v|@)\b"""), "vs")
-            .replace(Regex("""[^a-z0-9\s]"""), " ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
-
-        val logo = item.logoUrl?.trim() ?: ""
-        val hasMatchPoster = logo.isNotBlank() && (
-            logo.contains("match_image", ignoreCase = true) ||
-            logo.contains("%20vs%20", ignoreCase = true) ||
-            logo.contains("-vs-", ignoreCase = true)
-        )
-
-        if (hasMatchPoster) {
-            val logoName = try {
-                java.net.URLDecoder.decode(logo.substringBefore("?").substringAfterLast("/"), "UTF-8")
-            } catch (_: Exception) {
-                logo.substringBefore("?").substringAfterLast("/")
-            }.lowercase()
-                .replace(".jpg", "").replace(".png", "").replace(".webp", "")
-                .replace(Regex("""\b(vs|v|@)\b"""), "vs")
-                .replace(Regex("""[^a-z0-9\s]"""), " ")
-                .replace(Regex("""\s+"""), " ")
-                .trim()
-            if (logoName.isNotBlank() && (logoName.contains("vs") || logoName.length > 5)) {
-                return "sport_match_$logoName"
-            }
-        }
-
-        return if (normalizedTitle.isNotBlank()) "sport_match_$normalizedTitle" else "sport_item_${item.id}"
-    }
-
-    /**
-     * একই খেলার একাধিক সম্প্রচার/সার্ভার (যেমন: TUDN MEXICO FHD, LOW QUALITY, CANAL MX FHD)
-     * আলাদা আলাদা ম্যাচ কার্ড হিসেবে না দেখিয়ে একটিমাত্র মূল ম্যাচ কার্ডে একত্রিত করে
-     * এবং বাকি সম্প্রচারগুলোকে ঐ ম্যাচের বিকল্প 'সার্ভার' (Servers) হিসেবে যুক্ত করে।
-     */
-    fun consolidateSportsMatches(items: List<MediaItem>): List<MediaItem> {
-        if (items.isEmpty()) return emptyList()
-
-        val consolidated = mutableListOf<MediaItem>()
-        val matchGroups = LinkedHashMap<String, MutableList<MediaItem>>()
-
-        for (item in items) {
-            val key = getMatchGroupingKey(item)
-            val list = matchGroups.getOrPut(key) { mutableListOf() }
-            list.add(item)
-        }
-
-        for ((_, group) in matchGroups) {
-            if (group.isEmpty()) continue
-            if (group.size == 1) {
-                val single = group.first()
-                val (baseTitle, serverName) = extractMatchBaseAndServer(single.title)
-                val srvList = mutableListOf<StreamServer>()
-                if (single.servers.isNotEmpty()) {
-                    for (srv in single.servers) {
-                        val sName = if (srv.name.isBlank() || srv.name.startsWith("সার্ভার 1") || srv.name.equals(single.title, ignoreCase = true)) {
-                            serverName
-                        } else {
-                            srv.name
-                        }
-                        srvList.add(srv.copy(name = sName))
-                    }
-                } else if (single.streamUrl.isNotBlank()) {
-                    srvList.add(
-                        StreamServer(
-                            name = serverName,
-                            url = single.streamUrl,
-                            drmScheme = single.drmScheme,
-                            drmLicenseUrl = single.drmLicenseUrl,
-                            drmLicenseKey = single.drmLicenseKey,
-                            userAgent = single.userAgent,
-                            referrer = single.referrer,
-                            cookie = single.cookie,
-                            origin = single.origin,
-                            customHeaders = single.customHeaders,
-                            manifestType = single.manifestType
-                        )
-                    )
-                }
-
-                consolidated.add(
-                    single.copy(
-                        title = baseTitle,
-                        servers = srvList.distinctBy { it.url.trim().lowercase() }
-                    )
-                )
-            } else {
-                // ২ বা ততোধিক সম্প্রচার একই ম্যাচের জন্য পাওয়া গেছে!
-                val first = group.first()
-                val (baseTitle, _) = extractMatchBaseAndServer(first.title)
-
-                val mergedServers = mutableListOf<StreamServer>()
-                for (item in group) {
-                    val (_, itemServerLabel) = extractMatchBaseAndServer(item.title)
-                    if (item.servers.isNotEmpty()) {
-                        for (srv in item.servers) {
-                            val cleanSrvName = if (srv.name.isBlank() || srv.name.startsWith("সার্ভার 1") || srv.name.equals(item.title, ignoreCase = true)) {
-                                itemServerLabel
-                            } else {
-                                srv.name
-                            }
-                            if (srv.url.isNotBlank() && mergedServers.none { it.url.trim().equals(srv.url.trim(), ignoreCase = true) }) {
-                                mergedServers.add(
-                                    srv.copy(
-                                        name = cleanSrvName,
-                                        drmScheme = srv.drmScheme ?: item.drmScheme,
-                                        drmLicenseUrl = srv.drmLicenseUrl ?: item.drmLicenseUrl,
-                                        drmLicenseKey = srv.drmLicenseKey ?: item.drmLicenseKey,
-                                        userAgent = srv.userAgent ?: item.userAgent,
-                                        referrer = srv.referrer ?: item.referrer,
-                                        cookie = srv.cookie ?: item.cookie,
-                                        origin = srv.origin ?: item.origin,
-                                        customHeaders = srv.customHeaders ?: item.customHeaders,
-                                        manifestType = srv.manifestType ?: item.manifestType
-                                    )
-                                )
-                            }
-                        }
-                    }
-                    if (item.streamUrl.isNotBlank() && mergedServers.none { it.url.trim().equals(item.streamUrl.trim(), ignoreCase = true) }) {
-                        mergedServers.add(
-                            StreamServer(
-                                name = itemServerLabel,
-                                url = item.streamUrl,
-                                drmScheme = item.drmScheme,
-                                drmLicenseUrl = item.drmLicenseUrl,
-                                drmLicenseKey = item.drmLicenseKey,
-                                userAgent = item.userAgent,
-                                referrer = item.referrer,
-                                cookie = item.cookie,
-                                origin = item.origin,
-                                customHeaders = item.customHeaders,
-                                manifestType = item.manifestType
-                            )
-                        )
-                    }
-                }
-
-                val primaryServer = mergedServers.firstOrNull { it.url.isNotBlank() }
-                val bestLogo = group.firstNotNullOfOrNull { it.logoUrl?.takeIf { l -> l.isNotBlank() && !l.equals("null", ignoreCase = true) } }
-                val bestCategory = group.firstOrNull { it.category.isNotBlank() && !it.category.equals("Sports", ignoreCase = true) && !it.category.equals("Live TV", ignoreCase = true) }?.category ?: first.category
-                val bestTournament = group.firstNotNullOfOrNull { it.tournament?.takeIf { t -> t.isNotBlank() && !t.equals("null", ignoreCase = true) } }
-
-                val mergedItem = first.copy(
-                    id = "match_" + Math.abs(baseTitle.lowercase().hashCode()),
-                    title = baseTitle,
-                    category = bestCategory,
-                    logoUrl = bestLogo ?: first.logoUrl,
-                    tournament = bestTournament ?: first.tournament,
-                    streamUrl = primaryServer?.url ?: first.streamUrl,
-                    servers = mergedServers,
-                    drmScheme = primaryServer?.drmScheme ?: first.drmScheme,
-                    drmLicenseUrl = primaryServer?.drmLicenseUrl ?: first.drmLicenseUrl,
-                    drmLicenseKey = primaryServer?.drmLicenseKey ?: first.drmLicenseKey,
-                    userAgent = primaryServer?.userAgent ?: first.userAgent,
-                    referrer = primaryServer?.referrer ?: first.referrer,
-                    cookie = primaryServer?.cookie ?: first.cookie,
-                    origin = primaryServer?.origin ?: first.origin,
-                    customHeaders = primaryServer?.customHeaders ?: first.customHeaders,
-                    manifestType = primaryServer?.manifestType ?: first.manifestType,
-                    isLive = group.any { it.isLive },
-                    isAdminAdded = group.any { it.isAdminAdded || it.isFromAdmin },
-                    status = if (group.any { it.status.equals("LIVE", ignoreCase = true) || it.status.contains("LIVE NOW", ignoreCase = true) }) "LIVE NOW" else first.status
-                )
-                consolidated.add(mergedItem)
-            }
-        }
-
-        return consolidated
-    }
-
-    /**
      * এডমিন প্যানেল থেকে শুধুমাত্র 'sports match' অপশনে কনফিগার করা প্লেলিস্ট (Sports M3U Playlist URLs),
      * স্পোর্টস JSON API এবং এডমিনের লাইভ স্পোর্টস ইভেন্ট লোড করে।
      * সাধারণ লাইভ টিভি প্লেলিস্ট বা এক্সট্রিম একাউন্ট থেকে কোনো সাধারণ টিভি চ্যানেল এখানে যুক্ত হবে না।
@@ -5420,8 +5022,7 @@ class MediaRepository(private val context: Context) {
             allSports.addAll(broadcasterBackups)
         }
 
-        val consolidated = consolidateSportsMatches(allSports)
-        val filtered = consolidated.filterNot { deleted.contains(it.id) || isItemDeleted(it) }
+        val filtered = allSports.distinctBy { it.id }.filterNot { deleted.contains(it.id) || isItemDeleted(it) }
         val sorted = filtered.sortedWith(
             compareByDescending<MediaItem> { it.isAdminAdded || it.isFromAdmin }
                 .thenByDescending { it.isLive }
