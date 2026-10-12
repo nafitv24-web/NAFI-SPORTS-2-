@@ -68,8 +68,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.awaitAll
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -386,7 +384,7 @@ fun NafiTvMainApp(
                             }
 
                             val xtreamMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(45000) {
+                                kotlinx.coroutines.withTimeoutOrNull(4500) {
                                     try {
                                         repository.fetchAllXtreamMoviesFast().filterNot { deleted.contains(it.id) }
                                     } catch (_: Exception) { emptyList() }
@@ -396,7 +394,7 @@ fun NafiTvMainApp(
                             val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
                             val moviesM3uJob = async {
                                 if (moviesM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(10000) {
+                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
                                         try {
                                             if (moviesM3uUrl.endsWith(".json", ignoreCase = true) || moviesM3uUrl.contains("movies.json", ignoreCase = true)) {
                                                 repository.fetchMoviesFromJsonUrl(moviesM3uUrl).map {
@@ -421,7 +419,7 @@ fun NafiTvMainApp(
                             }
 
                             val mixMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(8000) {
+                                kotlinx.coroutines.withTimeoutOrNull(3500) {
                                     try {
                                         repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
                                             it.copy(
@@ -434,32 +432,13 @@ fun NafiTvMainApp(
                                 } ?: emptyList()
                             }
 
-                            val customPlaylistsMoviesJob = async {
-                                try {
-                                    val plList = repository.getCustomPlaylists()
-                                    val plMovies = mutableListOf<MediaItem>()
-                                    coroutineScope {
-                                        val jobs = plList.map { pl ->
-                                            async {
-                                                try {
-                                                    repository.fetchPlaylistMoviesOnly(pl)
-                                                } catch (_: Exception) { emptyList() }
-                                            }
-                                        }
-                                        jobs.awaitAll().forEach { plMovies.addAll(it) }
-                                    }
-                                    plMovies.filterNot { deleted.contains(it.id) }
-                                } catch (_: Exception) { emptyList() }
-                            }
-
                             val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) }
 
                             val moviesM3u = moviesM3uJob.await()
                             val mixMovies = mixMoviesJob.await()
-                            val customPlMovies = customPlaylistsMoviesJob.await()
                             val xtreamMovies = xtreamMoviesJob.await()
 
-                            val combined = (customMov + xtreamMovies + moviesM3u + mixMovies + customPlMovies + moviesList)
+                            val combined = (customMov + xtreamMovies + moviesM3u + mixMovies + moviesList)
                                 .distinctBy { it.id }
                                 .filterNot { deleted.contains(it.id) }
                                 .sortedByDescending { it.movieSortWeight }
