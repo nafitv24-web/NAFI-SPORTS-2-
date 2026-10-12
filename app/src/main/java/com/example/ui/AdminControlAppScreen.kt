@@ -2966,6 +2966,15 @@ fun AdminControlAppScreen(
                                                 )
                                                 repository.saveXtreamAccount(acc)
                                                 xtreamAccountsList = repository.getXtreamAccounts()
+                                                coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                    try {
+                                                        val movies = repository.fetchXtreamAccountMovies(acc)
+                                                        if (movies.isNotEmpty()) {
+                                                            val cur = repository.getCachedMoviesList()
+                                                            repository.saveCachedMoviesList((movies + cur).distinctBy { it.id })
+                                                        }
+                                                    } catch (_: Exception) {}
+                                                }
                                             } else {
                                                 val newPl = PlaylistInfo(
                                                     id = "pl_ott_${System.currentTimeMillis()}",
@@ -2973,11 +2982,21 @@ fun AdminControlAppScreen(
                                                     url = ottHubUrl.trim(),
                                                     logoUrl = ottHubLogoUrl.trim().takeIf { it.isNotBlank() },
                                                     description = "OTT Movie Playlist",
-                                                    type = "M3U",
-                                                    isAdmin = true
+                                                    type = "MOVIE",
+                                                    isAdmin = true,
+                                                    isMovieOnly = true
                                                 )
                                                 repository.saveAdminPlaylist(newPl)
                                                 repository.pushPlaylistToFirebase(newPl)
+                                                coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                    try {
+                                                        val movies = repository.fetchPlaylistMoviesOnly(newPl)
+                                                        if (movies.isNotEmpty()) {
+                                                            val cur = repository.getCachedMoviesList()
+                                                            repository.saveCachedMoviesList((movies + cur).distinctBy { it.id })
+                                                        }
+                                                    } catch (_: Exception) {}
+                                                }
                                             }
                                             onDataChanged()
                                             Toast.makeText(context, "✅ '$ottHubName' মুভি সেকশনে যুক্ত হয়েছে! ইউজাররা ক্লিক করে সব মুভি দেখতে পারবেন।", Toast.LENGTH_LONG).show()
@@ -3016,7 +3035,7 @@ fun AdminControlAppScreen(
                 // Configured OTT Platforms List in Admin Panel
                 val activeOttXtream = xtreamAccountsList.filter { it.includeVod || it.includeSeries }
                 val activeOttPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists()).filter {
-                    it.type.equals("M3U", ignoreCase = true) || it.title.contains("ott", ignoreCase = true) || it.id.startsWith("pl_ott_")
+                    it.isMovieOnly || it.type.equals("MOVIE", ignoreCase = true) || it.id.startsWith("pl_ott_") || it.id.startsWith("pl_movie_") || (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
                 }
                 if (activeOttXtream.isNotEmpty() || activeOttPlaylists.isNotEmpty()) {
                     item {
@@ -3847,10 +3866,29 @@ fun AdminControlAppScreen(
                     }
                 }
 
-                // Search & Filter Header for Playlists
-                val customPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + playlistsList.filter { it.id.startsWith("pl_admin_") || it.id.startsWith("pl_user_") || it.id.startsWith("pl_custom_") }).distinctBy { it.id }
+                // Search & Filter Header for Playlists (Strictly exclude movie playlists from general playlists manager)
+                val customPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + playlistsList.filter { it.id.startsWith("pl_admin_") || it.id.startsWith("pl_user_") || it.id.startsWith("pl_custom_") })
+                    .distinctBy { it.id }
+                    .filterNot {
+                        it.isMovieOnly ||
+                        it.type.equals("MOVIE", ignoreCase = true) ||
+                        it.id.startsWith("pl_ott_") ||
+                        it.id.startsWith("pl_movie_") ||
+                        it.id == "saved_movies_m3u" ||
+                        (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+                    }
 
-                val filteredPlaylists = (customPlaylists + playlistsList).distinctBy { it.id }.filter { p ->
+                val filteredPlaylists = (customPlaylists + playlistsList)
+                    .distinctBy { it.id }
+                    .filterNot {
+                        it.isMovieOnly ||
+                        it.type.equals("MOVIE", ignoreCase = true) ||
+                        it.id.startsWith("pl_ott_") ||
+                        it.id.startsWith("pl_movie_") ||
+                        it.id == "saved_movies_m3u" ||
+                        (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+                    }
+                    .filter { p ->
                     val matchesSearch = playlistAdminSearchQuery.isBlank() ||
                         p.title.contains(playlistAdminSearchQuery, ignoreCase = true) ||
                         p.url.contains(playlistAdminSearchQuery, ignoreCase = true) ||

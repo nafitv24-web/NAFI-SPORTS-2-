@@ -982,7 +982,8 @@ class MediaRepository(private val context: Context) {
     fun getInitialMoviesSeries(): List<MediaItem> {
         val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES }.filterNot { isItemDeleted(it) || isDemoChannel(it) }
         val cached = getCachedMoviesList().filterNot { isItemDeleted(it) || isDemoChannel(it) }
-        val baseList = if (cached.isNotEmpty()) cached else getDefaultBuiltinMovies()
+        val builtin = getDefaultBuiltinMovies()
+        val baseList = (cached + builtin).distinctBy { it.id }
         return (customMov + baseList).distinctBy { it.id }.filterNot { isItemDeleted(it) || isDemoChannel(it) }.sortedByDescending { it.movieSortWeight }
     }
 
@@ -1832,33 +1833,44 @@ class MediaRepository(private val context: Context) {
                         streamUrl.endsWith(".avi", ignoreCase = true) ||
                         isPixeldrain
 
+                // Clean display title
+                val cleanTitle = currentTitle.ifEmpty { "Channel $currentId" }
+                val stableId = "m3u_" + java.lang.Math.abs((cleanTitle + "_" + streamUrl).hashCode()).toString()
+
                 val isExplicitSeriesUrl = streamUrl.contains("/series/", ignoreCase = true)
 
-                val isLivePattern = !isExplicitMovieUrl && !isExplicitSeriesUrl && (
-                        streamUrl.contains(".m3u8", ignoreCase = true) ||
-                        streamUrl.contains(".mpd", ignoreCase = true) ||
-                        streamUrl.contains("/hls/", ignoreCase = true) ||
-                        streamUrl.contains("/live/", ignoreCase = true) ||
-                        streamUrl.contains("edge-cache-token=", ignoreCase = true) ||
-                        currentGroup.contains("live", ignoreCase = true) ||
-                        currentGroup.contains("tv", ignoreCase = true) ||
-                        currentGroup.contains("news", ignoreCase = true) ||
-                        currentGroup.contains("sports", ignoreCase = true)
-                )
-
-                val isMovieOrVod = isExplicitMovieUrl || (!isLivePattern && (
-                        currentGroup.contains("movie", ignoreCase = true) ||
+                val isMovieGroupOrTitle = currentGroup.contains("movie", ignoreCase = true) ||
                         currentGroup.contains("cinema", ignoreCase = true) ||
                         currentGroup.contains("vod", ignoreCase = true) ||
-                        currentGroup.contains("film", ignoreCase = true)
-                ))
+                        currentGroup.contains("film", ignoreCase = true) ||
+                        currentGroup.contains("মুভি", ignoreCase = true) ||
+                        currentGroup.contains("সিনেমা", ignoreCase = true) ||
+                        cleanTitle.contains("movie", ignoreCase = true) ||
+                        cleanTitle.contains("cinema", ignoreCase = true) ||
+                        cleanTitle.contains("মুভি", ignoreCase = true) ||
+                        cleanTitle.contains("সিনেমা", ignoreCase = true)
 
-                val isSeries = isExplicitSeriesUrl || (!isLivePattern && !isMovieOrVod && (
-                        currentGroup.contains("series", ignoreCase = true) ||
+                val isSeriesGroupOrTitle = currentGroup.contains("series", ignoreCase = true) ||
                         currentGroup.contains("web series", ignoreCase = true) ||
                         currentGroup.contains("drama", ignoreCase = true) ||
-                        currentGroup.contains("serial", ignoreCase = true)
-                ))
+                        currentGroup.contains("serial", ignoreCase = true) ||
+                        currentGroup.contains("নাটক", ignoreCase = true) ||
+                        cleanTitle.contains("season ", ignoreCase = true) ||
+                        cleanTitle.contains("episode ", ignoreCase = true)
+
+                val isExplicitMatch = cleanTitle.contains(" vs ", ignoreCase = true) ||
+                        cleanTitle.contains(" v ", ignoreCase = true) ||
+                        cleanTitle.contains(" @ ", ignoreCase = true)
+
+                val isLiveCategory = !isMovieGroupOrTitle && !isSeriesGroupOrTitle && !isExplicitMovieUrl && !isExplicitSeriesUrl && (
+                        currentGroup.contains("live tv", ignoreCase = true) ||
+                        currentGroup.contains("sports", ignoreCase = true) ||
+                        currentGroup.contains("news", ignoreCase = true) ||
+                        streamUrl.contains("/live/", ignoreCase = true)
+                )
+
+                val isMovieOrVod = isExplicitMovieUrl || (isMovieGroupOrTitle && !isLiveCategory)
+                val isSeries = isExplicitSeriesUrl || (isSeriesGroupOrTitle && !isLiveCategory && !isMovieOrVod)
 
                 val mediaType = when {
                     isSeries -> MediaType.SERIES
@@ -1866,15 +1878,8 @@ class MediaRepository(private val context: Context) {
                     else -> MediaType.LIVE_TV
                 }
 
-                // Clean display title
-                val cleanTitle = currentTitle.ifEmpty { "Channel $currentId" }
-                val stableId = "m3u_" + java.lang.Math.abs((cleanTitle + "_" + streamUrl).hashCode()).toString()
-
                 val isAkamaiOrTapmad = streamUrl.contains("akamaized.net", ignoreCase = true) ||
                         streamUrl.contains("tapmad", ignoreCase = true)
-                val isExplicitMatch = cleanTitle.contains(" vs ", ignoreCase = true) ||
-                        cleanTitle.contains(" v ", ignoreCase = true) ||
-                        cleanTitle.contains(" @ ", ignoreCase = true)
                 val isSportsItem = mediaType == MediaType.LIVE_EVENT || isExplicitMatch ||
                         currentGroup.contains("sports", ignoreCase = true) ||
                         currentGroup.contains("cricket", ignoreCase = true) ||
@@ -1985,12 +1990,7 @@ class MediaRepository(private val context: Context) {
                 currentDrmHeaders.clear()
             }
         }
-        val hasSportsEvents = items.any { it.type == MediaType.LIVE_EVENT || isSportsMatchOrChannel(it) }
-        return if (hasSportsEvents) {
-            consolidateSportsMatches(items)
-        } else {
-            items
-        }
+        return items
     }
 
     // -------------------------------------------------------------
@@ -3893,20 +3893,24 @@ class MediaRepository(private val context: Context) {
         val accounts = getActiveXtreamAccounts()
         val allItems = mutableListOf<MediaItem>()
         if (accounts.isEmpty()) {
-            coroutineScope {
-                val vodJob = async { fetchXtreamVodOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
-                val seriesJob = async { fetchXtreamSeriesOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
-                allItems.addAll(vodJob.await())
-                allItems.addAll(seriesJob.await())
-            }
+            // No custom Xtream accounts configured: return empty without blocking or hitting dead servers
+            return@withContext emptyList()
         } else {
             coroutineScope {
                 val jobs = accounts.map { acc ->
                     async {
                         val subItems = mutableListOf<MediaItem>()
                         coroutineScope {
-                            val vodJob = if (acc.includeVod) async { fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password) } else null
-                            val seriesJob = if (acc.includeSeries) async { fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password) } else null
+                            val vodJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (acc.includeVod) async {
+                                kotlinx.coroutines.withTimeoutOrNull(6000) {
+                                    fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password)
+                                } ?: emptyList()
+                            } else null
+                            val seriesJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (acc.includeSeries) async {
+                                kotlinx.coroutines.withTimeoutOrNull(6000) {
+                                    fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password)
+                                } ?: emptyList()
+                            } else null
                             vodJob?.await()?.let { subItems.addAll(it) }
                             seriesJob?.await()?.let { subItems.addAll(it) }
                         }
@@ -3929,13 +3933,21 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedXtreamAccountMovies(account.id)
-        if (!forceRefresh && cached.size > 2000) {
+        if (!forceRefresh && cached.isNotEmpty()) {
             return@withContext cached
         }
         val subItems = mutableListOf<MediaItem>()
         coroutineScope {
-            val vodJob = if (account.includeVod) async { fetchXtreamVodOnly(account.serverUrl, account.username, account.password) } else null
-            val seriesJob = if (account.includeSeries) async { fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password) } else null
+            val vodJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (account.includeVod) async {
+                kotlinx.coroutines.withTimeoutOrNull(6000) {
+                    fetchXtreamVodOnly(account.serverUrl, account.username, account.password)
+                } ?: emptyList()
+            } else null
+            val seriesJob: kotlinx.coroutines.Deferred<List<MediaItem>>? = if (account.includeSeries) async {
+                kotlinx.coroutines.withTimeoutOrNull(6000) {
+                    fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password)
+                } ?: emptyList()
+            } else null
             vodJob?.await()?.let { subItems.addAll(it) }
             seriesJob?.await()?.let { subItems.addAll(it) }
         }
@@ -3959,54 +3971,169 @@ class MediaRepository(private val context: Context) {
         saveListToFileCache("cache_pl_mov_${playlistId}.json", list)
     }
 
-    suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedPlaylistMovies(playlist.id)
-        if (cached.isNotEmpty()) {
+        if (!forceRefresh && cached.isNotEmpty()) {
             return@withContext cached
         }
         val allItems = if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
             val subItems = mutableListOf<MediaItem>()
             coroutineScope {
-                val vodJob = async { fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password) }
-                val seriesJob = async { fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password) }
+                val vodJob = async {
+                    kotlinx.coroutines.withTimeoutOrNull(6000) {
+                        fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password)
+                    } ?: emptyList()
+                }
+                val seriesJob = async {
+                    kotlinx.coroutines.withTimeoutOrNull(6000) {
+                        fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password)
+                    } ?: emptyList()
+                }
                 subItems.addAll(vodJob.await())
                 subItems.addAll(seriesJob.await())
             }
             subItems
         } else {
-            fetchPlaylistChannels(playlist)
+            kotlinx.coroutines.withTimeoutOrNull(8000) {
+                fetchPlaylistChannels(playlist)
+            } ?: emptyList()
         }
 
-        // STRICT FILTER: Absolutely NO Live TV!
-        val strictlyMovies = allItems.filter { item ->
-            val isExplicitLive = item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
-                    item.category.contains("Live TV", ignoreCase = true) ||
-                    item.category.contains("Sports", ignoreCase = true) ||
-                    item.category.contains("News", ignoreCase = true) ||
-                    (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
-            !isExplicitLive
-        }.map {
-            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+        val isDedicatedMoviePlaylist = playlist.isMovieOnly ||
+                playlist.type.equals("MOVIE", ignoreCase = true) ||
+                playlist.id.startsWith("pl_ott_") ||
+                playlist.id.startsWith("pl_movie_") ||
+                playlist.title.contains("movie", ignoreCase = true) ||
+                playlist.title.contains("cinema", ignoreCase = true)
+
+        val strictlyMovies = if (isDedicatedMoviePlaylist) {
+            allItems.map {
+                if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            }
+        } else {
+            allItems.filter { item ->
+                val isExplicitLive = (item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
+                        item.category.contains("Live TV", ignoreCase = true) ||
+                        item.category.contains("Sports", ignoreCase = true) ||
+                        item.category.contains("News", ignoreCase = true) ||
+                        (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))) &&
+                        item.type != MediaType.MOVIE && item.type != MediaType.SERIES
+                !isExplicitLive
+            }.map {
+                if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            }
         }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
 
         if (strictlyMovies.isNotEmpty()) {
             saveCachedPlaylistMovies(playlist.id, strictlyMovies)
         }
-        strictlyMovies
+        strictlyMovies.ifEmpty { cached }
     }
 
     suspend fun fetchAllXtreamMoviesFast(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedMoviesList()
-        if (!forceRefresh && cached.size > 2000) {
+        if (!forceRefresh && cached.isNotEmpty()) {
             return@withContext cached
         }
         val loaded = fetchAllXtreamMoviesAndSeries()
         if (loaded.isNotEmpty()) {
-            saveCachedMoviesList(loaded)
-            loaded
+            saveCachedMoviesList((loaded + cached).distinctBy { it.id })
+            (loaded + cached).distinctBy { it.id }
         } else {
             cached
         }
+    }
+
+    /**
+     * প্লেলিস্ট স্টিম সার্ভার থেকে যত মুভি রয়েছে সবগুলো যেন মুভি অপশনে আসে
+     * Aggregates all movies from all stream servers, playlists, built-in library, and cache.
+     */
+    suspend fun extractAllMoviesFromAllPlaylistsAndServers(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cached = getCachedMoviesList()
+        val builtin = getDefaultBuiltinMovies()
+        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }
+        val deleted = getDeletedIds()
+
+        val allMovies = mutableListOf<MediaItem>()
+        allMovies.addAll(cached)
+        allMovies.addAll(builtin)
+        allMovies.addAll(customMov)
+
+        // 1. All Movie Playlists & VOD Playlists
+        try {
+            val allPlaylists = (getAdminPlaylists() + getUserPlaylists()).distinctBy { it.id }.filterNot { deleted.contains(it.id) }
+            val moviePlaylists = allPlaylists.filter { pl ->
+                pl.isMovieOnly ||
+                pl.type.equals("MOVIE", ignoreCase = true) ||
+                pl.id.startsWith("pl_ott_") ||
+                pl.id.startsWith("pl_movie_") ||
+                pl.title.contains("movie", ignoreCase = true) ||
+                pl.title.contains("cinema", ignoreCase = true) ||
+                pl.title.contains("vod", ignoreCase = true) ||
+                pl.title.contains("film", ignoreCase = true) ||
+                pl.title.contains("ott", ignoreCase = true) ||
+                !pl.serverUrl.isNullOrBlank() ||
+                getCachedPlaylistMovies(pl.id).isNotEmpty()
+            }
+            coroutineScope {
+                val plJobs = moviePlaylists.map { pl ->
+                    async {
+                        try {
+                            fetchPlaylistMoviesOnly(pl, forceRefresh)
+                        } catch (_: Exception) { emptyList() }
+                    }
+                }
+                plJobs.awaitAll().forEach { plMovies ->
+                    allMovies.addAll(plMovies)
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Xtream Accounts
+        try {
+            val xtreamAccs = getXtreamAccounts().filter { it.isEnabled && (it.includeVod || it.includeSeries) }
+            if (xtreamAccs.isNotEmpty()) {
+                coroutineScope {
+                    val xtreamJobs = xtreamAccs.map { acc ->
+                        async {
+                            try {
+                                fetchXtreamAccountMovies(acc, forceRefresh)
+                            } catch (_: Exception) { emptyList() }
+                        }
+                    }
+                    xtreamJobs.awaitAll().forEach { accMovies ->
+                        allMovies.addAll(accMovies)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 3. Remote M3U / JSON movies
+        try {
+            val remoteUrl = getSavedMoviesM3uUrl()
+            if (remoteUrl.isNotBlank()) {
+                val remoteMovies = kotlinx.coroutines.withTimeoutOrNull(6000) {
+                    try {
+                        if (remoteUrl.endsWith(".json", ignoreCase = true) || remoteUrl.contains("movies.json", ignoreCase = true)) {
+                            fetchMoviesFromJsonUrl(remoteUrl)
+                        } else {
+                            parseM3uFromUrl(remoteUrl).map { it.copy(type = MediaType.MOVIE, isLive = false) }
+                        }
+                    } catch (_: Exception) { emptyList() }
+                } ?: emptyList()
+                allMovies.addAll(remoteMovies)
+            }
+        } catch (_: Exception) {}
+
+        val result = allMovies
+            .distinctBy { it.id }
+            .filterNot { deleted.contains(it.id) || isItemDeleted(it) }
+            .sortedByDescending { it.movieSortWeight }
+
+        if (result.isNotEmpty()) {
+            saveCachedMoviesList(result)
+        }
+        result
     }
 
     suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -4256,7 +4383,8 @@ class MediaRepository(private val context: Context) {
                                 password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
                                 type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
                                 isAdmin = obj.optBoolean("isAdmin", false),
-                                isReadOnly = obj.optBoolean("isReadOnly", false)
+                                isReadOnly = obj.optBoolean("isReadOnly", false),
+                                isMovieOnly = obj.optBoolean("isMovieOnly", false) || obj.optString("type").equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_")
                             )
                         )
                     }
@@ -4294,6 +4422,7 @@ class MediaRepository(private val context: Context) {
             obj.put("type", p.type)
             obj.put("isAdmin", false)
             obj.put("isReadOnly", false)
+            obj.put("isMovieOnly", p.isMovieOnly)
             arr.put(obj)
         }
         prefs.edit().putString("user_playlists", arr.toString()).apply()
@@ -4331,7 +4460,8 @@ class MediaRepository(private val context: Context) {
                             password = obj.optString("password", null).takeIf { it?.isNotBlank() == true },
                             type = obj.optString("type", if (obj.has("serverUrl") || obj.has("username")) "XTREAM" else "M3U"),
                             isAdmin = true,
-                            isReadOnly = true
+                            isReadOnly = true,
+                            isMovieOnly = obj.optBoolean("isMovieOnly", false) || obj.optString("type").equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_")
                         )
                     )
                 }
@@ -4368,6 +4498,7 @@ class MediaRepository(private val context: Context) {
             obj.put("type", p.type)
             obj.put("isAdmin", true)
             obj.put("isReadOnly", true)
+            obj.put("isMovieOnly", p.isMovieOnly)
             arr.put(obj)
         }
         prefs.edit().putString("admin_playlists", arr.toString()).apply()

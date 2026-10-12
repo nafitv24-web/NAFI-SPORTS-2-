@@ -78,6 +78,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.MediaRepository
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material3.CircularProgressIndicator
 import com.example.model.MediaItem
 import com.example.model.MediaType
 import com.example.model.MovieProvider
@@ -116,24 +127,30 @@ data class MovieHubItem(
  * or TV broadcast ever appears in the Movies section. ONLY movies and web series are allowed.
  */
 fun isPureMovieOrSeries(item: MediaItem): Boolean {
+    // 1. If explicitly marked as MOVIE or SERIES:
+    if (item.type == MediaType.MOVIE || item.type == MediaType.SERIES || item.isSeries) {
+        val cat = item.category.lowercase()
+        if (cat.contains("sports") || cat.contains("cricket") || cat.contains("football") || cat.contains("live matches")) return false
+        val title = item.title.lowercase()
+        if ((title.contains(" vs ") || title.contains(" v ")) && (cat.contains("match") || cat.contains("live") || title.contains("live") || item.team1 != null)) return false
+        return true
+    }
+
     if (item.isLive) return false
     if (item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT) return false
 
     val cat = item.category.lowercase()
     val liveKeywords = listOf(
         "live tv", "sports", "cricket", "football", "news", "bangladesh tv", "bd tv",
-        "indian tv", "telecom", "channel", "live-event", "live matches", "sport"
+        "indian tv", "telecom", "live-event", "live matches"
     )
     if (liveKeywords.any { cat.contains(it) }) return false
 
     val title = item.title.lowercase()
-    if (title.contains(" vs ") || title.contains(" v ") || (title.contains(" live ") && !title.contains("alive"))) return false
+    if ((title.contains(" vs ") || title.contains(" v ")) && (cat.contains("match") || cat.contains("live") || title.contains("live") || item.team1 != null)) return false
 
     val url = item.streamUrl.lowercase()
     if (url.contains("/live/") && !url.contains("/movie/") && !url.contains("/series/")) return false
-    if (url.endsWith(".m3u8") && (cat.contains("tv") || title.contains("tv") || cat.contains("channel"))) {
-        if (!url.contains("movie") && !url.contains("vod") && !url.contains("series")) return false
-    }
 
     return true
 }
@@ -149,7 +166,8 @@ fun MoviesTabScreen(
     onSelectMedia: (MediaItem) -> Unit,
     onSelectMediaWithPlaylist: ((MediaItem, List<MediaItem>) -> Unit)? = null,
     onToggleFavorite: (String) -> Unit,
-    onOpenOfflineDownloads: () -> Unit
+    onOpenOfflineDownloads: () -> Unit,
+    onMoviesChanged: () -> Unit = {}
 ) {
     val coroutineScope = rememberCoroutineScope()
 
@@ -161,6 +179,7 @@ fun MoviesTabScreen(
     // Dialog state
     var selectedSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
     var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
+    var showAddServerDialog by remember { mutableStateOf(false) }
 
     // Active Selected Server or OTT Platform Hub
     var selectedHub by remember { mutableStateOf<MovieHubItem?>(null) }
@@ -183,8 +202,7 @@ fun MoviesTabScreen(
     }
 
     // Build the list of Admin-added Xtream Servers, Playlists, and OTT Platforms
-    // Only includes what was added from the Admin Panel (No extra dummy demos like unconfigured Hotstar/Netflix)
-    val adminHubs = remember(repository) {
+    val adminHubs = remember(repository, movies) {
         val hubs = mutableListOf<MovieHubItem>()
 
         if (repository != null) {
@@ -235,14 +253,23 @@ fun MoviesTabScreen(
                 )
             }
 
-            // 2. Custom & Admin Movie Playlists configured in Admin Panel
-            val customPlaylists = repository.getCustomPlaylists()
+            // 2. Custom & Admin Movie Playlists configured in Admin Panel or added as movie playlists
+            val moviePlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists()).filter {
+                it.isMovieOnly ||
+                it.type.equals("MOVIE", ignoreCase = true) ||
+                it.id.startsWith("pl_ott_") ||
+                it.id.startsWith("pl_movie_") ||
+                it.title.contains("movie", ignoreCase = true) ||
+                it.title.contains("cinema", ignoreCase = true) ||
+                it.title.contains("ott", ignoreCase = true) ||
+                (it.description?.contains("movie", ignoreCase = true) == true)
+            }.distinctBy { it.id }
             val plGradients = listOf(
                 listOf(Color(0xFFC2410C), Color(0xFF431407)), // Amber/Orange
                 listOf(Color(0xFF0369A1), Color(0xFF082F49)), // Sky Blue
                 listOf(Color(0xFF4338CA), Color(0xFF1E1B4B))  // Indigo
             )
-            customPlaylists.forEachIndexed { idx, pl ->
+            moviePlaylists.forEachIndexed { idx, pl ->
                 val grad = plGradients[idx % plGradients.size]
                 val cleanHost = if (!pl.serverUrl.isNullOrBlank()) {
                     pl.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
@@ -404,11 +431,6 @@ fun MoviesTabScreen(
     }
 
     // Filter adult content and type (Movie / Series)
-    var preparedMovies by remember { mutableStateOf(currentActiveSourceMovies) }
-    var preparedCategorizedMovies by remember { mutableStateOf<List<Pair<String, List<MediaItem>>>>(emptyList()) }
-    var preparedCategories by remember { mutableStateOf<List<String>>(listOf("All", "ডাউনলোডসমূহ")) }
-    var preparedFeaturedMovies by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-
     val priorityList = remember {
         listOf(
             "BANGLA (2026)", "BANGLA (2025)", "BANGLA (2024)", "Bangla Movies 2026", "Bangla Movies 2025", "Bangla Movies 2024", "Bangla Movies", "BANGLA",
@@ -418,50 +440,55 @@ fun MoviesTabScreen(
         )
     }
 
-    LaunchedEffect(currentActiveSourceMovies, isAdultHidden, selectedTypeFilter, repository) {
-        withContext(Dispatchers.Default) {
-            val shouldFilterAdult = isAdultHidden || (repository?.isAdultContentHidden() == true)
-            val adultFiltered = if (shouldFilterAdult && repository != null) {
-                val hiddenIds = repository.getHiddenItemIds()
-                val hiddenKeywords = repository.getHiddenKeywords().map { it.lowercase() }
-                currentActiveSourceMovies.filterNot { m ->
-                    if (repository.isAdultCategory(m.category) || repository.isAdultMedia(m) || repository.isMediaHidden(m)) return@filterNot true
-                    if (hiddenIds.contains(m.id)) return@filterNot true
-                    if (hiddenKeywords.isNotEmpty()) {
-                        val txt = "${m.title} ${m.category} ${m.genre ?: ""} ${m.description ?: ""}".lowercase()
-                        if (hiddenKeywords.any { txt.contains(it) }) return@filterNot true
-                    }
-                    false
-                }
-            } else if (shouldFilterAdult) {
-                val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
-                currentActiveSourceMovies.filterNot { m ->
-                    val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
-                    adultWords.any { txt.contains(it) }
-                }
-            } else {
-                currentActiveSourceMovies
-            }
+    val shouldFilterAdult = isAdultHidden || (repository?.isAdultContentHidden() == true)
 
-            val typeFiltered = when (selectedTypeFilter) {
-                "MOVIE" -> adultFiltered.filter { !it.isSeries && it.type != MediaType.SERIES }
-                "SERIES" -> adultFiltered.filter { it.isSeries || it.type == MediaType.SERIES }
-                else -> adultFiltered
-            }.sortedByDescending { it.movieSortWeight }
-
-            // Group into Categories
-            val groupedMap = LinkedHashMap<String, MutableList<MediaItem>>()
-            for (m in typeFiltered) {
-                val cat = m.category.trim()
-                if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true)) {
-                    groupedMap.getOrPut(cat) { mutableListOf() }.add(m)
+    val adultFilteredMovies = remember(currentActiveSourceMovies, shouldFilterAdult, repository) {
+        if (shouldFilterAdult && repository != null) {
+            val hiddenIds = repository.getHiddenItemIds()
+            val hiddenKeywords = repository.getHiddenKeywords().map { it.lowercase() }
+            currentActiveSourceMovies.filterNot { m ->
+                if (repository.isAdultCategory(m.category) || repository.isAdultMedia(m) || repository.isMediaHidden(m)) return@filterNot true
+                if (hiddenIds.contains(m.id)) return@filterNot true
+                if (hiddenKeywords.isNotEmpty()) {
+                    val txt = "${m.title} ${m.category} ${m.genre ?: ""} ${m.description ?: ""}".lowercase()
+                    if (hiddenKeywords.any { txt.contains(it) }) return@filterNot true
                 }
+                false
             }
-            val catPairs = groupedMap.map { (cat, list) ->
-                cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+        } else if (shouldFilterAdult) {
+            val adultWords = listOf("adult", "adults", "18+", "18 +", "xxx", "nsfw", "erotic", "porn", "sex", "sensual", "mature", "ullu", "kooku", "primeshots", "rabbit", "besharams", "hotx")
+            currentActiveSourceMovies.filterNot { m ->
+                val txt = "${m.title} ${m.category} ${m.genre ?: ""}".lowercase()
+                adultWords.any { txt.contains(it) }
             }
+        } else {
+            currentActiveSourceMovies
+        }
+    }
 
-            val sortedCatPairs = catPairs.sortedWith(
+    val preparedMovies = remember(adultFilteredMovies, selectedTypeFilter) {
+        when (selectedTypeFilter) {
+            "MOVIE" -> adultFilteredMovies.filter { !it.isSeries && it.type != MediaType.SERIES }
+            "SERIES" -> adultFilteredMovies.filter { it.isSeries || it.type == MediaType.SERIES }
+            else -> adultFilteredMovies
+        }.sortedByDescending { it.movieSortWeight }
+    }
+
+    val (categories, categorizedMovies, featuredMovies) = remember(preparedMovies, priorityList) {
+        val groupedMap = LinkedHashMap<String, MutableList<MediaItem>>()
+        for (m in preparedMovies) {
+            val cat = m.category.trim()
+            val cleanCat = if (cat.isBlank() || cat.equals("Unknown", ignoreCase = true)) "অন্যান্য মুভি ও সিরিজ" else cat
+            groupedMap.getOrPut(cleanCat) { mutableListOf() }.add(m)
+        }
+        val catPairs = groupedMap.map { (cat, list) ->
+            cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+        }
+
+        val sortedCatPairs = if (catPairs.isEmpty() && preparedMovies.isNotEmpty()) {
+            listOf("সকল মুভি ও সিরিজ" to preparedMovies)
+        } else {
+            catPairs.sortedWith(
                 compareBy<Pair<String, List<MediaItem>>> { pair ->
                     val cat = pair.first
                     val idx = priorityList.indexOfFirst { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) }
@@ -470,27 +497,18 @@ fun MoviesTabScreen(
                     pair.second.firstOrNull()?.movieSortWeight ?: 0L
                 }
             )
-
-            val uniqueCats = sortedCatPairs.map { it.first }
-            val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
-            val others = uniqueCats.filterNot { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
-            val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
-
-            val withLogos = typeFiltered.filter { !it.logoUrl.isNullOrBlank() }.sortedByDescending { it.movieSortWeight }
-            val featured = if (withLogos.isNotEmpty()) withLogos.take(8) else typeFiltered.take(6)
-
-            withContext(Dispatchers.Main) {
-                preparedMovies = typeFiltered
-                preparedCategories = allCats
-                preparedCategorizedMovies = sortedCatPairs
-                preparedFeaturedMovies = featured
-            }
         }
-    }
 
-    val categories = preparedCategories
-    val featuredMovies = preparedFeaturedMovies
-    val categorizedMovies = preparedCategorizedMovies
+        val uniqueCats = sortedCatPairs.map { it.first }
+        val highPriority = uniqueCats.filter { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
+        val others = uniqueCats.filterNot { cat -> priorityList.any { cat.contains(it, ignoreCase = true) || it.contains(cat, ignoreCase = true) } }
+        val allCats = listOf("All", "ডাউনলোডসমূহ") + highPriority + others
+
+        val withLogos = preparedMovies.filter { !it.logoUrl.isNullOrBlank() }.sortedByDescending { it.movieSortWeight }
+        val featured = if (withLogos.isNotEmpty()) withLogos.take(8) else preparedMovies.take(6)
+
+        Triple(allCats, sortedCatPairs, featured)
+    }
 
     // Filtered movies when search query or category filter is active
     val filteredMovies = remember(preparedMovies, searchQuery, selectedCategory, favoriteIds) {
@@ -847,13 +865,13 @@ fun MoviesTabScreen(
         // -------------------------------------------------------------
         // 6. MAIN CONTENT AREA (Netflix / Disney+ Hotstar UI)
         // -------------------------------------------------------------
-        if (isHubLoading) {
+        if (isHubLoading || (isLoading && preparedMovies.isEmpty())) {
             NafiLogoLoadingView(
-                title = "${selectedHub?.title ?: "সার্ভার"} থেকে মুভি লোড হচ্ছে...",
+                title = if (selectedHub != null) "${selectedHub?.title ?: "সার্ভার"} থেকে মুভি লোড হচ্ছে..." else "মুভি ও সিরিজ লোড হচ্ছে...",
                 subtitle = "অনুগ্রহ করে অপেক্ষা করুন, হাই-স্পিড VOD ডাটা সিঙ্ক হচ্ছে...",
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (preparedMovies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank() && !isLoading && selectedHub != null) {
+        } else if (preparedMovies.isEmpty() && selectedCategory == "All" && searchQuery.isBlank() && !isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -862,7 +880,7 @@ fun MoviesTabScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Movie,
@@ -871,27 +889,47 @@ fun MoviesTabScreen(
                         modifier = Modifier.size(54.dp)
                     )
                     Text(
-                        text = "${selectedHub!!.title} এ কোনো মুভি পাওয়া যায়নি",
+                        text = if (selectedHub != null) "${selectedHub!!.title} এ কোনো মুভি পাওয়া যায়নি" else "কোনো মুভি বা সিরিজ পাওয়া যায়নি",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 15.5.sp
                     )
                     Text(
-                        text = "এডমিন প্যানেল থেকে এই সার্ভারের ক্রেডেনশিয়াল বা প্লেলিস্ট চেক করুন।",
+                        text = if (selectedHub != null)
+                            "এডমিন প্যানেল থেকে এই সার্ভারের ক্রেডেনশিয়াল বা প্লেলিস্ট চেক করুন।"
+                        else
+                            "সার্ভার থেকে মুভি সিঙ্ক করতে নিচের রিফ্রেশ বাটনে ট্যাপ করুন অথবা এডমিন প্যানেল থেকে মুভি সার্ভার যোগ করুন।",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center
                     )
-                    Button(
-                        onClick = { selectedHub = null },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("সকল ওটিটি সার্ভারে ফিরে যান", fontWeight = FontWeight.Bold)
+                    if (selectedHub != null) {
+                        Button(
+                            onClick = { selectedHub = null },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("সকল ওটিটি সার্ভারে ফিরে যান", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    onMoviesChanged()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("রিফ্রেশ করুন (Reload)", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         } else if (searchQuery.isBlank() && selectedCategory == "All" && !isGridViewActive) {
+            val displayCategorized = if (categorizedMovies.isNotEmpty()) categorizedMovies else listOf("সকল মুভি ও সিরিজ" to preparedMovies)
             // =========================================================
             // NETFLIX / DISNEY+ HOTSTAR HOME BROWSING VIEW
             // =========================================================
@@ -1138,7 +1176,7 @@ fun MoviesTabScreen(
                 // -----------------------------------------------------
                 // (B) CATEGORIZED HORIZONTAL CAROUSELS (Netflix Shelves)
                 // -----------------------------------------------------
-                items(categorizedMovies, key = { it.first }) { (categoryName, catMovies) ->
+                items(displayCategorized, key = { it.first }) { (categoryName, catMovies) ->
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)

@@ -255,11 +255,13 @@ data class PlaylistInfo(
     val serverUrl: String? = null,
     val username: String? = null,
     val password: String? = null,
-    val type: String = "M3U", // "XTREAM" or "M3U"
+    val type: String = "M3U", // "XTREAM" or "M3U" or "MOVIE"
     val isAdmin: Boolean = false,
-    val isReadOnly: Boolean = false
+    val isReadOnly: Boolean = false,
+    val isMovieOnly: Boolean = false
 ) {
     val isProtected: Boolean get() = isAdmin || isReadOnly
+    val isMoviePlaylist: Boolean get() = isMovieOnly || type.equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_") || (description != null && description.contains("Movie", ignoreCase = true))
 }
 
 data class MovieProvider(

@@ -252,7 +252,19 @@ fun NafiTvMainApp(
     var moviesList by remember {
         mutableStateOf(repository.getInitialMoviesSeries())
     }
-    var playlistsList by remember { mutableStateOf(repository.getInitialPlaylists() + repository.getCustomPlaylists()) }
+    var playlistsList by remember {
+        mutableStateOf(
+            (repository.getInitialPlaylists() + repository.getCustomPlaylists()).distinctBy { it.id }.filterNot {
+                it.isMovieOnly ||
+                it.type.equals("MOVIE", ignoreCase = true) ||
+                it.id.startsWith("pl_ott_") ||
+                it.id.startsWith("pl_movie_") ||
+                it.id == "saved_movies_m3u" ||
+                it.title.contains("ott movie", ignoreCase = true) ||
+                (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+            }
+        )
+    }
     var adminPlaylistsList by remember { mutableStateOf(repository.getInitialPlaylists() + repository.getAdminPlaylists()) }
     var customList by remember { mutableStateOf(repository.getCustomStreams()) }
     var m3uList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
@@ -374,99 +386,26 @@ fun NafiTvMainApp(
                         }
                     }
 
-                    // ৩. মুভি ও সিরিজ সমান্তরাল লোডিং (Movies & Series - Xtream + M3U, Newest First)
+                    // ৩. মুভি ও সিরিজ সমান্তরাল লোডিং (Movies & Series - Instant Cache + All Stream Servers & Playlists)
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.MOVIES }
-                            val cachedMovies = repository.getCachedMoviesList()
-                            if (cachedMovies.isNotEmpty()) {
+                            // 1. Instant 0-second display from built-in library & cache
+                            val initialMovies = repository.getInitialMoviesSeries()
+                            if (initialMovies.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
-                                    moviesList = (cachedMovies + moviesList).distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                                    moviesList = (initialMovies + moviesList).distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
                                 }
                             }
 
-                            val xtreamMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(45000) {
-                                    try {
-                                        repository.fetchAllXtreamMoviesFast().filterNot { deleted.contains(it.id) }
-                                    } catch (_: Exception) { emptyList() }
-                                } ?: emptyList()
-                            }
-
-                            val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
-                            val moviesM3uJob = async {
-                                if (moviesM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(10000) {
-                                        try {
-                                            if (moviesM3uUrl.endsWith(".json", ignoreCase = true) || moviesM3uUrl.contains("movies.json", ignoreCase = true)) {
-                                                repository.fetchMoviesFromJsonUrl(moviesM3uUrl).map {
-                                                    it.copy(
-                                                        type = if (it.type == MediaType.SERIES) MediaType.SERIES else MediaType.MOVIE,
-                                                        tournament = "NAFI_OTT",
-                                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
-                                                    )
-                                                }.filterNot { deleted.contains(it.id) }
-                                            } else {
-                                                repository.parseM3uFromUrl(moviesM3uUrl).map {
-                                                    it.copy(
-                                                        type = MediaType.MOVIE,
-                                                        tournament = "NAFI_OTT",
-                                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
-                                                    )
-                                                }.filterNot { deleted.contains(it.id) }
-                                            }
-                                        } catch (_: Exception) { emptyList() }
-                                    } ?: emptyList()
-                                } else emptyList()
-                            }
-
-                            val mixMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(8000) {
-                                    try {
-                                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
-                                            it.copy(
-                                                type = MediaType.MOVIE,
-                                                tournament = "MIX_MOVIES",
-                                                category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
-                                            )
-                                        }.filterNot { deleted.contains(it.id) }
-                                    } catch (_: Exception) { emptyList() }
-                                } ?: emptyList()
-                            }
-
-                            val customPlaylistsMoviesJob = async {
-                                try {
-                                    val plList = repository.getCustomPlaylists()
-                                    val plMovies = mutableListOf<MediaItem>()
-                                    coroutineScope {
-                                        val jobs = plList.map { pl ->
-                                            async {
-                                                try {
-                                                    repository.fetchPlaylistMoviesOnly(pl)
-                                                } catch (_: Exception) { emptyList() }
-                                            }
-                                        }
-                                        jobs.awaitAll().forEach { plMovies.addAll(it) }
-                                    }
-                                    plMovies.filterNot { deleted.contains(it.id) }
-                                } catch (_: Exception) { emptyList() }
-                            }
-
-                            val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) }
-
-                            val moviesM3u = moviesM3uJob.await()
-                            val mixMovies = mixMoviesJob.await()
-                            val customPlMovies = customPlaylistsMoviesJob.await()
-                            val xtreamMovies = xtreamMoviesJob.await()
-
-                            val combined = (customMov + xtreamMovies + moviesM3u + mixMovies + customPlMovies + moviesList)
-                                .distinctBy { it.id }
-                                .filterNot { deleted.contains(it.id) }
-                                .sortedByDescending { it.movieSortWeight }
-
-                            if (combined.isNotEmpty()) {
+                            // 2. Fetch all movies from all configured stream servers, playlists, and remote sources fast
+                            val allExtractedMovies = repository.extractAllMoviesFromAllPlaylistsAndServers(forceRefresh = false)
+                            if (allExtractedMovies.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
-                                    moviesList = combined
+                                    moviesList = (allExtractedMovies + moviesList)
+                                        .distinctBy { it.id }
+                                        .filterNot { deleted.contains(it.id) || repository.isItemDeleted(it) }
+                                        .sortedByDescending { it.movieSortWeight }
                                 }
                                 repository.saveCachedMoviesList(moviesList)
                             }
@@ -489,7 +428,15 @@ fun NafiTvMainApp(
 
                             withContext(Dispatchers.Main) {
                                 adminPlaylistsList = allPlaylists
-                                playlistsList = allPlaylists
+                                playlistsList = allPlaylists.filterNot {
+                                    it.isMovieOnly ||
+                                    it.type.equals("MOVIE", ignoreCase = true) ||
+                                    it.id.startsWith("pl_ott_") ||
+                                    it.id.startsWith("pl_movie_") ||
+                                    it.id == "saved_movies_m3u" ||
+                                    it.title.contains("ott movie", ignoreCase = true) ||
+                                    (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+                                }
                             }
 
                             // Firebase extra items
