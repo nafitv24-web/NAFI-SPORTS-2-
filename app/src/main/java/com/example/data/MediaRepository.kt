@@ -471,22 +471,192 @@ class MediaRepository(private val context: Context) {
     private val memoryFileCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
     private val cacheWriteExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    // Fast & Safe Local File Cache (JSON File storage - zero memory overhead in SharedPreferences, 0ms instant startup)
+    // Fast & Safe Local File Cache (Streaming JSON storage - zero memory overhead, supports 70,000+ movies)
     private fun saveListToFileCache(fileName: String, list: List<MediaItem>) {
-        val itemsToSave = if (list.size > 800) list.take(800) else list
+        val itemsToSave = if (fileName.contains("movies", ignoreCase = true) || fileName.contains("xtream", ignoreCase = true)) {
+            list.take(100_000)
+        } else {
+            list.take(10_000)
+        }
         memoryFileCache[fileName] = itemsToSave
         cacheWriteExecutor.execute {
             try {
                 val file = java.io.File(context.filesDir, fileName)
-                val jsonArray = JSONArray()
-                itemsToSave.forEach { item ->
-                    jsonArray.put(serializeMediaToJsonObj(item))
+                val tempFile = java.io.File(context.filesDir, "$fileName.tmp")
+                tempFile.bufferedWriter(Charsets.UTF_8).use { bw ->
+                    val jWriter = android.util.JsonWriter(bw)
+                    jWriter.beginArray()
+                    for (item in itemsToSave) {
+                        try {
+                            writeMediaItemToJsonWriter(jWriter, item)
+                        } catch (_: Exception) {}
+                    }
+                    jWriter.endArray()
+                    jWriter.flush()
                 }
-                file.writeText(jsonArray.toString())
+                if (tempFile.exists()) {
+                    if (file.exists()) file.delete()
+                    tempFile.renameTo(file)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
+    }
+
+    private fun writeMediaItemToJsonWriter(writer: android.util.JsonWriter, item: MediaItem) {
+        writer.beginObject()
+        writer.name("id").value(item.id)
+        writer.name("title").value(item.title)
+        writer.name("category").value(item.category)
+        writer.name("type").value(item.type.name)
+        writer.name("streamUrl").value(item.streamUrl)
+        if (!item.backupUrl.isNullOrBlank()) writer.name("backupUrl").value(item.backupUrl)
+        if (!item.logoUrl.isNullOrBlank()) writer.name("logoUrl").value(item.logoUrl)
+        if (!item.description.isNullOrBlank()) writer.name("description").value(item.description)
+        if (!item.rating.isNullOrBlank()) writer.name("rating").value(item.rating)
+        if (!item.year.isNullOrBlank()) writer.name("year").value(item.year)
+        if (item.addedTimestamp != 0L) writer.name("addedTimestamp").value(item.addedTimestamp)
+        if (!item.xtreamServerUrl.isNullOrBlank()) writer.name("xtreamServerUrl").value(item.xtreamServerUrl)
+        if (!item.xtreamUsername.isNullOrBlank()) writer.name("xtreamUsername").value(item.xtreamUsername)
+        if (!item.xtreamPassword.isNullOrBlank()) writer.name("xtreamPassword").value(item.xtreamPassword)
+        if (!item.quality.isNullOrBlank()) writer.name("quality").value(item.quality)
+        if (!item.userAgent.isNullOrBlank()) writer.name("userAgent").value(item.userAgent)
+        if (item.isLive) writer.name("isLive").value(true)
+        if (item.isSeries) writer.name("isSeries").value(true)
+        if (item.isAdminAdded) writer.name("isAdminAdded").value(true)
+        if (!item.status.isNullOrBlank()) writer.name("status").value(item.status)
+        if (!item.tournament.isNullOrBlank()) writer.name("tournament").value(item.tournament)
+        if (!item.team1.isNullOrBlank()) writer.name("team1").value(item.team1)
+        if (!item.team2.isNullOrBlank()) writer.name("team2").value(item.team2)
+        if (item.servers.isNotEmpty()) {
+            writer.name("servers")
+            writer.beginArray()
+            for (s in item.servers) {
+                writer.beginObject()
+                writer.name("name").value(s.name)
+                writer.name("url").value(s.url)
+                writer.endObject()
+            }
+            writer.endArray()
+        }
+        writer.endObject()
+    }
+
+    private fun readMediaItemFromJsonReader(reader: android.util.JsonReader): MediaItem? {
+        reader.beginObject()
+        var id = ""
+        var title = ""
+        var category = "Movies"
+        var typeStr = "MOVIE"
+        var streamUrl = ""
+        var backupUrl: String? = null
+        var logoUrl: String? = null
+        var description: String? = null
+        var rating: String? = "8.5"
+        var year: String? = null
+        var addedTimestamp = 0L
+        var xtreamServerUrl: String? = null
+        var xtreamUsername: String? = null
+        var xtreamPassword: String? = null
+        var quality = "HD"
+        var userAgent: String? = null
+        var isLive = false
+        var isSeries = false
+        var isAdminAdded = false
+        var status = "LIVE"
+        var tournament: String? = null
+        var team1: String? = null
+        var team2: String? = null
+        val servers = mutableListOf<StreamServer>()
+
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "id" -> id = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                "title", "name" -> title = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                "category", "sport", "cat" -> category = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "Movies" }
+                "type" -> typeStr = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "MOVIE" }
+                "streamUrl", "url" -> streamUrl = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                "backupUrl", "bk" -> backupUrl = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "logoUrl", "logo", "poster" -> logoUrl = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "description", "desc" -> description = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "rating", "rat" -> rating = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "8.5" }
+                "year", "yr" -> year = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "addedTimestamp", "ts" -> addedTimestamp = try { reader.nextLong() } catch (_: Exception) { reader.skipValue(); 0L }
+                "xtreamServerUrl", "xs" -> xtreamServerUrl = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "xtreamUsername", "xu" -> xtreamUsername = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "xtreamPassword", "xp" -> xtreamPassword = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "quality", "q" -> quality = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "HD" }
+                "userAgent", "ua" -> userAgent = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "isLive", "live" -> isLive = try { reader.nextBoolean() } catch (_: Exception) { reader.skipValue(); false }
+                "isSeries", "isSer" -> isSeries = try { reader.nextBoolean() } catch (_: Exception) { reader.skipValue(); false }
+                "isAdminAdded" -> isAdminAdded = try { reader.nextBoolean() } catch (_: Exception) { reader.skipValue(); false }
+                "status" -> status = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "LIVE" }
+                "tournament" -> tournament = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "team1" -> team1 = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "team2" -> team2 = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); null }
+                "servers" -> {
+                    try {
+                        reader.beginArray()
+                        while (reader.hasNext()) {
+                            reader.beginObject()
+                            var sName = "সার্ভার"
+                            var sUrl = ""
+                            while (reader.hasNext()) {
+                                when (reader.nextName()) {
+                                    "name", "n" -> sName = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "সার্ভার" }
+                                    "url", "u" -> sUrl = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                                    else -> reader.skipValue()
+                                }
+                            }
+                            reader.endObject()
+                            if (sUrl.isNotBlank()) servers.add(StreamServer(sName, sUrl))
+                        }
+                        reader.endArray()
+                    } catch (_: Exception) {
+                        try { reader.skipValue() } catch (_: Exception) {}
+                    }
+                }
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+
+        if (id.isBlank() && streamUrl.isBlank() && servers.isEmpty()) return null
+        val mType = when (typeStr.uppercase()) {
+            "SERIES" -> MediaType.SERIES
+            "LIVE_TV" -> MediaType.LIVE_TV
+            "LIVE_EVENT" -> MediaType.LIVE_EVENT
+            else -> MediaType.MOVIE
+        }
+        val finalServers = if (servers.isNotEmpty()) servers else if (streamUrl.isNotBlank()) listOf(StreamServer("সার্ভার ১", streamUrl)) else emptyList()
+        val finalStream = if (streamUrl.isNotBlank()) streamUrl else finalServers.firstOrNull()?.url ?: ""
+
+        return MediaItem(
+            id = id.ifBlank { "item_${Math.abs((title + finalStream).hashCode())}" },
+            title = title.ifBlank { "Stream" },
+            category = category,
+            type = mType,
+            streamUrl = finalStream,
+            backupUrl = backupUrl,
+            servers = finalServers,
+            logoUrl = logoUrl,
+            description = description,
+            rating = rating,
+            year = year,
+            addedTimestamp = addedTimestamp,
+            xtreamServerUrl = xtreamServerUrl,
+            xtreamUsername = xtreamUsername,
+            xtreamPassword = xtreamPassword,
+            quality = quality,
+            userAgent = userAgent,
+            isLive = isLive || mType == MediaType.LIVE_TV || mType == MediaType.LIVE_EVENT,
+            isAdminAdded = isAdminAdded,
+            status = status,
+            tournament = tournament,
+            team1 = team1,
+            team2 = team2
+        )
     }
 
     private fun loadListFromFileCache(fileName: String): List<MediaItem> {
@@ -498,21 +668,42 @@ class MediaRepository(private val context: Context) {
         if (!file.exists()) return emptyList()
         val list = mutableListOf<MediaItem>()
         try {
-            val text = file.readText().trim()
-            if (text.startsWith("[")) {
-                val jsonArray = JSONArray(text)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val id = obj.optString("id", "item_$i")
-                    val item = parseMediaFromJsonObj(id, obj)
-                    if (!isItemDeleted(item) && !id.startsWith("sport_default_")) {
+            file.bufferedReader(Charsets.UTF_8).use { br ->
+                val reader = android.util.JsonReader(br)
+                reader.beginArray()
+                while (reader.hasNext()) {
+                    val item = try {
+                        readMediaItemFromJsonReader(reader)
+                    } catch (_: Exception) {
+                        try { reader.skipValue() } catch (_: Exception) {}
+                        null
+                    }
+                    if (item != null && !isItemDeleted(item) && !item.id.startsWith("sport_default_")) {
                         list.add(item)
                     }
                 }
+                reader.endArray()
             }
             memoryFileCache[fileName] = list
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (_: Exception) {
+            // Fallback to legacy string-based parsing if needed
+            try {
+                val text = file.readText().trim()
+                if (text.startsWith("[")) {
+                    val jsonArray = JSONArray(text)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.optJSONObject(i) ?: continue
+                        val id = obj.optString("id", "item_$i")
+                        val item = parseMediaFromJsonObj(id, obj)
+                        if (!isItemDeleted(item) && !id.startsWith("sport_default_")) {
+                            list.add(item)
+                        }
+                    }
+                }
+                memoryFileCache[fileName] = list
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
         return list
     }
@@ -1044,12 +1235,44 @@ class MediaRepository(private val context: Context) {
                                 val mObj = innerArr.optJSONObject(j)
                                 if (mObj != null) {
                                     val parsed = parseSingleMediaFromJson(mObj, items.size, catName, defaultType = defaultType)
-                                    if (parsed != null) items.add(parsed)
+                                    if (parsed != null) {
+                                        items.add(parsed)
+                                        if (parsed.servers.size > 1 && (defaultType == MediaType.LIVE_EVENT || parsed.type == MediaType.LIVE_EVENT || defaultType == MediaType.LIVE_TV)) {
+                                            parsed.servers.forEachIndexed { sIdx, srv ->
+                                                val sTitle = if (srv.name.isNotBlank() && !srv.name.startsWith("সার্ভার")) "${parsed.title} - ${srv.name}" else "${parsed.title} (সার্ভার ${sIdx + 1})"
+                                                items.add(
+                                                    parsed.copy(
+                                                        id = "${parsed.id}_srv_${sIdx + 1}",
+                                                        title = sTitle,
+                                                        streamUrl = srv.url,
+                                                        servers = listOf(srv),
+                                                        backupUrl = null
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {
                             val parsed = parseSingleMediaFromJson(element, i, defaultCategory, defaultType = defaultType)
-                            if (parsed != null) items.add(parsed)
+                            if (parsed != null) {
+                                items.add(parsed)
+                                if (parsed.servers.size > 1 && (defaultType == MediaType.LIVE_EVENT || parsed.type == MediaType.LIVE_EVENT || defaultType == MediaType.LIVE_TV)) {
+                                    parsed.servers.forEachIndexed { sIdx, srv ->
+                                        val sTitle = if (srv.name.isNotBlank() && !srv.name.startsWith("সার্ভার")) "${parsed.title} - ${srv.name}" else "${parsed.title} (সার্ভার ${sIdx + 1})"
+                                        items.add(
+                                            parsed.copy(
+                                                id = "${parsed.id}_srv_${sIdx + 1}",
+                                                title = sTitle,
+                                                streamUrl = srv.url,
+                                                servers = listOf(srv),
+                                                backupUrl = null
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                     } else if (element is String && (element.startsWith("http://") || element.startsWith("https://"))) {
                         items.add(
@@ -1091,7 +1314,23 @@ class MediaRepository(private val context: Context) {
                                     val itemObj = catItemsArr.optJSONObject(i)
                                     if (itemObj != null) {
                                         val parsed = parseSingleMediaFromJson(itemObj, items.size, catName, defaultType = defaultType)
-                                        if (parsed != null) items.add(parsed)
+                                        if (parsed != null) {
+                                            items.add(parsed)
+                                            if (parsed.servers.size > 1 && (defaultType == MediaType.LIVE_EVENT || parsed.type == MediaType.LIVE_EVENT || defaultType == MediaType.LIVE_TV)) {
+                                                parsed.servers.forEachIndexed { sIdx, srv ->
+                                                    val sTitle = if (srv.name.isNotBlank() && !srv.name.startsWith("সার্ভার")) "${parsed.title} - ${srv.name}" else "${parsed.title} (সার্ভার ${sIdx + 1})"
+                                                    items.add(
+                                                        parsed.copy(
+                                                            id = "${parsed.id}_srv_${sIdx + 1}",
+                                                            title = sTitle,
+                                                            streamUrl = srv.url,
+                                                            servers = listOf(srv),
+                                                            backupUrl = null
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1124,7 +1363,23 @@ class MediaRepository(private val context: Context) {
                             val itemObj = arr.optJSONObject(i)
                             if (itemObj != null) {
                                 val parsed = parseSingleMediaFromJson(itemObj, items.size, inferredCat, defaultType = defaultType)
-                                if (parsed != null) items.add(parsed)
+                                if (parsed != null) {
+                                    items.add(parsed)
+                                    if (parsed.servers.size > 1 && (defaultType == MediaType.LIVE_EVENT || parsed.type == MediaType.LIVE_EVENT || defaultType == MediaType.LIVE_TV)) {
+                                        parsed.servers.forEachIndexed { sIdx, srv ->
+                                            val sTitle = if (srv.name.isNotBlank() && !srv.name.startsWith("সার্ভার")) "${parsed.title} - ${srv.name}" else "${parsed.title} (সার্ভার ${sIdx + 1})"
+                                            items.add(
+                                                parsed.copy(
+                                                    id = "${parsed.id}_srv_${sIdx + 1}",
+                                                    title = sTitle,
+                                                    streamUrl = srv.url,
+                                                    servers = listOf(srv),
+                                                    backupUrl = null
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1651,16 +1906,31 @@ class MediaRepository(private val context: Context) {
                     resolveWorkingSportsServers(cleanTitle, streamUrl, currentTvgId ?: currentId.toString())
                 } else emptyList()
 
+                val (_, extractedServerName) = extractMatchBaseAndServer(cleanTitle)
+                val defaultServerName = if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else extractedServerName
+                val currentStreamServer = StreamServer(
+                    name = defaultServerName,
+                    url = streamUrl,
+                    drmScheme = currentDrmScheme,
+                    drmLicenseUrl = currentDrmLicenseUrl,
+                    drmLicenseKey = currentDrmKey,
+                    userAgent = currentUserAgent,
+                    referrer = currentReferrer,
+                    cookie = currentCookie,
+                    origin = currentOrigin,
+                    customHeaders = if (currentCustomHeaders.isNotEmpty()) currentCustomHeaders.toMap() else null,
+                    manifestType = currentManifestType
+                )
+
                 val finalServers = if (resolvedServers.isNotEmpty()) {
                     val sList = mutableListOf<StreamServer>()
                     if (streamUrl.isNotBlank() && resolvedServers.none { it.url.trim().equals(streamUrl.trim(), ignoreCase = true) }) {
-                        val sName = if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else "সার্ভার ১ (Main)"
-                        sList.add(StreamServer(sName, streamUrl))
+                        sList.add(currentStreamServer)
                     }
                     sList.addAll(resolvedServers)
                     sList.distinctBy { it.url.trim().lowercase() }
                 } else {
-                    listOf(StreamServer(if (isAkamaiOrTapmad) "Tapmad Live (Direct HD)" else "সার্ভার ১ (Main)", streamUrl))
+                    listOf(currentStreamServer)
                 }
 
                 val finalStreamUrl = if (streamUrl.isNotBlank()) {
@@ -1715,7 +1985,12 @@ class MediaRepository(private val context: Context) {
                 currentDrmHeaders.clear()
             }
         }
-        return items
+        val hasSportsEvents = items.any { it.type == MediaType.LIVE_EVENT || isSportsMatchOrChannel(it) }
+        return if (hasSportsEvents) {
+            consolidateSportsMatches(items)
+        } else {
+            items
+        }
     }
 
     // -------------------------------------------------------------
@@ -3268,107 +3543,210 @@ class MediaRepository(private val context: Context) {
         val items = mutableListOf<MediaItem>()
 
         try {
+            // 1. Fetch categories map: category_id -> category_name
             val vodCatMap = mutableMapOf<String, String>()
             try {
                 val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_categories"
                 val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
                 val catResp = client.newCall(catReq).execute()
                 if (catResp.isSuccessful) {
-                    val arr = JSONArray(catResp.body?.string() ?: "")
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.optJSONObject(i) ?: continue
-                        val id = obj.optString("category_id")
-                        val name = obj.optString("category_name")
-                        if (id.isNotBlank() && name.isNotBlank()) vodCatMap[id] = name
+                    catResp.body?.byteStream()?.use { stream ->
+                        val reader = android.util.JsonReader(java.io.InputStreamReader(stream, Charsets.UTF_8))
+                        reader.beginArray()
+                        while (reader.hasNext()) {
+                            reader.beginObject()
+                            var cId = ""
+                            var cName = ""
+                            while (reader.hasNext()) {
+                                when (reader.nextName()) {
+                                    "category_id" -> cId = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                                    "category_name" -> cName = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                                    else -> reader.skipValue()
+                                }
+                            }
+                            reader.endObject()
+                            if (cId.isNotBlank() && cName.isNotBlank()) vodCatMap[cId] = cName
+                        }
+                        reader.endArray()
                     }
                 }
             } catch (_: Exception) {}
 
-            // Top prioritized VOD categories (Bangla, English, Indian 2026/2025/2024, Dubbed, Netflix, etc.)
-            val priorityIds = listOf(
-                "792", "610", "538", "100", "793", "614", "620", "629", // Bangla 2026, 2025, 2024, CAM
-                "749", "597", "525", "786", "598", "526",               // English FHD & CAM 2026, 2025, 2024
-                "766", "599", "527", "757", "600", "528",               // Indian FHD & CAM 2026, 2025, 2024
-                "26", "623", "168", "169", "120", "122", "147", "262"  // Dubbed, Netflix, 4K, Marvel, Romantic
-            )
-            val targetCatIds = priorityIds.toMutableList()
-            val vodKeywords = listOf("bangla", "bengali", "2026", "2025", "2024", "hindi", "indian", "netflix", "south", "dubbed", "fhd")
             val hideAdult = isAdultContentHidden()
-            for ((cId, cName) in vodCatMap) {
-                val lower = cName.lowercase()
-                if (hideAdult && isAdultCategory(cName)) continue
-                if (vodKeywords.any { lower.contains(it) } && !targetCatIds.contains(cId)) {
-                    targetCatIds.add(cId)
+            val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
+
+            // 2. Fetch ALL 65,501 VOD streams in ONE single high-speed streaming call (action=get_vod_streams)
+            var bulkSuccess = false
+            try {
+                val streamUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams"
+                val req = Request.Builder()
+                    .url(streamUrl)
+                    .header("User-Agent", "IPTVSmartersPro")
+                    .build()
+                val bulkClient = client.newBuilder()
+                    .connectTimeout(25, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
+                    .callTimeout(90, TimeUnit.SECONDS)
+                    .build()
+
+                val resp = bulkClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    resp.body?.byteStream()?.use { stream ->
+                        val reader = android.util.JsonReader(java.io.InputStreamReader(stream, Charsets.UTF_8))
+                        reader.beginArray()
+                        while (reader.hasNext()) {
+                            reader.beginObject()
+                            var streamId = ""
+                            var name = ""
+                            var icon: String? = null
+                            var catId = ""
+                            var ext = "mp4"
+                            var rating = "8.5"
+                            var added = 0L
+
+                            while (reader.hasNext()) {
+                                when (reader.nextName()) {
+                                    "stream_id" -> streamId = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                                    "name" -> name = try { reader.nextString().trim() } catch (_: Exception) { reader.skipValue(); "" }
+                                    "category_id" -> catId = try { reader.nextString() } catch (_: Exception) { reader.skipValue(); "" }
+                                    "stream_icon" -> icon = try {
+                                        if (reader.peek() == android.util.JsonToken.STRING) reader.nextString().takeIf { it.isNotBlank() }
+                                        else { reader.skipValue(); null }
+                                    } catch (_: Exception) { reader.skipValue(); null }
+                                    "container_extension" -> ext = try { reader.nextString().ifBlank { "mp4" } } catch (_: Exception) { reader.skipValue(); "mp4" }
+                                    "rating" -> rating = try {
+                                        if (reader.peek() == android.util.JsonToken.STRING) reader.nextString().ifBlank { "8.5" }
+                                        else { reader.skipValue(); "8.5" }
+                                    } catch (_: Exception) { reader.skipValue(); "8.5" }
+                                    "added" -> added = try { reader.nextString().toLongOrNull() ?: 0L } catch (_: Exception) { reader.skipValue(); 0L }
+                                    else -> reader.skipValue()
+                                }
+                            }
+                            reader.endObject()
+
+                            if (streamId.isNotBlank()) {
+                                if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
+                                val catName = vodCatMap[catId] ?: "Movies"
+                                if (hideAdult && (isAdultCategory(catName) || isAdultCategory(name))) continue
+
+                                val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+                                val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+                                val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").findAll(name).toList().lastOrNull()?.value
+
+                                items.add(
+                                    MediaItem(
+                                        id = "xtream_vod_$streamId",
+                                        title = name.ifBlank { "Movie $streamId" },
+                                        category = catName,
+                                        type = MediaType.MOVIE,
+                                        streamUrl = playUrl,
+                                        backupUrl = altPlayUrl,
+                                        servers = listOf(
+                                            StreamServer("সার্ভার ১ (VOD)", playUrl),
+                                            StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
+                                        ),
+                                        logoUrl = icon,
+                                        isLive = false,
+                                        rating = rating,
+                                        year = yearMatch,
+                                        addedTimestamp = added,
+                                        xtreamServerUrl = cleanServer,
+                                        xtreamUsername = cleanUser,
+                                        xtreamPassword = cleanPass,
+                                        quality = "HD",
+                                        userAgent = "IPTVSmartersPro"
+                                    )
+                                )
+                            }
+                        }
+                        reader.endArray()
+                        bulkSuccess = items.isNotEmpty()
+                    }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
 
-            // High-speed parallel category fetch (top prioritized categories for fast loading)
-            val selectedCats = targetCatIds.take(20)
-            coroutineScope {
-                selectedCats.chunked(10).forEach { chunk ->
-                    val chunkJobs = chunk.map { catId ->
-                        async {
-                            try {
-                                val catName = vodCatMap[catId] ?: "Movies"
-                                val streamUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams&category_id=$catId"
-                                val req = Request.Builder()
-                                    .url(streamUrl)
-                                    .header("User-Agent", "IPTVSmartersPro")
-                                    .build()
-                                val resp = client.newCall(req).execute()
-                                if (resp.isSuccessful) {
-                                    val bodyStr = resp.body?.string() ?: ""
-                                    if (bodyStr.startsWith("[")) {
-                                        val arr = JSONArray(bodyStr)
-                                        val catItems = mutableListOf<MediaItem>()
-                                        for (i in 0 until arr.length()) {
-                                            val obj = arr.optJSONObject(i) ?: continue
-                                            val streamId = obj.optString("stream_id").takeIf { it.isNotBlank() } ?: continue
-                                            val name = obj.optString("name", "Movie $streamId").trim()
-                                            if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
-                                            if (hideAdult && (isAdultCategory(catName) || isAdultCategory(name))) continue
-                                            val icon = obj.optString("stream_icon").takeIf { it.isNotBlank() }
-                                            val ext = obj.optString("container_extension", "mp4").ifBlank { "mp4" }
-                                            val rating = obj.optString("rating", "8.5")
-                                            val added = obj.optString("added", "").toLongOrNull() ?: 0L
-                                            val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").findAll(name).toList().lastOrNull()?.value
-
-                                            val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
-                                            val altServer = if (cleanServer.contains(":80")) cleanServer.replace(":80", "") else "$cleanServer:80"
-                                            val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
-
-                                            val vItem = MediaItem(
-                                                id = "xtream_vod_$streamId",
-                                                title = name,
-                                                category = catName,
-                                                type = MediaType.MOVIE,
-                                                streamUrl = playUrl,
-                                                backupUrl = altPlayUrl,
-                                                servers = listOf(
-                                                    StreamServer("সার্ভার ১ (VOD)", playUrl),
-                                                    StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
-                                                ),
-                                                logoUrl = icon,
-                                                isLive = false,
-                                                rating = rating,
-                                                year = yearMatch,
-                                                addedTimestamp = added,
-                                                xtreamServerUrl = cleanServer,
-                                                xtreamUsername = cleanUser,
-                                                xtreamPassword = cleanPass,
-                                                quality = "HD",
-                                                userAgent = "IPTVSmartersPro"
-                                            )
-                                            if (hideAdult && isAdultMedia(vItem)) continue
-                                            catItems.add(vItem)
-                                        }
-                                        synchronized(items) { items.addAll(catItems) }
-                                    }
-                                }
-                            } catch (_: Exception) {}
-                        }
+            // Fallback: If bulk fetch failed or server blocked action=get_vod_streams, fetch prioritized categories
+            if (!bulkSuccess && items.isEmpty()) {
+                val priorityIds = listOf(
+                    "792", "610", "538", "100", "793", "614", "620", "629", // Bangla
+                    "749", "597", "525", "786", "598", "526",               // English
+                    "766", "599", "527", "757", "600", "528",               // Indian
+                    "26", "623", "168", "169", "120", "122", "147", "262"  // Netflix / Dubbed
+                )
+                val targetCatIds = priorityIds.toMutableList()
+                val vodKeywords = listOf("bangla", "bengali", "2026", "2025", "2024", "hindi", "indian", "netflix", "south", "dubbed", "fhd")
+                for ((cId, cName) in vodCatMap) {
+                    val lower = cName.lowercase()
+                    if (hideAdult && isAdultCategory(cName)) continue
+                    if (vodKeywords.any { lower.contains(it) } && !targetCatIds.contains(cId)) {
+                        targetCatIds.add(cId)
                     }
-                    chunkJobs.awaitAll()
+                }
+
+                coroutineScope {
+                    targetCatIds.chunked(10).forEach { chunk ->
+                        val chunkJobs = chunk.map { catId ->
+                            async {
+                                try {
+                                    val catName = vodCatMap[catId] ?: "Movies"
+                                    val catStreamUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_streams&category_id=$catId"
+                                    val req = Request.Builder().url(catStreamUrl).header("User-Agent", "IPTVSmartersPro").build()
+                                    val resp = client.newCall(req).execute()
+                                    if (resp.isSuccessful) {
+                                        val bodyStr = resp.body?.string() ?: ""
+                                        if (bodyStr.startsWith("[")) {
+                                            val arr = JSONArray(bodyStr)
+                                            val catItems = mutableListOf<MediaItem>()
+                                            for (i in 0 until arr.length()) {
+                                                val obj = arr.optJSONObject(i) ?: continue
+                                                val streamId = obj.optString("stream_id").takeIf { it.isNotBlank() } ?: continue
+                                                val name = obj.optString("name", "Movie $streamId").trim()
+                                                if (name.contains("###") || name.startsWith("---") || name.contains("====")) continue
+                                                if (hideAdult && (isAdultCategory(catName) || isAdultCategory(name))) continue
+                                                val icon = obj.optString("stream_icon").takeIf { it.isNotBlank() }
+                                                val ext = obj.optString("container_extension", "mp4").ifBlank { "mp4" }
+                                                val rating = obj.optString("rating", "8.5")
+                                                val added = obj.optString("added", "").toLongOrNull() ?: 0L
+                                                val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").findAll(name).toList().lastOrNull()?.value
+
+                                                val playUrl = "$cleanServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+                                                val altPlayUrl = "$altServer/movie/$cleanUser/$cleanPass/$streamId.$ext"
+
+                                                val vItem = MediaItem(
+                                                    id = "xtream_vod_$streamId",
+                                                    title = name,
+                                                    category = catName,
+                                                    type = MediaType.MOVIE,
+                                                    streamUrl = playUrl,
+                                                    backupUrl = altPlayUrl,
+                                                    servers = listOf(
+                                                        StreamServer("সার্ভার ১ (VOD)", playUrl),
+                                                        StreamServer("সার্ভার ২ (বিকল্প VOD)", altPlayUrl)
+                                                    ),
+                                                    logoUrl = icon,
+                                                    isLive = false,
+                                                    rating = rating,
+                                                    year = yearMatch,
+                                                    addedTimestamp = added,
+                                                    xtreamServerUrl = cleanServer,
+                                                    xtreamUsername = cleanUser,
+                                                    xtreamPassword = cleanPass,
+                                                    quality = "HD",
+                                                    userAgent = "IPTVSmartersPro"
+                                                )
+                                                if (hideAdult && isAdultMedia(vItem)) continue
+                                                catItems.add(vItem)
+                                            }
+                                            synchronized(items) { items.addAll(catItems) }
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        chunkJobs.awaitAll()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -3549,9 +3927,9 @@ class MediaRepository(private val context: Context) {
         saveListToFileCache("cache_xtream_mov_${accId}.json", list)
     }
 
-    suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedXtreamAccountMovies(account.id)
-        if (cached.isNotEmpty()) {
+        if (!forceRefresh && cached.size > 2000) {
             return@withContext cached
         }
         val subItems = mutableListOf<MediaItem>()
@@ -3570,7 +3948,7 @@ class MediaRepository(private val context: Context) {
         if (strictlyMovies.isNotEmpty()) {
             saveCachedXtreamAccountMovies(account.id, strictlyMovies)
         }
-        strictlyMovies
+        strictlyMovies.ifEmpty { cached }
     }
 
     fun getCachedPlaylistMovies(playlistId: String): List<MediaItem> {
@@ -3617,12 +3995,18 @@ class MediaRepository(private val context: Context) {
         strictlyMovies
     }
 
-    suspend fun fetchAllXtreamMoviesFast(): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchAllXtreamMoviesFast(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedMoviesList()
-        if (cached.isNotEmpty()) {
+        if (!forceRefresh && cached.size > 2000) {
             return@withContext cached
         }
-        fetchAllXtreamMoviesAndSeries()
+        val loaded = fetchAllXtreamMoviesAndSeries()
+        if (loaded.isNotEmpty()) {
+            saveCachedMoviesList(loaded)
+            loaded
+        } else {
+            cached
+        }
     }
 
     suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -4475,6 +4859,253 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
+     * খেলার শিরোনাম থেকে মূল খেলার নাম (Base Match Name) এবং সার্ভার বা কোয়ালিটির নাম (Server Name) আলাদা করে।
+     * উদাহরণ:
+     * - "Pumas UNAM Vs Cruz Azul - TUDN MEXICO FHD" -> ("Pumas UNAM Vs Cruz Azul", "TUDN MEXICO FHD")
+     * - "Pumas UNAM Vs Cruz Azul - LOW QUALITY (USE VPN)" -> ("Pumas UNAM Vs Cruz Azul", "LOW QUALITY (USE VPN)")
+     * - "canes - STREAM TV + HD" -> ("canes", "STREAM TV + HD")
+     * - "canes - HD QUALITY 2" -> ("canes", "HD QUALITY 2")
+     * - "canes - PREMIERE2 SPORTS FHD" -> ("canes", "PREMIERE2 SPORTS FHD")
+     */
+    fun extractMatchBaseAndServer(rawTitle: String): Pair<String, String> {
+        var title = rawTitle.trim()
+        if (title.isBlank()) return Pair("Live Match", "সার্ভার ১ (Main)")
+
+        // Strip common prefix badges
+        title = title.replace(Regex("""^(?:\[LIVE\]|LIVE\s*[-:|]\s*|🔴\s*)""", RegexOption.IGNORE_CASE), "").trim()
+
+        // 1. Check for " - "
+        if (title.contains(" - ")) {
+            val lastIdx = title.lastIndexOf(" - ")
+            val left = title.substring(0, lastIdx).trim()
+            val right = title.substring(lastIdx + 3).trim()
+            if (left.isNotBlank() && right.isNotBlank()) {
+                return Pair(left, right)
+            }
+        }
+
+        // 2. Check for " | "
+        if (title.contains(" | ")) {
+            val lastIdx = title.lastIndexOf(" | ")
+            val left = title.substring(0, lastIdx).trim()
+            val right = title.substring(lastIdx + 3).trim()
+            if (left.isNotBlank() && right.isNotBlank()) {
+                return Pair(left, right)
+            }
+        }
+
+        // 3. Check for " : "
+        if (title.contains(" : ")) {
+            val lastIdx = title.lastIndexOf(" : ")
+            val left = title.substring(0, lastIdx).trim()
+            val right = title.substring(lastIdx + 3).trim()
+            if (left.isNotBlank() && right.isNotBlank()) {
+                return Pair(left, right)
+            }
+        }
+
+        // 4. Check for bracket suffixes: "Match Name [Server Name]"
+        val bracketMatch = Regex("""^(.*?)\s*\[(.*?)\]$""").find(title)
+        if (bracketMatch != null) {
+            val left = bracketMatch.groupValues[1].trim()
+            val right = bracketMatch.groupValues[2].trim()
+            if (left.isNotBlank() && right.isNotBlank()) {
+                return Pair(left, right)
+            }
+        }
+
+        // 5. Check for parentheses suffixes: "Match Name (Server Name)"
+        val parenMatch = Regex("""^(.*?)\s*\((.*?)\)$""").find(title)
+        if (parenMatch != null) {
+            val left = parenMatch.groupValues[1].trim()
+            val right = parenMatch.groupValues[2].trim()
+            if (left.isNotBlank() && right.isNotBlank() && !right.matches(Regex("""^\d{4}$"""))) {
+                return Pair(left, right)
+            }
+        }
+
+        return Pair(title, "সার্ভার ১ (Main)")
+    }
+
+    /**
+     * একই খেলার ভিন্ন ভিন্ন সম্প্রচারকে শনাক্ত করার জন্য সমন্বিত গ্রুপিং কি (Grouping Key) তৈরি করে।
+     */
+    fun getMatchGroupingKey(item: MediaItem): String {
+        val (baseTitle, _) = extractMatchBaseAndServer(item.title)
+        val normalizedTitle = baseTitle.lowercase()
+            .replace(Regex("""\b(vs|v|@)\b"""), "vs")
+            .replace(Regex("""[^a-z0-9\s]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+        val logo = item.logoUrl?.trim() ?: ""
+        val hasMatchPoster = logo.isNotBlank() && (
+            logo.contains("match_image", ignoreCase = true) ||
+            logo.contains("%20vs%20", ignoreCase = true) ||
+            logo.contains("-vs-", ignoreCase = true)
+        )
+
+        if (hasMatchPoster) {
+            val logoName = try {
+                java.net.URLDecoder.decode(logo.substringBefore("?").substringAfterLast("/"), "UTF-8")
+            } catch (_: Exception) {
+                logo.substringBefore("?").substringAfterLast("/")
+            }.lowercase()
+                .replace(".jpg", "").replace(".png", "").replace(".webp", "")
+                .replace(Regex("""\b(vs|v|@)\b"""), "vs")
+                .replace(Regex("""[^a-z0-9\s]"""), " ")
+                .replace(Regex("""\s+"""), " ")
+                .trim()
+            if (logoName.isNotBlank() && (logoName.contains("vs") || logoName.length > 5)) {
+                return "sport_match_$logoName"
+            }
+        }
+
+        return if (normalizedTitle.isNotBlank()) "sport_match_$normalizedTitle" else "sport_item_${item.id}"
+    }
+
+    /**
+     * একই খেলার একাধিক সম্প্রচার/সার্ভার (যেমন: TUDN MEXICO FHD, LOW QUALITY, CANAL MX FHD)
+     * আলাদা আলাদা ম্যাচ কার্ড হিসেবে না দেখিয়ে একটিমাত্র মূল ম্যাচ কার্ডে একত্রিত করে
+     * এবং বাকি সম্প্রচারগুলোকে ঐ ম্যাচের বিকল্প 'সার্ভার' (Servers) হিসেবে যুক্ত করে।
+     */
+    fun consolidateSportsMatches(items: List<MediaItem>): List<MediaItem> {
+        if (items.isEmpty()) return emptyList()
+
+        val consolidated = mutableListOf<MediaItem>()
+        val matchGroups = LinkedHashMap<String, MutableList<MediaItem>>()
+
+        for (item in items) {
+            val key = getMatchGroupingKey(item)
+            val list = matchGroups.getOrPut(key) { mutableListOf() }
+            list.add(item)
+        }
+
+        for ((_, group) in matchGroups) {
+            if (group.isEmpty()) continue
+            if (group.size == 1) {
+                val single = group.first()
+                val (baseTitle, serverName) = extractMatchBaseAndServer(single.title)
+                val srvList = mutableListOf<StreamServer>()
+                if (single.servers.isNotEmpty()) {
+                    for (srv in single.servers) {
+                        val sName = if (srv.name.isBlank() || srv.name.startsWith("সার্ভার 1") || srv.name.equals(single.title, ignoreCase = true)) {
+                            serverName
+                        } else {
+                            srv.name
+                        }
+                        srvList.add(srv.copy(name = sName))
+                    }
+                } else if (single.streamUrl.isNotBlank()) {
+                    srvList.add(
+                        StreamServer(
+                            name = serverName,
+                            url = single.streamUrl,
+                            drmScheme = single.drmScheme,
+                            drmLicenseUrl = single.drmLicenseUrl,
+                            drmLicenseKey = single.drmLicenseKey,
+                            userAgent = single.userAgent,
+                            referrer = single.referrer,
+                            cookie = single.cookie,
+                            origin = single.origin,
+                            customHeaders = single.customHeaders,
+                            manifestType = single.manifestType
+                        )
+                    )
+                }
+
+                consolidated.add(
+                    single.copy(
+                        title = baseTitle,
+                        servers = srvList.distinctBy { it.url.trim().lowercase() }
+                    )
+                )
+            } else {
+                // ২ বা ততোধিক সম্প্রচার একই ম্যাচের জন্য পাওয়া গেছে!
+                val first = group.first()
+                val (baseTitle, _) = extractMatchBaseAndServer(first.title)
+
+                val mergedServers = mutableListOf<StreamServer>()
+                for (item in group) {
+                    val (_, itemServerLabel) = extractMatchBaseAndServer(item.title)
+                    if (item.servers.isNotEmpty()) {
+                        for (srv in item.servers) {
+                            val cleanSrvName = if (srv.name.isBlank() || srv.name.startsWith("সার্ভার 1") || srv.name.equals(item.title, ignoreCase = true)) {
+                                itemServerLabel
+                            } else {
+                                srv.name
+                            }
+                            if (srv.url.isNotBlank() && mergedServers.none { it.url.trim().equals(srv.url.trim(), ignoreCase = true) }) {
+                                mergedServers.add(
+                                    srv.copy(
+                                        name = cleanSrvName,
+                                        drmScheme = srv.drmScheme ?: item.drmScheme,
+                                        drmLicenseUrl = srv.drmLicenseUrl ?: item.drmLicenseUrl,
+                                        drmLicenseKey = srv.drmLicenseKey ?: item.drmLicenseKey,
+                                        userAgent = srv.userAgent ?: item.userAgent,
+                                        referrer = srv.referrer ?: item.referrer,
+                                        cookie = srv.cookie ?: item.cookie,
+                                        origin = srv.origin ?: item.origin,
+                                        customHeaders = srv.customHeaders ?: item.customHeaders,
+                                        manifestType = srv.manifestType ?: item.manifestType
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    if (item.streamUrl.isNotBlank() && mergedServers.none { it.url.trim().equals(item.streamUrl.trim(), ignoreCase = true) }) {
+                        mergedServers.add(
+                            StreamServer(
+                                name = itemServerLabel,
+                                url = item.streamUrl,
+                                drmScheme = item.drmScheme,
+                                drmLicenseUrl = item.drmLicenseUrl,
+                                drmLicenseKey = item.drmLicenseKey,
+                                userAgent = item.userAgent,
+                                referrer = item.referrer,
+                                cookie = item.cookie,
+                                origin = item.origin,
+                                customHeaders = item.customHeaders,
+                                manifestType = item.manifestType
+                            )
+                        )
+                    }
+                }
+
+                val primaryServer = mergedServers.firstOrNull { it.url.isNotBlank() }
+                val bestLogo = group.firstNotNullOfOrNull { it.logoUrl?.takeIf { l -> l.isNotBlank() && !l.equals("null", ignoreCase = true) } }
+                val bestCategory = group.firstOrNull { it.category.isNotBlank() && !it.category.equals("Sports", ignoreCase = true) && !it.category.equals("Live TV", ignoreCase = true) }?.category ?: first.category
+                val bestTournament = group.firstNotNullOfOrNull { it.tournament?.takeIf { t -> t.isNotBlank() && !t.equals("null", ignoreCase = true) } }
+
+                val mergedItem = first.copy(
+                    id = "match_" + Math.abs(baseTitle.lowercase().hashCode()),
+                    title = baseTitle,
+                    category = bestCategory,
+                    logoUrl = bestLogo ?: first.logoUrl,
+                    tournament = bestTournament ?: first.tournament,
+                    streamUrl = primaryServer?.url ?: first.streamUrl,
+                    servers = mergedServers,
+                    drmScheme = primaryServer?.drmScheme ?: first.drmScheme,
+                    drmLicenseUrl = primaryServer?.drmLicenseUrl ?: first.drmLicenseUrl,
+                    drmLicenseKey = primaryServer?.drmLicenseKey ?: first.drmLicenseKey,
+                    userAgent = primaryServer?.userAgent ?: first.userAgent,
+                    referrer = primaryServer?.referrer ?: first.referrer,
+                    cookie = primaryServer?.cookie ?: first.cookie,
+                    origin = primaryServer?.origin ?: first.origin,
+                    customHeaders = primaryServer?.customHeaders ?: first.customHeaders,
+                    manifestType = primaryServer?.manifestType ?: first.manifestType,
+                    isLive = group.any { it.isLive },
+                    isAdminAdded = group.any { it.isAdminAdded || it.isFromAdmin },
+                    status = if (group.any { it.status.equals("LIVE", ignoreCase = true) || it.status.contains("LIVE NOW", ignoreCase = true) }) "LIVE NOW" else first.status
+                )
+                consolidated.add(mergedItem)
+            }
+        }
+
+        return consolidated
+    }
+
+    /**
      * এডমিন প্যানেল থেকে শুধুমাত্র 'sports match' অপশনে কনফিগার করা প্লেলিস্ট (Sports M3U Playlist URLs),
      * স্পোর্টস JSON API এবং এডমিনের লাইভ স্পোর্টস ইভেন্ট লোড করে।
      * সাধারণ লাইভ টিভি প্লেলিস্ট বা এক্সট্রিম একাউন্ট থেকে কোনো সাধারণ টিভি চ্যানেল এখানে যুক্ত হবে না।
@@ -4548,14 +5179,118 @@ class MediaRepository(private val context: Context) {
             val tapmad = tapmadJob.await()
             val fbEvents = firebaseEventsJob.await()
 
+            // 8 out of 9 GitHub playlists are dynamic event files that become empty between match hours.
+            // Provide live broadcaster channel streams so Sony LIV, Tapmad, Willow, Prime Video, AX Sports channels are always visible and playable!
+            val broadcasterBackups = listOf(
+                MediaItem(
+                    id = "sports_ch_sonyliv_ten1",
+                    title = "Sony Ten 1 HD (Sony LIV)",
+                    category = "Sony LIV",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "http://livetv.akr4m.com:8080/bdtv/restrem/03.m3u8",
+                    servers = listOf(
+                        StreamServer("সার্ভার ১ (Direct HD)", "http://livetv.akr4m.com:8080/bdtv/restrem/03.m3u8"),
+                        StreamServer("সার্ভার ২ (FHD)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/v8s736w0hw/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd")
+                    ),
+                    logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "FHD",
+                    isAdminAdded = true
+                ),
+                MediaItem(
+                    id = "sports_ch_sonyliv_ten2",
+                    title = "Sony Ten 2 HD (Sony LIV)",
+                    category = "Sony LIV",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "http://livetv.akr4m.com:8080/bdtv/restrem/04.m3u8",
+                    servers = listOf(StreamServer("সার্ভার ১ (HD)", "http://livetv.akr4m.com:8080/bdtv/restrem/04.m3u8")),
+                    logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "HD",
+                    isAdminAdded = true
+                ),
+                MediaItem(
+                    id = "sports_ch_sonyliv_ten5",
+                    title = "Sony Ten 5 HD (Sony LIV)",
+                    category = "Sony LIV",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "http://livetv.akr4m.com:8080/bdtv/restrem/05.m3u8",
+                    servers = listOf(StreamServer("সার্ভার ১ (HD)", "http://livetv.akr4m.com:8080/bdtv/restrem/05.m3u8")),
+                    logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Sony_LIV_logo.svg/320px-Sony_LIV_logo.svg.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "HD",
+                    isAdminAdded = true
+                ),
+                MediaItem(
+                    id = "sports_ch_tapmad_direct",
+                    title = "Tapmad Sports HD (Live)",
+                    category = "Tapmad",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "https://saseries.akamaized.net/hls/live/2110097/28593jkiL-tapmad/master.m3u8",
+                    servers = listOf(
+                        StreamServer("Tapmad Live (Direct HD)", "https://saseries.akamaized.net/hls/live/2110097/28593jkiL-tapmad/master.m3u8"),
+                        StreamServer("বিকল্প সার্ভার (T Sports HD)", "http://livetv.akr4m.com:8080/bdtv/restrem/02.m3u8")
+                    ),
+                    logoUrl = "https://www.tapmad.com/assets/images/tapmad_logo.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "HD",
+                    isAdminAdded = true
+                ),
+                MediaItem(
+                    id = "sports_ch_willow_cricket",
+                    title = "Willow Cricket HD (Willow Event)",
+                    category = "Willow",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/v8s736w0hw/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd",
+                    servers = listOf(StreamServer("সার্ভার ১ (DASH)", "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/v8s736w0hw/out/v1/713012dd281246dc827872d3920a8443/cenc.mpd")),
+                    logoUrl = "https://upload.wikimedia.org/wikipedia/en/thumb/5/57/Willow_Cricket_logo.png/250px-Willow_Cricket_logo.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "FHD",
+                    isAdminAdded = true
+                ),
+                MediaItem(
+                    id = "sports_ch_prime_sports",
+                    title = "Prime Video Sports (Live HD)",
+                    category = "Prime Video",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "https://otte.cache.aiv-cdn.net/bom-nitro/live/clients/dash/enc/o2vy4aahsh/out/v1/e293c932745a44dcaf897573dfc53532/cenc.mpd",
+                    servers = listOf(StreamServer("সার্ভার ১ (DASH)", "https://otte.cache.aiv-cdn.net/bom-nitro/live/clients/dash/enc/o2vy4aahsh/out/v1/e293c932745a44dcaf897573dfc53532/cenc.mpd")),
+                    logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/320px-Amazon_Prime_Video_logo.svg.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "HD",
+                    isAdminAdded = true
+                ),
+                MediaItem(
+                    id = "sports_ch_axsports_live",
+                    title = "AX Sports Live (Auto Update)",
+                    category = "AX Sports",
+                    type = MediaType.LIVE_EVENT,
+                    streamUrl = "http://162.251.160.53:8089/5008/index.m3u8",
+                    servers = listOf(StreamServer("সার্ভার ১ (HD)", "http://162.251.160.53:8089/5008/index.m3u8")),
+                    logoUrl = "https://raw.githubusercontent.com/srhady/axsports/refs/heads/main/logo.png",
+                    isLive = true,
+                    status = "LIVE",
+                    quality = "HD",
+                    isAdminAdded = true
+                )
+            )
+
             allSports.addAll(fbEvents)
             allSports.addAll(cachedAdmin)
             allSports.addAll(customSports)
             allSports.addAll(sportsM3u)
             allSports.addAll(tapmad)
+            allSports.addAll(broadcasterBackups)
         }
 
-        val filtered = allSports.distinctBy { it.id }.filterNot { deleted.contains(it.id) || isItemDeleted(it) }
+        val consolidated = consolidateSportsMatches(allSports)
+        val filtered = consolidated.filterNot { deleted.contains(it.id) || isItemDeleted(it) }
         val sorted = filtered.sortedWith(
             compareByDescending<MediaItem> { it.isAdminAdded || it.isFromAdmin }
                 .thenByDescending { it.isLive }

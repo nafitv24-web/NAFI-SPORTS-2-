@@ -9,7 +9,16 @@ enum class MediaType {
 
 data class StreamServer(
     val name: String,
-    val url: String
+    val url: String,
+    val drmScheme: String? = null,
+    val drmLicenseUrl: String? = null,
+    val drmLicenseKey: String? = null,
+    val userAgent: String? = null,
+    val referrer: String? = null,
+    val cookie: String? = null,
+    val origin: String? = null,
+    val customHeaders: Map<String, String>? = null,
+    val manifestType: String? = null
 )
 
 typealias MediaServer = StreamServer
@@ -214,12 +223,24 @@ data class MediaItem(
         return distinctList.mapIndexed { index, server ->
             val num = index + 1
             val rawName = server.name.trim()
-            val cleanName = if (rawName.isBlank() || rawName.equals(title.trim(), ignoreCase = true) || rawName.matches(Regex("^(?i)(server|সার্ভার)\\s*\\d*.*"))) {
+            val cleanName = if (rawName.isBlank() || rawName.equals(title.trim(), ignoreCase = true)) {
                 "সার্ভার $num"
             } else {
-                "সার্ভার $num ($rawName)"
+                rawName
             }
-            StreamServer(name = cleanName, url = server.url.trim())
+            server.copy(
+                name = cleanName,
+                url = server.url.trim(),
+                drmScheme = server.drmScheme ?: drmScheme,
+                drmLicenseUrl = server.drmLicenseUrl ?: drmLicenseUrl,
+                drmLicenseKey = server.drmLicenseKey ?: drmLicenseKey,
+                userAgent = server.userAgent ?: userAgent,
+                referrer = server.referrer ?: referrer,
+                cookie = server.cookie ?: cookie,
+                origin = server.origin ?: origin,
+                customHeaders = server.customHeaders ?: customHeaders,
+                manifestType = server.manifestType ?: manifestType
+            )
         }
     }
 }
