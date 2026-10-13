@@ -3679,6 +3679,96 @@ class MediaRepository(private val context: Context) {
         fetchAllXtreamMoviesAndSeries()
     }
 
+    suspend fun extractAllMoviesFromAllPlaylistsAndServers(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cached = getCachedMoviesList()
+        if (!forceRefresh && cached.isNotEmpty() && cached.size > 1500) {
+            return@withContext cached
+        }
+
+        val allItems = mutableListOf<MediaItem>()
+
+        // 1. Existing cached movies
+        if (cached.isNotEmpty()) {
+            allItems.addAll(cached)
+        }
+
+        // 2. Custom streams (Admin added movies/series)
+        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }
+        allItems.addAll(customMov)
+
+        // 3. Xtream Accounts
+        val xtreamAccounts = getActiveXtreamAccounts()
+        if (xtreamAccounts.isNotEmpty()) {
+            coroutineScope {
+                val jobs = xtreamAccounts.map { acc ->
+                    async {
+                        try {
+                            fetchXtreamAccountMovies(acc)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+                jobs.awaitAll().forEach { allItems.addAll(it) }
+            }
+        } else {
+            try {
+                val defaultAcc = com.example.model.XtreamAccount(
+                    id = "default_rgkkw",
+                    name = "Starshare Xtream Server",
+                    serverUrl = "http://rgkkw.live:80",
+                    username = "4dfoydR2gZ",
+                    password = "clever3still",
+                    isEnabled = true
+                )
+                allItems.addAll(fetchXtreamAccountMovies(defaultAcc))
+            } catch (_: Exception) {}
+        }
+
+        // 4. Cached or configured playlists
+        val allPlaylists = getInitialPlaylists() + getUserPlaylists() + getCustomPlaylists()
+        for (pl in allPlaylists) {
+            val plMovies = getCachedPlaylistMovies(pl.id).ifEmpty {
+                val plChannels = getCachedPlaylistChannels(pl.id)
+                plChannels.filter { item ->
+                    !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+                }
+            }
+            allItems.addAll(plMovies)
+        }
+
+        // 5. Saved Movie M3U / JSON URL
+        val savedMoviesUrl = getSavedMoviesM3uUrl()
+        if (savedMoviesUrl.isNotBlank()) {
+            try {
+                if (savedMoviesUrl.endsWith(".json", ignoreCase = true) || savedMoviesUrl.contains("movies.json", ignoreCase = true)) {
+                    val parsed = fetchMoviesFromJsonUrl(savedMoviesUrl)
+                    allItems.addAll(parsed)
+                } else {
+                    val parsed = parseM3uFromUrl(savedMoviesUrl)
+                    allItems.addAll(parsed)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // STRICT FILTER: Absolutely NO Live TV in movies!
+        val strictlyMovies = allItems.filter { item ->
+            val isExplicitLive = item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
+                    item.category.contains("Live TV", ignoreCase = true) ||
+                    item.category.contains("Sports", ignoreCase = true) ||
+                    item.category.contains("News", ignoreCase = true) ||
+                    (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
+            !isExplicitLive
+        }.map {
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+        }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+        if (strictlyMovies.isNotEmpty()) {
+            saveCachedMoviesList(strictlyMovies)
+        }
+        strictlyMovies
+    }
+
     suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
         var cleanServer = serverUrl.trim().removeSuffix("/")
         if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
