@@ -1652,18 +1652,6 @@ fun VideoPlayerScreen(
         val targetServer = allServers[newIndex]
         val oldUrl = currentUrl
         currentUrl = targetServer.url
-        currentMedia = currentMedia.copy(
-            streamUrl = targetServer.url,
-            drmScheme = targetServer.drmScheme ?: currentMedia.drmScheme,
-            drmLicenseUrl = targetServer.drmLicenseUrl ?: currentMedia.drmLicenseUrl,
-            drmLicenseKey = targetServer.drmLicenseKey ?: currentMedia.drmLicenseKey,
-            userAgent = targetServer.userAgent ?: currentMedia.userAgent,
-            referrer = targetServer.referrer ?: currentMedia.referrer,
-            cookie = targetServer.cookie ?: currentMedia.cookie,
-            origin = targetServer.origin ?: currentMedia.origin,
-            customHeaders = targetServer.customHeaders ?: currentMedia.customHeaders,
-            manifestType = targetServer.manifestType ?: currentMedia.manifestType
-        )
         isBuffering = true
         isActuallyBuffering = true
         hasStartedPlaying = false

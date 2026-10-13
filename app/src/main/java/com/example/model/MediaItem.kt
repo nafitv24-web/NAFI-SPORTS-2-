@@ -9,16 +9,7 @@ enum class MediaType {
 
 data class StreamServer(
     val name: String,
-    val url: String,
-    val drmScheme: String? = null,
-    val drmLicenseUrl: String? = null,
-    val drmLicenseKey: String? = null,
-    val userAgent: String? = null,
-    val referrer: String? = null,
-    val cookie: String? = null,
-    val origin: String? = null,
-    val customHeaders: Map<String, String>? = null,
-    val manifestType: String? = null
+    val url: String
 )
 
 typealias MediaServer = StreamServer
@@ -223,24 +214,12 @@ data class MediaItem(
         return distinctList.mapIndexed { index, server ->
             val num = index + 1
             val rawName = server.name.trim()
-            val cleanName = if (rawName.isBlank() || rawName.equals(title.trim(), ignoreCase = true)) {
+            val cleanName = if (rawName.isBlank() || rawName.equals(title.trim(), ignoreCase = true) || rawName.matches(Regex("^(?i)(server|সার্ভার)\\s*\\d*.*"))) {
                 "সার্ভার $num"
             } else {
-                rawName
+                "সার্ভার $num ($rawName)"
             }
-            server.copy(
-                name = cleanName,
-                url = server.url.trim(),
-                drmScheme = server.drmScheme ?: drmScheme,
-                drmLicenseUrl = server.drmLicenseUrl ?: drmLicenseUrl,
-                drmLicenseKey = server.drmLicenseKey ?: drmLicenseKey,
-                userAgent = server.userAgent ?: userAgent,
-                referrer = server.referrer ?: referrer,
-                cookie = server.cookie ?: cookie,
-                origin = server.origin ?: origin,
-                customHeaders = server.customHeaders ?: customHeaders,
-                manifestType = server.manifestType ?: manifestType
-            )
+            StreamServer(name = cleanName, url = server.url.trim())
         }
     }
 }
@@ -255,13 +234,11 @@ data class PlaylistInfo(
     val serverUrl: String? = null,
     val username: String? = null,
     val password: String? = null,
-    val type: String = "M3U", // "XTREAM" or "M3U" or "MOVIE"
+    val type: String = "M3U", // "XTREAM" or "M3U"
     val isAdmin: Boolean = false,
-    val isReadOnly: Boolean = false,
-    val isMovieOnly: Boolean = false
+    val isReadOnly: Boolean = false
 ) {
     val isProtected: Boolean get() = isAdmin || isReadOnly
-    val isMoviePlaylist: Boolean get() = isMovieOnly || type.equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_") || (description != null && description.contains("Movie", ignoreCase = true))
 }
 
 data class MovieProvider(
