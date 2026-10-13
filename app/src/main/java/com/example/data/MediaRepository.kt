@@ -3515,30 +3515,59 @@ class MediaRepository(private val context: Context) {
         val accounts = getActiveXtreamAccounts()
         val allItems = mutableListOf<MediaItem>()
         if (accounts.isEmpty()) {
-            coroutineScope {
-                val vodJob = async { fetchXtreamVodOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
-                val seriesJob = async { fetchXtreamSeriesOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
-                allItems.addAll(vodJob.await())
-                allItems.addAll(seriesJob.await())
-            }
+            val defaultAcc = com.example.model.XtreamAccount(
+                id = "default_rgkkw",
+                name = "Starshare Xtream Server",
+                serverUrl = "http://rgkkw.live:80",
+                username = "4dfoydR2gZ",
+                password = "clever3still",
+                isEnabled = true
+            )
+            allItems.addAll(fetchXtreamAccountMovies(defaultAcc))
         } else {
             coroutineScope {
                 val jobs = accounts.map { acc ->
-                    async {
-                        val subItems = mutableListOf<MediaItem>()
-                        coroutineScope {
-                            val vodJob = if (acc.includeVod) async { fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password) } else null
-                            val seriesJob = if (acc.includeSeries) async { fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password) } else null
-                            vodJob?.await()?.let { subItems.addAll(it) }
-                            seriesJob?.await()?.let { subItems.addAll(it) }
-                        }
-                        subItems
-                    }
+                    async { fetchXtreamAccountMovies(acc) }
                 }
                 jobs.awaitAll().forEach { allItems.addAll(it) }
             }
         }
         allItems.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+    }
+
+    fun findMatchingPlaylistMovies(serverUrl: String, username: String): List<MediaItem>? {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanHost = cleanServer.removePrefix("http://").removePrefix("https://").substringBefore("/")
+        val cleanUser = username.trim()
+
+        val allPlaylists = getInitialPlaylists() + getUserPlaylists() + getCustomPlaylists()
+        for (pl in allPlaylists) {
+            val plRaw = (pl.serverUrl ?: pl.url).trim()
+            val plHost = plRaw.removePrefix("http://").removePrefix("https://").substringBefore("/")
+            val matchesHost = cleanHost.isNotBlank() && plHost.isNotBlank() &&
+                    (cleanHost.equals(plHost, ignoreCase = true) || cleanHost.contains(plHost) || plHost.contains(cleanHost))
+            val matchesUser = pl.username.isNullOrBlank() || cleanUser.isBlank() ||
+                    pl.username.trim().equals(cleanUser, ignoreCase = true)
+
+            if (matchesHost && matchesUser) {
+                val plChannels = getCachedPlaylistChannels(pl.id)
+                if (plChannels.isNotEmpty()) {
+                    val movies = plChannels.filter { item ->
+                        !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+                    }.map {
+                        if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+                    }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+                    if (movies.size > 1000) {
+                        return movies
+                    }
+                }
+            }
+        }
+        return null
     }
 
     fun getCachedXtreamAccountMovies(accId: String): List<MediaItem> {
@@ -3551,24 +3580,43 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedXtreamAccountMovies(account.id)
+        if (cached.size > 1500) {
+            return@withContext cached
+        }
+
+        // 1. Cross-Cache Sync: If the user loaded this Xtream server from Playlist, use that full 21520+ movies cache immediately!
+        val matchingPlMovies = findMatchingPlaylistMovies(account.serverUrl, account.username)
+        if (matchingPlMovies != null && matchingPlMovies.size > cached.size) {
+            saveCachedXtreamAccountMovies(account.id, matchingPlMovies)
+            return@withContext matchingPlMovies
+        }
+
         if (cached.isNotEmpty()) {
             return@withContext cached
         }
-        val subItems = mutableListOf<MediaItem>()
-        coroutineScope {
-            val vodJob = if (account.includeVod) async { fetchXtreamVodOnly(account.serverUrl, account.username, account.password) } else null
-            val seriesJob = if (account.includeSeries) async { fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password) } else null
-            vodJob?.await()?.let { subItems.addAll(it) }
-            seriesJob?.await()?.let { subItems.addAll(it) }
-        }
-        val strictlyMovies = subItems.filter { item ->
+
+        // 2. Comprehensive Xtream Codes Stream Fetch: Fetch the full catalogue matching Playlist option
+        val allStreams = fetchXtreamCodesStreams(account.serverUrl, account.username, account.password)
+        val strictlyMovies = allStreams.filter { item ->
             !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
         }.map {
-            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
         }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
 
         if (strictlyMovies.isNotEmpty()) {
             saveCachedXtreamAccountMovies(account.id, strictlyMovies)
+            // Cross-sync: Also cache to any matching playlist so Playlist tab stays perfectly in sync
+            try {
+                val cleanHost = account.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                val allPlaylists = getInitialPlaylists() + getUserPlaylists() + getCustomPlaylists()
+                for (pl in allPlaylists) {
+                    val plHost = (pl.serverUrl ?: pl.url).removePrefix("http://").removePrefix("https://").substringBefore("/")
+                    if (plHost.isNotBlank() && cleanHost.isNotBlank() && (plHost.equals(cleanHost, ignoreCase = true) || plHost.contains(cleanHost) || cleanHost.contains(plHost))) {
+                        saveCachedPlaylistChannels(pl.id, allStreams)
+                        saveCachedPlaylistMovies(pl.id, strictlyMovies)
+                    }
+                }
+            } catch (_: Exception) {}
         }
         strictlyMovies
     }
@@ -3583,21 +3631,27 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedPlaylistMovies(playlist.id)
-        if (cached.isNotEmpty()) {
+        if (cached.size > 1500) {
             return@withContext cached
         }
-        val allItems = if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
-            val subItems = mutableListOf<MediaItem>()
-            coroutineScope {
-                val vodJob = async { fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password) }
-                val seriesJob = async { fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password) }
-                subItems.addAll(vodJob.await())
-                subItems.addAll(seriesJob.await())
+
+        // 1. Check if playlist channels are already cached
+        val cachedPl = getCachedPlaylistChannels(playlist.id)
+        if (cachedPl.isNotEmpty()) {
+            val plMovies = cachedPl.filter { item ->
+                !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+            }.map {
+                if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+            if (plMovies.isNotEmpty()) {
+                saveCachedPlaylistMovies(playlist.id, plMovies)
+                return@withContext plMovies
             }
-            subItems
-        } else {
-            fetchPlaylistChannels(playlist)
         }
+
+        // 2. Fetch full playlist channels (using fetchXtreamCodesStreams for XTREAM)
+        val allItems = fetchPlaylistChannels(playlist)
 
         // STRICT FILTER: Absolutely NO Live TV!
         val strictlyMovies = allItems.filter { item ->
@@ -3608,7 +3662,7 @@ class MediaRepository(private val context: Context) {
                     (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
             !isExplicitLive
         }.map {
-            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
         }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
 
         if (strictlyMovies.isNotEmpty()) {
@@ -3811,6 +3865,22 @@ class MediaRepository(private val context: Context) {
             val xtreamItems = fetchXtreamCodesStreams(playlist.serverUrl, playlist.username, playlist.password)
             if (xtreamItems.isNotEmpty()) {
                 saveCachedPlaylistChannels(playlist.id, xtreamItems)
+                // Cross-sync: Also immediately update movie caches for this playlist and any matching Xtream accounts!
+                try {
+                    val cleanHost = playlist.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                    val moviesOnly = xtreamItems.filter { !it.isLive && it.type != MediaType.LIVE_TV && it.type != MediaType.LIVE_EVENT && !it.streamUrl.contains("/live/") }
+                        .map { if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false) }
+                        .distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                    if (moviesOnly.isNotEmpty()) {
+                        saveCachedPlaylistMovies(playlist.id, moviesOnly)
+                        for (acc in getXtreamAccounts()) {
+                            val accHost = acc.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                            if (accHost.isNotBlank() && cleanHost.isNotBlank() && (accHost.equals(cleanHost, ignoreCase = true) || accHost.contains(cleanHost) || cleanHost.contains(accHost))) {
+                                saveCachedXtreamAccountMovies(acc.id, moviesOnly)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
                 return@withContext xtreamItems
             }
             val liveItems = fetchXtreamLiveStreamsOnly(playlist.serverUrl, playlist.username, playlist.password)
@@ -3825,6 +3895,21 @@ class MediaRepository(private val context: Context) {
                 val xtreamFallback = fetchXtreamCodesStreams(creds.first, creds.second, creds.third)
                 if (xtreamFallback.isNotEmpty()) {
                     saveCachedPlaylistChannels(playlist.id, xtreamFallback)
+                    try {
+                        val cleanHost = creds.first.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                        val moviesOnly = xtreamFallback.filter { !it.isLive && it.type != MediaType.LIVE_TV && it.type != MediaType.LIVE_EVENT && !it.streamUrl.contains("/live/") }
+                            .map { if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false) }
+                            .distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                        if (moviesOnly.isNotEmpty()) {
+                            saveCachedPlaylistMovies(playlist.id, moviesOnly)
+                            for (acc in getXtreamAccounts()) {
+                                val accHost = acc.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                                if (accHost.isNotBlank() && cleanHost.isNotBlank() && (accHost.equals(cleanHost, ignoreCase = true) || accHost.contains(cleanHost) || cleanHost.contains(accHost))) {
+                                    saveCachedXtreamAccountMovies(acc.id, moviesOnly)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
                     return@withContext xtreamFallback
                 }
                 val liveFallback = fetchXtreamLiveStreamsOnly(creds.first, creds.second, creds.third)

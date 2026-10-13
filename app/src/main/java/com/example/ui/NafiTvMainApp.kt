@@ -68,6 +68,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -250,7 +252,19 @@ fun NafiTvMainApp(
     var moviesList by remember {
         mutableStateOf(repository.getInitialMoviesSeries())
     }
-    var playlistsList by remember { mutableStateOf(repository.getInitialPlaylists() + repository.getCustomPlaylists()) }
+    var playlistsList by remember {
+        mutableStateOf(
+            (repository.getInitialPlaylists() + repository.getCustomPlaylists()).distinctBy { it.id }.filterNot {
+                it.isMovieOnly ||
+                it.type.equals("MOVIE", ignoreCase = true) ||
+                it.id.startsWith("pl_ott_") ||
+                it.id.startsWith("pl_movie_") ||
+                it.id == "saved_movies_m3u" ||
+                it.title.contains("ott movie", ignoreCase = true) ||
+                (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+            }
+        )
+    }
     var adminPlaylistsList by remember { mutableStateOf(repository.getInitialPlaylists() + repository.getAdminPlaylists()) }
     var customList by remember { mutableStateOf(repository.getCustomStreams()) }
     var m3uList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
@@ -372,80 +386,26 @@ fun NafiTvMainApp(
                         }
                     }
 
-                    // ৩. মুভি ও সিরিজ সমান্তরাল লোডিং (Movies & Series - Xtream + M3U, Newest First)
+                    // ৩. মুভি ও সিরিজ সমান্তরাল লোডিং (Movies & Series - Instant Cache + All Stream Servers & Playlists)
                     launch {
                         try {
                             withContext(Dispatchers.Main) { currentLoadingStage = LoadingStage.MOVIES }
-                            val cachedMovies = repository.getCachedMoviesList()
-                            if (cachedMovies.isNotEmpty()) {
+                            // 1. Instant 0-second display from built-in library & cache
+                            val initialMovies = repository.getInitialMoviesSeries()
+                            if (initialMovies.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
-                                    moviesList = (cachedMovies + moviesList).distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                                    moviesList = (initialMovies + moviesList).distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
                                 }
                             }
 
-                            val xtreamMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(4500) {
-                                    try {
-                                        repository.fetchAllXtreamMoviesFast().filterNot { deleted.contains(it.id) }
-                                    } catch (_: Exception) { emptyList() }
-                                } ?: emptyList()
-                            }
-
-                            val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
-                            val moviesM3uJob = async {
-                                if (moviesM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
-                                        try {
-                                            if (moviesM3uUrl.endsWith(".json", ignoreCase = true) || moviesM3uUrl.contains("movies.json", ignoreCase = true)) {
-                                                repository.fetchMoviesFromJsonUrl(moviesM3uUrl).map {
-                                                    it.copy(
-                                                        type = if (it.type == MediaType.SERIES) MediaType.SERIES else MediaType.MOVIE,
-                                                        tournament = "NAFI_OTT",
-                                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
-                                                    )
-                                                }.filterNot { deleted.contains(it.id) }
-                                            } else {
-                                                repository.parseM3uFromUrl(moviesM3uUrl).map {
-                                                    it.copy(
-                                                        type = MediaType.MOVIE,
-                                                        tournament = "NAFI_OTT",
-                                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
-                                                    )
-                                                }.filterNot { deleted.contains(it.id) }
-                                            }
-                                        } catch (_: Exception) { emptyList() }
-                                    } ?: emptyList()
-                                } else emptyList()
-                            }
-
-                            val mixMoviesJob = async {
-                                kotlinx.coroutines.withTimeoutOrNull(3500) {
-                                    try {
-                                        repository.parseM3uFromUrl(MediaRepository.DEFAULT_MIX_MOVIES_M3U_URL).map {
-                                            it.copy(
-                                                type = MediaType.MOVIE,
-                                                tournament = "MIX_MOVIES",
-                                                category = if (it.category.isBlank() || it.category == "Unknown") "Mix Movies" else it.category
-                                            )
-                                        }.filterNot { deleted.contains(it.id) }
-                                    } catch (_: Exception) { emptyList() }
-                                } ?: emptyList()
-                            }
-
-                            val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) }
-
-                            val moviesM3u = moviesM3uJob.await()
-                            val mixMovies = mixMoviesJob.await()
-                            val xtreamMovies = xtreamMoviesJob.await()
-
-                            val combined = (customMov + xtreamMovies + moviesM3u + mixMovies + moviesList)
-                                .distinctBy { it.id }
-                                .filterNot { deleted.contains(it.id) }
-                                .sortedByDescending { it.movieSortWeight }
-
-                            if (combined.isNotEmpty()) {
+                            // 2. Fetch all movies from all configured stream servers, playlists, and remote sources fast
+                            val allExtractedMovies = repository.extractAllMoviesFromAllPlaylistsAndServers(forceRefresh = false)
+                            if (allExtractedMovies.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
-                                    moviesList = combined
+                                    moviesList = (allExtractedMovies + moviesList)
+                                        .distinctBy { it.id }
+                                        .filterNot { deleted.contains(it.id) || repository.isItemDeleted(it) }
+                                        .sortedByDescending { it.movieSortWeight }
                                 }
                                 repository.saveCachedMoviesList(moviesList)
                             }
@@ -468,7 +428,15 @@ fun NafiTvMainApp(
 
                             withContext(Dispatchers.Main) {
                                 adminPlaylistsList = allPlaylists
-                                playlistsList = allPlaylists
+                                playlistsList = allPlaylists.filterNot {
+                                    it.isMovieOnly ||
+                                    it.type.equals("MOVIE", ignoreCase = true) ||
+                                    it.id.startsWith("pl_ott_") ||
+                                    it.id.startsWith("pl_movie_") ||
+                                    it.id == "saved_movies_m3u" ||
+                                    it.title.contains("ott movie", ignoreCase = true) ||
+                                    (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+                                }
                             }
 
                             // Firebase extra items
@@ -3479,13 +3447,23 @@ fun LiveEventMatchCard(
 
     var showServerSelectDialog by remember { mutableStateOf(false) }
 
-    val handlePlayClick: (String?) -> Unit = { targetUrl ->
-        val linkToPlay = targetUrl?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-        if (!linkToPlay.isNullOrBlank()) {
-            // Direct playback of explicitly chosen server/channel
-            onSelectMedia(sport.copy(streamUrl = linkToPlay))
+    val handlePlayClick: (StreamServer?) -> Unit = { targetServer ->
+        val chosenServer = targetServer ?: (if (servers.size == 1) servers.firstOrNull() else null)
+        if (chosenServer != null && chosenServer.url.isNotBlank() && !chosenServer.url.equals("null", ignoreCase = true)) {
+            val itemToPlay = sport.copy(
+                streamUrl = chosenServer.url,
+                drmScheme = chosenServer.drmScheme ?: sport.drmScheme,
+                drmLicenseUrl = chosenServer.drmLicenseUrl ?: sport.drmLicenseUrl,
+                drmLicenseKey = chosenServer.drmLicenseKey ?: sport.drmLicenseKey,
+                userAgent = chosenServer.userAgent ?: sport.userAgent,
+                referrer = chosenServer.referrer ?: sport.referrer,
+                origin = chosenServer.origin ?: sport.origin,
+                customHeaders = chosenServer.customHeaders ?: sport.customHeaders,
+                manifestType = chosenServer.manifestType ?: sport.manifestType
+            )
+            onSelectMedia(itemToPlay)
         } else if (servers.size > 1) {
-            // Multiple channels available: open channel/server selector dialog
+            // Multiple servers available: open server selector dialog
             showServerSelectDialog = true
         } else {
             val fallbackLink = sport.streamUrl.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
@@ -3896,7 +3874,7 @@ fun LiveEventMatchCard(
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "${servers.size}টি চ্যানেল",
+                                    text = "${servers.size}টি সার্ভার",
                                     color = Color(0xFF38BDF8),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
@@ -3912,7 +3890,7 @@ fun LiveEventMatchCard(
                                 shape = RoundedCornerShape(5.dp),
                                 color = Color(0xFF1E293B),
                                 border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
-                                modifier = Modifier.clickable { handlePlayClick(srv.url) }
+                                modifier = Modifier.clickable { handlePlayClick(srv) }
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -3941,7 +3919,7 @@ fun LiveEventMatchCard(
 
                 // Action Button
                 if (isLiveNow || hasPlayableLink) {
-                    val playButtonText = if (servers.size > 1) "লাইভ দেখুন (${servers.size}টি চ্যানেল)" else "লাইভ দেখুন"
+                    val playButtonText = if (servers.size > 1) "লাইভ দেখুন (${servers.size}টি সার্ভার)" else "লাইভ দেখুন"
                     Button(
                         onClick = { handlePlayClick(null) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
@@ -4027,15 +4005,15 @@ fun LiveEventMatchCard(
             title = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "📺 লাইভ চ্যানেল নির্বাচন করুন",
+                        text = "📺 লাইভ সার্ভার নির্বাচন করুন",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
-                        text = displayTitle,
-                        color = Color(0xFF94A3B8),
+                        text = "$displayTitle • ${servers.size}টি বিকল্প সার্ভার",
+                        color = Color(0xFF00E5FF),
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -4065,7 +4043,7 @@ fun LiveEventMatchCard(
                                 .fillMaxWidth()
                                 .clickable(enabled = isLinkValid) {
                                     showServerSelectDialog = false
-                                    onSelectMedia(sport.copy(streamUrl = srv.url))
+                                    handlePlayClick(srv)
                                 }
                         ) {
                             Row(

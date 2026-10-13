@@ -119,6 +119,14 @@ fun isPureMovieOrSeries(item: MediaItem): Boolean {
     if (item.isLive) return false
     if (item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT) return false
 
+    // Explicit VOD / Series from Xtream Codes or typed MediaItem are 100% movies/series
+    if (item.type == MediaType.MOVIE || item.type == MediaType.SERIES || item.isSeries ||
+        item.id.startsWith("xtream_vod_") || item.id.startsWith("xtream_series_") ||
+        item.streamUrl.contains("/movie/") || item.streamUrl.contains("/series/") ||
+        item.seriesId != null) {
+        return true
+    }
+
     val cat = item.category.lowercase()
     val liveKeywords = listOf(
         "live tv", "sports", "cricket", "football", "news", "bangladesh tv", "bd tv",
@@ -720,7 +728,11 @@ fun MoviesTabScreen(
                                     }
                                 }
                                 Text(
-                                    text = if (isHubLoading) "সার্ভার থেকে মুভি সিঙ্ক হচ্ছে..." else "${preparedMovies.size} টি মুভি ও সিরিজ প্রস্তুত",
+                                    text = if (isHubLoading) "সার্ভার থেকে মুভি সিঙ্ক হচ্ছে..." else when (selectedTypeFilter) {
+                                        "MOVIE" -> "${preparedMovies.size} টি মুভি প্রস্তুত"
+                                        "SERIES" -> "${preparedMovies.size} টি সিরিজ প্রস্তুত"
+                                        else -> "${preparedMovies.size} টি মুভি ও সিরিজ প্রস্তুত"
+                                    },
                                     color = if (isHubLoading) Color(0xFFF59E0B) else Color(0xFF94A3B8),
                                     fontSize = 11.sp
                                 )
@@ -750,6 +762,10 @@ fun MoviesTabScreen(
         // -------------------------------------------------------------
         // 4. TYPE FILTER CHIPS: ALL / MOVIES / SERIES
         // -------------------------------------------------------------
+        val allCount = currentActiveSourceMovies.size
+        val movieCount = remember(currentActiveSourceMovies) { currentActiveSourceMovies.count { !it.isSeries && it.type != MediaType.SERIES } }
+        val seriesCount = remember(currentActiveSourceMovies) { currentActiveSourceMovies.count { it.isSeries || it.type == MediaType.SERIES } }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -757,9 +773,9 @@ fun MoviesTabScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val typeOptions = listOf(
-                "ALL" to "সকল কনটেন্ট",
-                "MOVIE" to "🎬 শুধুমাত্র মুভি",
-                "SERIES" to "🍿 ওয়েব সিরিজ"
+                "ALL" to (if (allCount > 0) "সকল ($allCount)" else "সকল কনটেন্ট"),
+                "MOVIE" to (if (movieCount > 0) "🎬 মুভি ($movieCount)" else "🎬 শুধুমাত্র মুভি"),
+                "SERIES" to (if (seriesCount > 0) "🍿 সিরিজ ($seriesCount)" else "🍿 ওয়েব সিরিজ")
             )
             typeOptions.forEach { (typeKey, typeLabel) ->
                 val isSelected = selectedTypeFilter == typeKey
