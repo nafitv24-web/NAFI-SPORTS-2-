@@ -42,13 +42,14 @@ import com.example.data.MediaRepository
 @Composable
 fun ModeSelectionScreen(
     repository: MediaRepository? = null,
+    onSelectAutoMode: () -> Unit = {},
     onSelectMobileMode: () -> Unit,
     onSelectRemoteMode: () -> Unit,
     onExitApp: () -> Unit
 ) {
-    // Track focused or active selection
-    var selectedMode by remember { mutableStateOf<AppUserMode?>(null) }
-    var focusedMode by remember { mutableStateOf<AppUserMode?>(AppUserMode.MOBILE) }
+    // Track focused or active selection (Default recommended: AUTO ADAPTIVE for any device)
+    var selectedMode by remember { mutableStateOf<AppUserMode?>(AppUserMode.AUTO) }
+    var focusedMode by remember { mutableStateOf<AppUserMode?>(AppUserMode.AUTO) }
 
     // Marquee scrolling ticker text state (fetched from repository & remote Firebase)
     var tickerText by remember {
@@ -282,62 +283,160 @@ fun ModeSelectionScreen(
                 }
             }
 
-            // Center Cards: MOBILE MODE vs REMOTE MODE
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (isLandscape) 12.dp else 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 14.dp else 12.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 1. MOBILE MODE CARD (Neon Cyan)
-                ModeOptionCard(
-                    mode = AppUserMode.MOBILE,
-                    title = "MOBILE MODE",
-                    subtitle = "Stream on the go.",
-                    accentColor = Color(0xFF00E5FF),
-                    gradientColors = listOf(Color(0xFF03223D), Color(0xFF0B192C)),
-                    isSelected = selectedMode == AppUserMode.MOBILE,
-                    isFocused = focusedMode == AppUserMode.MOBILE,
-                    isLandscape = isLandscape,
-                    onFocusChanged = { if (it) focusedMode = AppUserMode.MOBILE },
-                    onSelect = {
-                        selectedMode = AppUserMode.MOBILE
-                        onSelectMobileMode()
-                    },
+            // Mode Selection Cards: AUTO ADAPTIVE (Any Device) + MOBILE + REMOTE
+            if (isLandscape) {
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .heightIn(
-                            min = if (isLandscape) 120.dp else 185.dp,
-                            max = if (isLandscape) 140.dp else 225.dp
-                        )
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    MobileDeviceArtwork(isLandscape = isLandscape)
-                }
+                    // 1. AUTO ADAPTIVE CARD (Emerald Neon - Recommended)
+                    ModeOptionCard(
+                        mode = AppUserMode.AUTO,
+                        title = "AUTO ADAPTIVE",
+                        subtitle = "Phone, Tab, TV",
+                        accentColor = Color(0xFF10B981),
+                        gradientColors = listOf(Color(0xFF042F2E), Color(0xFF064E3B)),
+                        isSelected = selectedMode == AppUserMode.AUTO,
+                        isFocused = focusedMode == AppUserMode.AUTO,
+                        isLandscape = isLandscape,
+                        onFocusChanged = { if (it) focusedMode = AppUserMode.AUTO },
+                        onSelect = {
+                            selectedMode = AppUserMode.AUTO
+                            onSelectAutoMode()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 120.dp, max = 140.dp)
+                    ) {
+                        AdaptiveMultiDeviceArtwork(isLandscape = isLandscape)
+                    }
 
-                // 2. REMOTE MODE CARD (Neon Purple / Violet)
-                ModeOptionCard(
-                    mode = AppUserMode.REMOTE,
-                    title = "REMOTE MODE",
-                    subtitle = "Control the big screen.",
-                    accentColor = Color(0xFFC084FC),
-                    gradientColors = listOf(Color(0xFF2A0D45), Color(0xFF160826)),
-                    isSelected = selectedMode == AppUserMode.REMOTE,
-                    isFocused = focusedMode == AppUserMode.REMOTE,
-                    isLandscape = isLandscape,
-                    onFocusChanged = { if (it) focusedMode = AppUserMode.REMOTE },
-                    onSelect = {
-                        selectedMode = AppUserMode.REMOTE
-                        onSelectRemoteMode()
-                    },
+                    // 2. MOBILE MODE CARD (Neon Cyan)
+                    ModeOptionCard(
+                        mode = AppUserMode.MOBILE,
+                        title = "MOBILE MODE",
+                        subtitle = "Stream on the go",
+                        accentColor = Color(0xFF00E5FF),
+                        gradientColors = listOf(Color(0xFF03223D), Color(0xFF0B192C)),
+                        isSelected = selectedMode == AppUserMode.MOBILE,
+                        isFocused = focusedMode == AppUserMode.MOBILE,
+                        isLandscape = isLandscape,
+                        onFocusChanged = { if (it) focusedMode = AppUserMode.MOBILE },
+                        onSelect = {
+                            selectedMode = AppUserMode.MOBILE
+                            onSelectMobileMode()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 120.dp, max = 140.dp)
+                    ) {
+                        MobileDeviceArtwork(isLandscape = isLandscape)
+                    }
+
+                    // 3. REMOTE MODE CARD (Neon Purple / Violet)
+                    ModeOptionCard(
+                        mode = AppUserMode.REMOTE,
+                        title = "REMOTE MODE",
+                        subtitle = "Control big screen",
+                        accentColor = Color(0xFFC084FC),
+                        gradientColors = listOf(Color(0xFF2A0D45), Color(0xFF160826)),
+                        isSelected = selectedMode == AppUserMode.REMOTE,
+                        isFocused = focusedMode == AppUserMode.REMOTE,
+                        isLandscape = isLandscape,
+                        onFocusChanged = { if (it) focusedMode = AppUserMode.REMOTE },
+                        onSelect = {
+                            selectedMode = AppUserMode.REMOTE
+                            onSelectRemoteMode()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 120.dp, max = 140.dp)
+                    ) {
+                        RemoteDeviceArtwork(isLandscape = isLandscape)
+                    }
+                }
+            } else {
+                // Portrait Layout: Prominent Recommended AUTO Card on Top + Mobile & TV side by side
+                Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .heightIn(
-                            min = if (isLandscape) 120.dp else 185.dp,
-                            max = if (isLandscape) 140.dp else 225.dp
-                        )
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    RemoteDeviceArtwork(isLandscape = isLandscape)
+                    // 1. AUTO ADAPTIVE (Prominent Featured Card)
+                    ModeOptionCard(
+                        mode = AppUserMode.AUTO,
+                        title = "যেকোনো ডিভাইস (AUTO ADAPTIVE)",
+                        subtitle = "সব ডিভাইসে স্বয়ংক্রিয় দ্রুত অ্যাডাপ্ট (ফোন, ট্যাব, ফোল্ডেবল ও টিভি)",
+                        accentColor = Color(0xFF10B981),
+                        gradientColors = listOf(Color(0xFF064E3B), Color(0xFF022C22)),
+                        isSelected = selectedMode == AppUserMode.AUTO,
+                        isFocused = focusedMode == AppUserMode.AUTO,
+                        isLandscape = false,
+                        onFocusChanged = { if (it) focusedMode = AppUserMode.AUTO },
+                        onSelect = {
+                            selectedMode = AppUserMode.AUTO
+                            onSelectAutoMode()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(115.dp)
+                    ) {
+                        AdaptiveMultiDeviceArtwork(isLandscape = false)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // 2. MOBILE MODE
+                        ModeOptionCard(
+                            mode = AppUserMode.MOBILE,
+                            title = "MOBILE",
+                            subtitle = "ফোন পোর্ট্রেট মোড",
+                            accentColor = Color(0xFF00E5FF),
+                            gradientColors = listOf(Color(0xFF03223D), Color(0xFF0B192C)),
+                            isSelected = selectedMode == AppUserMode.MOBILE,
+                            isFocused = focusedMode == AppUserMode.MOBILE,
+                            isLandscape = false,
+                            onFocusChanged = { if (it) focusedMode = AppUserMode.MOBILE },
+                            onSelect = {
+                                selectedMode = AppUserMode.MOBILE
+                                onSelectMobileMode()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(125.dp)
+                        ) {
+                            MobileDeviceArtwork(isLandscape = true)
+                        }
+
+                        // 3. REMOTE MODE
+                        ModeOptionCard(
+                            mode = AppUserMode.REMOTE,
+                            title = "TV / REMOTE",
+                            subtitle = "টিভি ও রিমোট মোড",
+                            accentColor = Color(0xFFC084FC),
+                            gradientColors = listOf(Color(0xFF2A0D45), Color(0xFF160826)),
+                            isSelected = selectedMode == AppUserMode.REMOTE,
+                            isFocused = focusedMode == AppUserMode.REMOTE,
+                            isLandscape = false,
+                            onFocusChanged = { if (it) focusedMode = AppUserMode.REMOTE },
+                            onSelect = {
+                                selectedMode = AppUserMode.REMOTE
+                                onSelectRemoteMode()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(125.dp)
+                        ) {
+                            RemoteDeviceArtwork(isLandscape = true)
+                        }
+                    }
                 }
             }
 
@@ -408,10 +507,10 @@ fun ModeSelectionScreen(
                         .focusable()
                         .clip(RoundedCornerShape(26.dp))
                         .clickable {
-                            if (focusedMode == AppUserMode.REMOTE || selectedMode == AppUserMode.REMOTE) {
-                                onSelectRemoteMode()
-                            } else {
-                                onSelectMobileMode()
+                            when {
+                                focusedMode == AppUserMode.REMOTE || selectedMode == AppUserMode.REMOTE -> onSelectRemoteMode()
+                                focusedMode == AppUserMode.MOBILE || selectedMode == AppUserMode.MOBILE -> onSelectMobileMode()
+                                else -> onSelectAutoMode()
                             }
                         }
                 ) {
@@ -452,6 +551,7 @@ fun ModeSelectionScreen(
 }
 
 enum class AppUserMode {
+    AUTO,
     MOBILE,
     REMOTE
 }
@@ -774,6 +874,84 @@ private fun RemoteDeviceArtwork(isLandscape: Boolean = false) {
                     contentDescription = null,
                     tint = Color(0xFF38BDF8),
                     modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Stylized Multi-Device Artwork representing Phone, Tablet and TV with glowing emerald/teal ambient lighting
+ */
+@Composable
+private fun AdaptiveMultiDeviceArtwork(isLandscape: Boolean = false) {
+    val scaleFactor = if (isLandscape) 0.65f else 0.85f
+
+    Box(
+        modifier = Modifier
+            .scale(scaleFactor)
+            .size(width = 110.dp, height = 95.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Emerald/Teal ambient glow
+        Box(
+            modifier = Modifier
+                .size(75.dp)
+                .blur(20.dp)
+                .background(Color(0xFF10B981).copy(alpha = 0.45f), CircleShape)
+        )
+
+        // Tablet / Monitor backdrop
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = Color(0xFF064E3B),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF10B981)),
+            modifier = Modifier
+                .offset(x = (-10).dp, y = (-4).dp)
+                .width(66.dp)
+                .height(48.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF047857).copy(alpha = 0.5f), Color(0xFF022C22))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Devices,
+                    contentDescription = null,
+                    tint = Color(0xFF6EE7B7),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        // Foreground Smartphone
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFF0F172A),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF34D399)),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .offset(x = 18.dp, y = 8.dp)
+                .width(28.dp)
+                .height(50.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF064E3B)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }

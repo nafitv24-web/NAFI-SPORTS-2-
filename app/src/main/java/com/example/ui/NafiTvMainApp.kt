@@ -158,13 +158,30 @@ fun NafiTvMainApp(
     var activePlaybackPlaylist by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     val initialSavedMode = remember {
         when (repository.getSavedUserMode()) {
+            "AUTO" -> AppUserMode.AUTO
             "REMOTE" -> AppUserMode.REMOTE
             "MOBILE" -> AppUserMode.MOBILE
             else -> null
         }
     }
     var activeUserMode by remember { mutableStateOf<AppUserMode?>(initialSavedMode) }
-    var isTvMode by remember { mutableStateOf(initialSavedMode == AppUserMode.REMOTE) }
+    var showDeviceModeDialog by remember { mutableStateOf(false) }
+
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.dp
+    val isWideScreen = screenWidthDp >= 600.dp || configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    val effectiveIsTv = when (activeUserMode) {
+        AppUserMode.REMOTE -> true
+        AppUserMode.MOBILE -> false
+        AppUserMode.AUTO -> isWideScreen
+        null -> false
+    }
+    var isTvMode by remember { mutableStateOf(effectiveIsTv) }
+
+    LaunchedEffect(effectiveIsTv) {
+        isTvMode = effectiveIsTv
+    }
     var isAdminViewActive by remember { mutableStateOf(false) }
     var activeMovieBrowserProvider by remember { mutableStateOf<MovieProvider?>(null) }
     var isExtensionsManagementActive by remember { mutableStateOf(false) }
@@ -194,8 +211,12 @@ fun NafiTvMainApp(
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
 
     // Synchronize screen orientation based on selected mode
-    LaunchedEffect(activeUserMode, isTvMode) {
+    LaunchedEffect(activeUserMode) {
         when (activeUserMode) {
+            AppUserMode.AUTO -> {
+                // Free sensor rotation for tablets, foldables, phones and TV
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
+            }
             AppUserMode.REMOTE -> {
                 isTvMode = true
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -595,6 +616,11 @@ fun NafiTvMainApp(
     if (activeUserMode == null) {
         ModeSelectionScreen(
             repository = repository,
+            onSelectAutoMode = {
+                activeUserMode = AppUserMode.AUTO
+                repository.saveUserMode("AUTO")
+                Toast.makeText(context, "যেকোনো ডিভাইস (অটো অ্যাডাপ্টিভ মোড) সক্রিয় করা হয়েছে!", Toast.LENGTH_SHORT).show()
+            },
             onSelectMobileMode = {
                 isTvMode = false
                 activeUserMode = AppUserMode.MOBILE
@@ -882,7 +908,7 @@ fun NafiTvMainApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Switch to Mobile Mode Button (TV -> Mobile)
+                                // Device Mode Selector Button (Auto / Mobile / TV)
                                 var isTvModeSwitchFocused by remember { mutableStateOf(false) }
                                 val tvModeSwitchScale by animateFloatAsState(
                                     targetValue = if (isTvModeSwitchFocused) 1.08f else 1.0f,
@@ -901,12 +927,7 @@ fun NafiTvMainApp(
                                         .scale(tvModeSwitchScale)
                                         .onFocusChanged { isTvModeSwitchFocused = it.isFocused }
                                         .focusable()
-                                        .clickable {
-                                            isTvMode = false
-                                            activeUserMode = AppUserMode.MOBILE
-                                            repository.saveUserMode("MOBILE")
-                                            Toast.makeText(context, "মোবাইল মোডে পরিবর্তন করা হয়েছে!", Toast.LENGTH_SHORT).show()
-                                        }
+                                        .clickable { showDeviceModeDialog = true }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -914,13 +935,25 @@ fun NafiTvMainApp(
                                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Rounded.PhoneAndroid,
-                                            contentDescription = "মোবাইল মোডে যান",
-                                            tint = if (isTvModeSwitchFocused) Color(0xFF38BDF8) else Color(0xFF00E5FF),
+                                            imageVector = when (activeUserMode) {
+                                                AppUserMode.AUTO -> Icons.Rounded.Devices
+                                                AppUserMode.MOBILE -> Icons.Rounded.PhoneAndroid
+                                                else -> Icons.Rounded.Tv
+                                            },
+                                            contentDescription = "ডিভাইস মোড পরিবর্তন",
+                                            tint = when (activeUserMode) {
+                                                AppUserMode.AUTO -> Color(0xFF10B981)
+                                                AppUserMode.MOBILE -> Color(0xFF00E5FF)
+                                                else -> Color(0xFFC084FC)
+                                            },
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = "মোবাইল মোড",
+                                            text = when (activeUserMode) {
+                                                AppUserMode.AUTO -> "অটো মোড"
+                                                AppUserMode.MOBILE -> "মোবাইল"
+                                                else -> "টিভি মোড"
+                                            },
                                             color = Color.White,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
@@ -1311,17 +1344,19 @@ fun NafiTvMainApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // TV Mode Switch Chip (Mobile -> TV Remote Mode)
+                                // Device Mode Selector Chip (Auto / Mobile / TV)
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
-                                    color = Color(0xFF0284C7).copy(alpha = 0.25f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.8f)),
-                                    modifier = Modifier.clickable {
-                                        isTvMode = true
-                                        activeUserMode = AppUserMode.REMOTE
-                                        repository.saveUserMode("REMOTE")
-                                        Toast.makeText(context, "টিভি রিমোট মোডে পরিবর্তন করা হয়েছে!", Toast.LENGTH_SHORT).show()
-                                    }
+                                    color = Color(0xFF0F172A),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        when (activeUserMode) {
+                                            AppUserMode.AUTO -> Color(0xFF10B981)
+                                            AppUserMode.MOBILE -> Color(0xFF00E5FF)
+                                            else -> Color(0xFFC084FC)
+                                        }
+                                    ),
+                                    modifier = Modifier.clickable { showDeviceModeDialog = true }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1329,13 +1364,25 @@ fun NafiTvMainApp(
                                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Rounded.Tv,
-                                            contentDescription = "টিভি মোডে যান",
-                                            tint = Color(0xFF38BDF8),
+                                            imageVector = when (activeUserMode) {
+                                                AppUserMode.AUTO -> Icons.Rounded.Devices
+                                                AppUserMode.MOBILE -> Icons.Rounded.PhoneAndroid
+                                                else -> Icons.Rounded.Tv
+                                            },
+                                            contentDescription = "ডিভাইস মোড পরিবর্তন",
+                                            tint = when (activeUserMode) {
+                                                AppUserMode.AUTO -> Color(0xFF10B981)
+                                                AppUserMode.MOBILE -> Color(0xFF00E5FF)
+                                                else -> Color(0xFFC084FC)
+                                            },
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = "টিভি মোড",
+                                            text = when (activeUserMode) {
+                                                AppUserMode.AUTO -> "অটো মোড"
+                                                AppUserMode.MOBILE -> "মোবাইল"
+                                                else -> "টিভি মোড"
+                                            },
                                             color = Color.White,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
@@ -1834,6 +1881,193 @@ fun NafiTvMainApp(
                     modifier = Modifier.height(42.dp)
                 ) {
                     Text("না, থাকুন", fontSize = 13.sp)
+                }
+            }
+        )
+    }
+
+    // Dynamic Device Mode Switcher Dialog (Allows instant switching to AUTO ADAPTIVE, MOBILE, or TV MODE anytime)
+    if (showDeviceModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeviceModeDialog = false },
+            shape = RoundedCornerShape(22.dp),
+            containerColor = Color(0xFF0F172A),
+            tonalElevation = 8.dp,
+            icon = {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF0284C7).copy(alpha = 0.25f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Devices,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            },
+            title = {
+                Text(
+                    text = "ডিভাইস ও স্ক্রিন মোড",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "যেকোনো ডিভাইসে সর্বোচ্চ পারফরম্যান্সের জন্য মোড বেছে নিন:",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // 1. AUTO ADAPTIVE MODE (All Devices)
+                    val isAuto = activeUserMode == AppUserMode.AUTO
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isAuto) Color(0xFF064E3B) else Color(0xFF1E293B),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.2.dp,
+                            if (isAuto) Color(0xFF10B981) else Color(0xFF334155)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                activeUserMode = AppUserMode.AUTO
+                                repository.saveUserMode("AUTO")
+                                showDeviceModeDialog = false
+                                Toast.makeText(context, "অটো অ্যাডাপ্টিভ মোড সক্রিয় (ফোন, ট্যাব, ফোল্ডেবল ও টিভি)", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF065F46)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Devices, contentDescription = null, tint = Color(0xFF34D399), modifier = Modifier.size(20.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("অটো অ্যাডাপ্ট (সুপার ফাস্ট)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFF10B981)
+                                    ) {
+                                        Text("সেরা", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                    }
+                                }
+                                Text("ট্যাবলেট, ফোন, ফোল্ডেবল ও টিভি যেকোনো স্ক্রিনে মানিয়ে নেবে", color = Color(0xFFCBD5E1), fontSize = 10.5.sp)
+                            }
+                            if (isAuto) Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    // 2. MOBILE MODE
+                    val isMob = activeUserMode == AppUserMode.MOBILE
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isMob) Color(0xFF0C4A6E) else Color(0xFF1E293B),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.2.dp,
+                            if (isMob) Color(0xFF00E5FF) else Color(0xFF334155)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                activeUserMode = AppUserMode.MOBILE
+                                repository.saveUserMode("MOBILE")
+                                showDeviceModeDialog = false
+                                Toast.makeText(context, "মোবাইল মোড সক্রিয় করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF0369A1)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.PhoneAndroid, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("মোবাইল মোড", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("স্মার্টফোনে পোর্ট্রেট টাচ স্ক্রিনের জন্য অপটিমাইজড", color = Color(0xFFCBD5E1), fontSize = 10.5.sp)
+                            }
+                            if (isMob) Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    // 3. TV / REMOTE MODE
+                    val isTv = activeUserMode == AppUserMode.REMOTE
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isTv) Color(0xFF3B0764) else Color(0xFF1E293B),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.2.dp,
+                            if (isTv) Color(0xFFC084FC) else Color(0xFF334155)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                activeUserMode = AppUserMode.REMOTE
+                                repository.saveUserMode("REMOTE")
+                                showDeviceModeDialog = false
+                                Toast.makeText(context, "টিভি / রিমোট মোড সক্রিয় করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF6B21A8)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Tv, contentDescription = null, tint = Color(0xFFE879F9), modifier = Modifier.size(20.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("টিভি / রিমোট মোড", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("অ্যান্ড্রয়েড টিভি, টিভি বক্স ও রিমোট কন্ট্রোল ডি-প্যাড", color = Color(0xFFCBD5E1), fontSize = 10.5.sp)
+                            }
+                            if (isTv) Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFFC084FC), modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showDeviceModeDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("সম্পন্ন", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         )

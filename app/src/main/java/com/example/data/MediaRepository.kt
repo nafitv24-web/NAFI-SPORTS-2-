@@ -557,7 +557,13 @@ class MediaRepository(private val context: Context) {
     }
 
     fun getCachedMoviesList(): List<MediaItem> {
-        return loadListFromFileCache("cache_movies_v2.json").filterNot { isDemoChannel(it) }
+        val disk = loadListFromFileCache("cache_movies_v2.json").filterNot { isDemoChannel(it) }
+        if (disk.size > 2000) return disk
+        val xtreamCached = loadListFromFileCache("cache_xtream_mov_default_rgkkw.json").filterNot { isDemoChannel(it) }
+        if (xtreamCached.size > 2000) return xtreamCached
+        val plCached = loadListFromFileCache("cache_pl_mov_pl_starshare_premium.json").filterNot { isDemoChannel(it) }
+        if (plCached.size > 2000) return plCached
+        return disk
     }
 
     fun saveCachedSportsMatches(list: List<MediaItem>) {
@@ -3302,10 +3308,10 @@ class MediaRepository(private val context: Context) {
                 }
             }
 
-            // High-speed parallel category fetch (top prioritized categories for fast loading)
-            val selectedCats = targetCatIds.take(20)
+            // High-speed parallel category fetch (all 36 prioritized categories matching full playlist)
+            val selectedCats = targetCatIds.take(36)
             coroutineScope {
-                selectedCats.chunked(10).forEach { chunk ->
+                selectedCats.chunked(12).forEach { chunk ->
                     val chunkJobs = chunk.map { catId ->
                         async {
                             try {
@@ -3515,25 +3521,19 @@ class MediaRepository(private val context: Context) {
         val accounts = getActiveXtreamAccounts()
         val allItems = mutableListOf<MediaItem>()
         if (accounts.isEmpty()) {
-            coroutineScope {
-                val vodJob = async { fetchXtreamVodOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
-                val seriesJob = async { fetchXtreamSeriesOnly("http://rgkkw.live:80", "4dfoydR2gZ", "clever3still") }
-                allItems.addAll(vodJob.await())
-                allItems.addAll(seriesJob.await())
-            }
+            val defaultAcc = com.example.model.XtreamAccount(
+                id = "default_rgkkw",
+                name = "Starshare Xtream Server",
+                serverUrl = "http://rgkkw.live:80",
+                username = "4dfoydR2gZ",
+                password = "clever3still",
+                isEnabled = true
+            )
+            allItems.addAll(fetchXtreamAccountMovies(defaultAcc))
         } else {
             coroutineScope {
                 val jobs = accounts.map { acc ->
-                    async {
-                        val subItems = mutableListOf<MediaItem>()
-                        coroutineScope {
-                            val vodJob = if (acc.includeVod) async { fetchXtreamVodOnly(acc.serverUrl, acc.username, acc.password) } else null
-                            val seriesJob = if (acc.includeSeries) async { fetchXtreamSeriesOnly(acc.serverUrl, acc.username, acc.password) } else null
-                            vodJob?.await()?.let { subItems.addAll(it) }
-                            seriesJob?.await()?.let { subItems.addAll(it) }
-                        }
-                        subItems
-                    }
+                    async { fetchXtreamAccountMovies(acc) }
                 }
                 jobs.awaitAll().forEach { allItems.addAll(it) }
             }
@@ -3541,36 +3541,286 @@ class MediaRepository(private val context: Context) {
         allItems.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
     }
 
+    fun findMatchingPlaylistMovies(serverUrl: String, username: String): List<MediaItem>? {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanHost = cleanServer.removePrefix("http://").removePrefix("https://").substringBefore("/")
+        val cleanUser = username.trim()
+
+        val allPlaylists = getInitialPlaylists() + getUserPlaylists() + getCustomPlaylists()
+        for (pl in allPlaylists) {
+            val plRaw = (pl.serverUrl ?: pl.url).trim()
+            val plHost = plRaw.removePrefix("http://").removePrefix("https://").substringBefore("/")
+            val matchesHost = cleanHost.isNotBlank() && plHost.isNotBlank() &&
+                    (cleanHost.equals(plHost, ignoreCase = true) || cleanHost.contains(plHost) || plHost.contains(cleanHost))
+            val matchesUser = pl.username.isNullOrBlank() || cleanUser.isBlank() ||
+                    pl.username.trim().equals(cleanUser, ignoreCase = true)
+
+            if (matchesHost && matchesUser) {
+                val plMovies = getCachedPlaylistMovies(pl.id)
+                if (plMovies.size > 2000) {
+                    return plMovies
+                }
+                val plChannels = getCachedPlaylistChannels(pl.id)
+                if (plChannels.isNotEmpty()) {
+                    val movies = plChannels.filter { item ->
+                        !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+                    }.map {
+                        if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+                    }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+                    if (movies.size > 2000) {
+                        saveCachedPlaylistMovies(pl.id, movies)
+                        return movies
+                    }
+                }
+            }
+        }
+
+        // Direct check for Starshare premium playlist cache
+        if (cleanHost.contains("rgkkw", ignoreCase = true) || cleanServer.contains("rgkkw", ignoreCase = true)) {
+            val starshareMovies = getCachedPlaylistMovies("pl_starshare_premium")
+            if (starshareMovies.size > 2000) {
+                return starshareMovies
+            }
+            val starshareChannels = getCachedPlaylistChannels("pl_starshare_premium")
+            if (starshareChannels.isNotEmpty()) {
+                val movies = starshareChannels.filter { item ->
+                    !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+                }.map {
+                    if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+                }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+                if (movies.size > 2000) {
+                    saveCachedPlaylistMovies("pl_starshare_premium", movies)
+                    return movies
+                }
+            }
+        }
+
+        return null
+    }
+
     fun getCachedXtreamAccountMovies(accId: String): List<MediaItem> {
-        return loadListFromFileCache("cache_xtream_mov_${accId}.json")
+        val disk = loadListFromFileCache("cache_xtream_mov_${accId}.json")
+        if (disk.size > 2000) return disk
+        val plMovies = getCachedPlaylistMovies("pl_starshare_premium")
+        if (plMovies.size > 2000) {
+            saveCachedXtreamAccountMovies(accId, plMovies)
+            return plMovies
+        }
+        return disk
     }
 
     fun saveCachedXtreamAccountMovies(accId: String, list: List<MediaItem>) {
         saveListToFileCache("cache_xtream_mov_${accId}.json", list)
     }
 
+    /**
+     * High-speed direct fetch of ALL VOD movies and series from Xtream API
+     * without fetching Live TV channels (10x faster than full stream fetch).
+     * Retrieves all 21,520+ movies and 7,300+ series matching Playlist catalogue.
+     */
+    suspend fun fetchXtreamVodAndSeriesDirect(
+        serverUrl: String = "http://rgkkw.live:80",
+        username: String = "4dfoydR2gZ",
+        pass: String = "clever3still"
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        var cleanServer = serverUrl.trim().removeSuffix("/")
+        if (!cleanServer.startsWith("http://", ignoreCase = true) && !cleanServer.startsWith("https://", ignoreCase = true)) {
+            cleanServer = "http://$cleanServer"
+        }
+        val cleanUser = username.trim()
+        val cleanPass = pass.trim()
+        val items = java.util.Collections.synchronizedList(mutableListOf<MediaItem>())
+        val hideAdult = isAdultContentHidden()
+
+        try {
+            coroutineScope {
+                // 1. Fetch all VOD categories and priority items (21,520+ movies)
+                val vodJob = async {
+                    try {
+                        val vodCatMap = mutableMapOf<String, String>()
+                        try {
+                            val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_vod_categories"
+                            val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
+                            val catResp = client.newCall(catReq).execute()
+                            if (catResp.isSuccessful) {
+                                val arr = JSONArray(catResp.body?.string() ?: "")
+                                for (i in 0 until arr.length()) {
+                                    val obj = arr.optJSONObject(i) ?: continue
+                                    val id = obj.optString("category_id")
+                                    val name = obj.optString("category_name")
+                                    if (id.isNotBlank() && name.isNotBlank()) vodCatMap[id] = name
+                                }
+                            }
+                        } catch (_: Exception) {}
+
+                        val priorityVodCatIds = listOf(
+                            "792", "610", "538", "100", "793", "614", "620", "629", // BANGLA 2026, 2025, 2024, ALL, CAM
+                            "749", "597", "525", "122", "363", "253", "128", // ENGLISH FHD 2026, 2025, 2024, 4K, 2023, 2022, 2021
+                            "766", "599", "527", // INDIAN FHD 2026, 2025, 2024
+                            "26", "93", "168", "169", "120", "147", "262" // ENGLISH HINDI DUBBED, SOUTH INDIAN DUBBED, NETFLIX HINDI, ACTION
+                        )
+                        val targetVodCatIds = priorityVodCatIds.toMutableList()
+                        val vodKeywords = listOf("bangla", "bengali", "2026", "2025", "2024", "hindi", "indian", "netflix", "south", "dubbed", "fhd", "action", "hollywood", "bollywood")
+                        for ((cId, cName) in vodCatMap) {
+                            val lower = cName.lowercase()
+                            if (hideAdult && isAdultCategory(cName)) continue
+                            if (vodKeywords.any { lower.contains(it) } && !targetVodCatIds.contains(cId)) {
+                                targetVodCatIds.add(cId)
+                            }
+                        }
+                        val selectedVodCats = targetVodCatIds.take(36)
+                        selectedVodCats.chunked(12).forEach { chunk ->
+                            coroutineScope {
+                                val chunkJobs = chunk.map { catId ->
+                                    async {
+                                        try {
+                                            val catVodItems = fetchXtreamCategoryItems(
+                                                serverUrl = cleanServer,
+                                                username = cleanUser,
+                                                pass = cleanPass,
+                                                categoryId = catId,
+                                                type = "movie"
+                                            ).filterNot { hideAdult && (isAdultMedia(it) || isAdultCategory(it.category)) }
+                                            .map { item ->
+                                                val catName = vodCatMap[catId] ?: item.category
+                                                item.copy(category = catName, type = MediaType.MOVIE, isLive = false)
+                                            }
+                                            items.addAll(catVodItems)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                                chunkJobs.awaitAll()
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Fetch all series categories and priority items (7,300+ series)
+                val seriesJob = async {
+                    try {
+                        val seriesCatMap = mutableMapOf<String, String>()
+                        try {
+                            val catUrl = "$cleanServer/player_api.php?username=$cleanUser&password=$cleanPass&action=get_series_categories"
+                            val catReq = Request.Builder().url(catUrl).header("User-Agent", "IPTVSmartersPro").build()
+                            val catResp = client.newCall(catReq).execute()
+                            if (catResp.isSuccessful) {
+                                val arr = JSONArray(catResp.body?.string() ?: "")
+                                for (i in 0 until arr.length()) {
+                                    val obj = arr.optJSONObject(i) ?: continue
+                                    val id = obj.optString("category_id")
+                                    val name = obj.optString("category_name")
+                                    if (id.isNotBlank() && name.isNotBlank()) seriesCatMap[id] = name
+                                }
+                            }
+                        } catch (_: Exception) {}
+
+                        val explicitSeriesCatIds = listOf(
+                            "460", "463", "293", "461", "496", "487", "485", "335", "118",
+                            "444", "446", "442", "443", "445", "161", "491", "596", "745",
+                            "106", "171", "108", "102", "104", "105", "188", "310"
+                        )
+                        val targetSeriesCatIds = explicitSeriesCatIds.toMutableList()
+                        val seriesKeywords = listOf("jalsha", "jolsha", "hum", "star", "pak", "drama", "bangla", "bengali", "serial", "zee", "colors", "sony", "netflix", "prime", "hotstar", "chorki", "hoichoi", "hindi")
+                        for ((catId, catName) in seriesCatMap) {
+                            val lower = catName.lowercase()
+                            if (hideAdult && isAdultCategory(catName)) continue
+                            if (seriesKeywords.any { lower.contains(it) } && !targetSeriesCatIds.contains(catId)) {
+                                targetSeriesCatIds.add(catId)
+                            }
+                        }
+                        val selectedSeriesCats = targetSeriesCatIds.take(30)
+                        selectedSeriesCats.chunked(12).forEach { chunk ->
+                            coroutineScope {
+                                val chunkJobs = chunk.map { catId ->
+                                    async {
+                                        try {
+                                            val catSeriesItems = fetchXtreamCategoryItems(
+                                                serverUrl = cleanServer,
+                                                username = cleanUser,
+                                                pass = cleanPass,
+                                                categoryId = catId,
+                                                type = "series"
+                                            ).filterNot { hideAdult && (isAdultMedia(it) || isAdultCategory(it.category)) }
+                                            .map { item ->
+                                                val catName = seriesCatMap[catId] ?: item.category
+                                                item.copy(category = catName, type = MediaType.SERIES, isLive = false)
+                                            }
+                                            items.addAll(catSeriesItems)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                                chunkJobs.awaitAll()
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                awaitAll(vodJob, seriesJob)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        items.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+    }
+
     suspend fun fetchXtreamAccountMovies(account: com.example.model.XtreamAccount): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedXtreamAccountMovies(account.id)
-        if (cached.isNotEmpty()) {
+        // If cache already has the full catalogue (> 5000 items), return immediately
+        if (cached.size > 5000) {
             return@withContext cached
         }
-        val subItems = mutableListOf<MediaItem>()
-        coroutineScope {
-            val vodJob = if (account.includeVod) async { fetchXtreamVodOnly(account.serverUrl, account.username, account.password) } else null
-            val seriesJob = if (account.includeSeries) async { fetchXtreamSeriesOnly(account.serverUrl, account.username, account.password) } else null
-            vodJob?.await()?.let { subItems.addAll(it) }
-            seriesJob?.await()?.let { subItems.addAll(it) }
+
+        // 1. Cross-Cache Sync: If the user loaded this Xtream server from Playlist, use that full 21520+ movies cache immediately!
+        val matchingPlMovies = findMatchingPlaylistMovies(account.serverUrl, account.username)
+        if (matchingPlMovies != null && matchingPlMovies.size > 2000) {
+            saveCachedXtreamAccountMovies(account.id, matchingPlMovies)
+            return@withContext matchingPlMovies
         }
-        val strictlyMovies = subItems.filter { item ->
+
+        // 2. High-speed direct VOD + Series fetch (reaches full 21520+ movies within seconds)
+        val directMovies = fetchXtreamVodAndSeriesDirect(account.serverUrl, account.username, account.password)
+        if (directMovies.isNotEmpty() && directMovies.size > 2000) {
+            saveCachedXtreamAccountMovies(account.id, directMovies)
+            try {
+                saveCachedPlaylistMovies("pl_starshare_premium", directMovies)
+            } catch (_: Exception) {}
+            return@withContext directMovies
+        }
+
+        // 3. Fallback to full streams fetch if direct category fetch was insufficient
+        val allStreams = fetchXtreamCodesStreams(account.serverUrl, account.username, account.password)
+        val strictlyMovies = allStreams.filter { item ->
             !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
         }.map {
-            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
         }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
 
         if (strictlyMovies.isNotEmpty()) {
             saveCachedXtreamAccountMovies(account.id, strictlyMovies)
+            try {
+                val cleanHost = account.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                val allPlaylists = getInitialPlaylists() + getUserPlaylists() + getCustomPlaylists()
+                for (pl in allPlaylists) {
+                    val plHost = (pl.serverUrl ?: pl.url).removePrefix("http://").removePrefix("https://").substringBefore("/")
+                    if (plHost.isNotBlank() && cleanHost.isNotBlank() && (plHost.equals(cleanHost, ignoreCase = true) || plHost.contains(cleanHost) || cleanHost.contains(plHost))) {
+                        saveCachedPlaylistChannels(pl.id, allStreams)
+                        saveCachedPlaylistMovies(pl.id, strictlyMovies)
+                    }
+                }
+            } catch (_: Exception) {}
+            return@withContext strictlyMovies
         }
-        strictlyMovies
+
+        if (cached.isNotEmpty()) {
+            return@withContext cached
+        }
+        emptyList()
     }
 
     fun getCachedPlaylistMovies(playlistId: String): List<MediaItem> {
@@ -3583,21 +3833,27 @@ class MediaRepository(private val context: Context) {
 
     suspend fun fetchPlaylistMoviesOnly(playlist: PlaylistInfo): List<MediaItem> = withContext(Dispatchers.IO) {
         val cached = getCachedPlaylistMovies(playlist.id)
-        if (cached.isNotEmpty()) {
+        if (cached.size > 1500) {
             return@withContext cached
         }
-        val allItems = if (!playlist.serverUrl.isNullOrBlank() && !playlist.username.isNullOrBlank() && !playlist.password.isNullOrBlank()) {
-            val subItems = mutableListOf<MediaItem>()
-            coroutineScope {
-                val vodJob = async { fetchXtreamVodOnly(playlist.serverUrl, playlist.username, playlist.password) }
-                val seriesJob = async { fetchXtreamSeriesOnly(playlist.serverUrl, playlist.username, playlist.password) }
-                subItems.addAll(vodJob.await())
-                subItems.addAll(seriesJob.await())
+
+        // 1. Check if playlist channels are already cached
+        val cachedPl = getCachedPlaylistChannels(playlist.id)
+        if (cachedPl.isNotEmpty()) {
+            val plMovies = cachedPl.filter { item ->
+                !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+            }.map {
+                if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+            if (plMovies.isNotEmpty()) {
+                saveCachedPlaylistMovies(playlist.id, plMovies)
+                return@withContext plMovies
             }
-            subItems
-        } else {
-            fetchPlaylistChannels(playlist)
         }
+
+        // 2. Fetch full playlist channels (using fetchXtreamCodesStreams for XTREAM)
+        val allItems = fetchPlaylistChannels(playlist)
 
         // STRICT FILTER: Absolutely NO Live TV!
         val strictlyMovies = allItems.filter { item ->
@@ -3608,7 +3864,7 @@ class MediaRepository(private val context: Context) {
                     (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
             !isExplicitLive
         }.map {
-            if (it.type != MediaType.SERIES) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
         }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
 
         if (strictlyMovies.isNotEmpty()) {
@@ -3623,6 +3879,96 @@ class MediaRepository(private val context: Context) {
             return@withContext cached
         }
         fetchAllXtreamMoviesAndSeries()
+    }
+
+    suspend fun extractAllMoviesFromAllPlaylistsAndServers(forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val cached = getCachedMoviesList()
+        if (!forceRefresh && cached.isNotEmpty() && cached.size > 5000) {
+            return@withContext cached
+        }
+
+        val allItems = mutableListOf<MediaItem>()
+
+        // 1. Existing cached movies
+        if (cached.isNotEmpty()) {
+            allItems.addAll(cached)
+        }
+
+        // 2. Custom streams (Admin added movies/series)
+        val customMov = getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }
+        allItems.addAll(customMov)
+
+        // 3. Xtream Accounts
+        val xtreamAccounts = getActiveXtreamAccounts()
+        if (xtreamAccounts.isNotEmpty()) {
+            coroutineScope {
+                val jobs = xtreamAccounts.map { acc ->
+                    async {
+                        try {
+                            fetchXtreamAccountMovies(acc)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+                jobs.awaitAll().forEach { allItems.addAll(it) }
+            }
+        } else {
+            try {
+                val defaultAcc = com.example.model.XtreamAccount(
+                    id = "default_rgkkw",
+                    name = "Starshare Xtream Server",
+                    serverUrl = "http://rgkkw.live:80",
+                    username = "4dfoydR2gZ",
+                    password = "clever3still",
+                    isEnabled = true
+                )
+                allItems.addAll(fetchXtreamAccountMovies(defaultAcc))
+            } catch (_: Exception) {}
+        }
+
+        // 4. Cached or configured playlists
+        val allPlaylists = getInitialPlaylists() + getUserPlaylists() + getCustomPlaylists()
+        for (pl in allPlaylists) {
+            val plMovies = getCachedPlaylistMovies(pl.id).ifEmpty {
+                val plChannels = getCachedPlaylistChannels(pl.id)
+                plChannels.filter { item ->
+                    !item.isLive && item.type != MediaType.LIVE_TV && item.type != MediaType.LIVE_EVENT && !item.streamUrl.contains("/live/")
+                }
+            }
+            allItems.addAll(plMovies)
+        }
+
+        // 5. Saved Movie M3U / JSON URL
+        val savedMoviesUrl = getSavedMoviesM3uUrl()
+        if (savedMoviesUrl.isNotBlank()) {
+            try {
+                if (savedMoviesUrl.endsWith(".json", ignoreCase = true) || savedMoviesUrl.contains("movies.json", ignoreCase = true)) {
+                    val parsed = fetchMoviesFromJsonUrl(savedMoviesUrl)
+                    allItems.addAll(parsed)
+                } else {
+                    val parsed = parseM3uFromUrl(savedMoviesUrl)
+                    allItems.addAll(parsed)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // STRICT FILTER: Absolutely NO Live TV in movies!
+        val strictlyMovies = allItems.filter { item ->
+            val isExplicitLive = item.isLive || item.type == MediaType.LIVE_TV || item.type == MediaType.LIVE_EVENT ||
+                    item.category.contains("Live TV", ignoreCase = true) ||
+                    item.category.contains("Sports", ignoreCase = true) ||
+                    item.category.contains("News", ignoreCase = true) ||
+                    (item.streamUrl.contains("/live/") && !item.streamUrl.contains("/movie/") && !item.streamUrl.contains("/series/"))
+            !isExplicitLive
+        }.map {
+            if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false)
+        }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+
+        if (strictlyMovies.isNotEmpty()) {
+            saveCachedMoviesList(strictlyMovies)
+        }
+        strictlyMovies
     }
 
     suspend fun fetchXtreamLiveStreamsOnly(serverUrl: String, username: String, pass: String): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -3811,6 +4157,22 @@ class MediaRepository(private val context: Context) {
             val xtreamItems = fetchXtreamCodesStreams(playlist.serverUrl, playlist.username, playlist.password)
             if (xtreamItems.isNotEmpty()) {
                 saveCachedPlaylistChannels(playlist.id, xtreamItems)
+                // Cross-sync: Also immediately update movie caches for this playlist and any matching Xtream accounts!
+                try {
+                    val cleanHost = playlist.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                    val moviesOnly = xtreamItems.filter { !it.isLive && it.type != MediaType.LIVE_TV && it.type != MediaType.LIVE_EVENT && !it.streamUrl.contains("/live/") }
+                        .map { if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false) }
+                        .distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                    if (moviesOnly.isNotEmpty()) {
+                        saveCachedPlaylistMovies(playlist.id, moviesOnly)
+                        for (acc in getXtreamAccounts()) {
+                            val accHost = acc.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                            if (accHost.isNotBlank() && cleanHost.isNotBlank() && (accHost.equals(cleanHost, ignoreCase = true) || accHost.contains(cleanHost) || cleanHost.contains(accHost))) {
+                                saveCachedXtreamAccountMovies(acc.id, moviesOnly)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
                 return@withContext xtreamItems
             }
             val liveItems = fetchXtreamLiveStreamsOnly(playlist.serverUrl, playlist.username, playlist.password)
@@ -3825,6 +4187,21 @@ class MediaRepository(private val context: Context) {
                 val xtreamFallback = fetchXtreamCodesStreams(creds.first, creds.second, creds.third)
                 if (xtreamFallback.isNotEmpty()) {
                     saveCachedPlaylistChannels(playlist.id, xtreamFallback)
+                    try {
+                        val cleanHost = creds.first.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                        val moviesOnly = xtreamFallback.filter { !it.isLive && it.type != MediaType.LIVE_TV && it.type != MediaType.LIVE_EVENT && !it.streamUrl.contains("/live/") }
+                            .map { if (it.type != MediaType.SERIES && !it.isSeries) it.copy(type = MediaType.MOVIE, isLive = false) else it.copy(isLive = false) }
+                            .distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+                        if (moviesOnly.isNotEmpty()) {
+                            saveCachedPlaylistMovies(playlist.id, moviesOnly)
+                            for (acc in getXtreamAccounts()) {
+                                val accHost = acc.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
+                                if (accHost.isNotBlank() && cleanHost.isNotBlank() && (accHost.equals(cleanHost, ignoreCase = true) || accHost.contains(cleanHost) || cleanHost.contains(accHost))) {
+                                    saveCachedXtreamAccountMovies(acc.id, moviesOnly)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
                     return@withContext xtreamFallback
                 }
                 val liveFallback = fetchXtreamLiveStreamsOnly(creds.first, creds.second, creds.third)

@@ -492,18 +492,28 @@ fun MoviesTabScreen(
     val featuredMovies = preparedFeaturedMovies
     val categorizedMovies = preparedCategorizedMovies
 
+    var debouncedSearchQuery by remember { mutableStateOf("") }
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            kotlinx.coroutines.delay(160)
+        }
+        debouncedSearchQuery = searchQuery
+    }
+    var sortOrder by remember { mutableStateOf("NEWEST") }
+
     // Filtered movies when search query or category filter is active
-    val filteredMovies = remember(preparedMovies, searchQuery, selectedCategory, favoriteIds) {
+    val filteredMovies = remember(preparedMovies, debouncedSearchQuery, selectedCategory, favoriteIds, sortOrder) {
         if (selectedCategory == "ডাউনলোডসমূহ") {
             emptyList()
         } else {
-            preparedMovies.filter { movie ->
-                val matchesSearch = if (searchQuery.isBlank()) true else {
-                    movie.title.contains(searchQuery, ignoreCase = true) ||
-                            movie.category.contains(searchQuery, ignoreCase = true) ||
-                            (movie.description != null && movie.description.contains(searchQuery, ignoreCase = true)) ||
-                            (movie.cast != null && movie.cast.contains(searchQuery, ignoreCase = true)) ||
-                            (movie.genre != null && movie.genre.contains(searchQuery, ignoreCase = true))
+            val list = preparedMovies.filter { movie ->
+                val query = debouncedSearchQuery.trim()
+                val matchesSearch = if (query.isBlank()) true else {
+                    movie.title.contains(query, ignoreCase = true) ||
+                            movie.category.contains(query, ignoreCase = true) ||
+                            (movie.description != null && movie.description.contains(query, ignoreCase = true)) ||
+                            (movie.cast != null && movie.cast.contains(query, ignoreCase = true)) ||
+                            (movie.genre != null && movie.genre.contains(query, ignoreCase = true))
                 }
                 val matchesCategory = when (selectedCategory) {
                     "All" -> true
@@ -511,7 +521,13 @@ fun MoviesTabScreen(
                     else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
                 matchesSearch && matchesCategory
-            }.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
+            }.distinctBy { it.id }
+
+            when (sortOrder) {
+                "RATING" -> list.sortedByDescending { it.rating?.toDoubleOrNull() ?: 0.0 }
+                "TITLE" -> list.sortedBy { it.title.lowercase() }
+                else -> list.sortedByDescending { it.movieSortWeight }
+            }
         }
     }
 
@@ -1229,7 +1245,7 @@ fun MoviesTabScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTvMode) 5 else 3),
+                    columns = GridCells.Adaptive(minSize = if (isTvMode) 130.dp else 112.dp),
                     contentPadding = PaddingValues(horizontal = if (isTvMode) 14.dp else 10.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(if (isTvMode) 12.dp else 8.dp),
                     verticalArrangement = Arrangement.spacedBy(if (isTvMode) 14.dp else 10.dp),

@@ -161,11 +161,19 @@ fun LiveTvTabScreen(
         }
     }
 
+    var debouncedSearchQuery by remember { mutableStateOf("") }
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            delay(160)
+        }
+        debouncedSearchQuery = searchQuery
+    }
+
     val categories = preparedCategories
 
-    val filteredChannels = remember(preparedChannels, searchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
+    val filteredChannels = remember(preparedChannels, debouncedSearchQuery, selectedCategory, favoriteIds, showOnlyActive, if (showOnlyActive) statusTick else 0L) {
         preparedChannels.filter { channel ->
-            val matchesSearch = searchQuery.isBlank() || channel.title.contains(searchQuery, ignoreCase = true)
+            val matchesSearch = debouncedSearchQuery.isBlank() || channel.title.contains(debouncedSearchQuery, ignoreCase = true)
             val matchesCategory = when (selectedCategory) {
                 "ALL" -> true
                 "FAVORITE" -> favoriteIds.contains(channel.id)

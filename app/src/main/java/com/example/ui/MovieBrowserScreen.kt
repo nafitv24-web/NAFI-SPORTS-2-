@@ -85,6 +85,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
@@ -210,7 +211,13 @@ fun MovieBrowserScreen(
         }
     }
 
-    LaunchedEffect(provider.id, selectedHost, searchQuery, selectedCategoryFilter) {
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            delay(350)
+        }
+        refreshCatalog()
+    }
+    LaunchedEffect(provider.id, selectedHost, selectedCategoryFilter) {
         refreshCatalog()
     }
 
@@ -218,9 +225,10 @@ fun MovieBrowserScreen(
         liveMediaItems.map { mediaItemToExtMovie(it) }
     }
 
-    // WEBVIEW STATE
+    // WEBVIEW STATE & TURBO BROWSING CONTROLS
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var currentUrl by remember { mutableStateOf(provider.siteUrl) }
+    var currentUrl by remember { mutableStateOf(provider.siteUrl.ifBlank { "https://showflix.in" }) }
+    var inputUrlOrQuery by remember { mutableStateOf(provider.siteUrl.ifBlank { "https://showflix.in" }) }
     var pageTitle by remember { mutableStateOf(provider.name) }
     var loadProgress by remember { mutableFloatStateOf(0f) }
     var isWebLoading by remember { mutableStateOf(true) }
@@ -229,16 +237,46 @@ fun MovieBrowserScreen(
     var detectedStreamUrl by remember { mutableStateOf<String?>(null) }
     var detectedStreamType by remember { mutableStateOf("HLS Stream") }
     var blockedAdsCount by remember { mutableIntStateOf(0) }
+    var isTurboShieldEnabled by remember { mutableStateOf(true) }
+    var isDesktopMode by remember { mutableStateOf(false) }
     var customViewContainer by remember { mutableStateOf<FrameLayout?>(null) }
     var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // Ad blocker keywords
+    fun navigateTo(urlOrSearch: String) {
+        val trimmed = urlOrSearch.trim()
+        if (trimmed.isBlank()) return
+        val target = when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
+            else -> "https://duckduckgo.com/?q=" + Uri.encode(trimmed)
+        }
+        currentUrl = target
+        inputUrlOrQuery = target
+        webViewInstance?.loadUrl(target)
+    }
+
+    val quickBookmarks = remember {
+        listOf(
+            "Showflix" to "https://showflix.in",
+            "MovieBox" to "https://moviebox.online",
+            "Toffee" to "https://toffeelive.com",
+            "Bioscope" to "https://www.bioscopelive.com",
+            "SonyLiv" to "https://www.sonyliv.com",
+            "123Movies" to "https://ww4.123moviesfree.net",
+            "Google" to "https://www.google.com",
+            "YouTube" to "https://m.youtube.com"
+        )
+    }
+
+    // Ad blocker keywords (enhanced for ultra-fast browsing)
     val adFilterKeywords = remember {
         listOf(
             "adsterra", "popcash", "propellerads", "onclick", "syndication", "exoclick",
             "juicyads", "trafficjunky", "doubleclick", "googleadservices", "taboola",
             "outbrain", "bet365", "1xbet", "parimatch", "melbet", "adtraffic", "hilltopads",
-            "yandex.ru/ads", "adtrue", "monetag", "adnxs", "popads", "revenuehits"
+            "yandex.ru/ads", "adtrue", "monetag", "adnxs", "popads", "revenuehits",
+            "coinhive", "cryptoloot", "admaven", "zeroredirect", "alwingulla", "clickadu",
+            "bidadx", "adskeeper", "trafficstars", "richpush", "evadav"
         )
     }
 
@@ -1012,126 +1050,430 @@ fun MovieBrowserScreen(
                 }
             } else {
                 // =============================================================
-                // 2. IN-APP WEBVIEW (With Ad-Shield & Video Stream Sniffer)
+                // 2. TURBO IN-APP WEB BROWSER (With Fast Navigation Bar, Bookmarks & Video Sniffer)
                 // =============================================================
-                if (isWebLoading && loadProgress < 1f) {
-                    LinearProgressIndicator(
-                        progress = { loadProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp),
-                        color = Color(0xFF00E5FF),
-                        trackColor = Color(0xFF1E293B)
-                    )
-                }
-
-                Box(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+                        .fillMaxSize()
+                        .background(Color(0xFF0F172A))
                 ) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-
-                                settings.apply {
-                                    javaScriptEnabled = true
-                                    domStorageEnabled = true
-                                    databaseEnabled = true
-                                    loadWithOverviewMode = true
-                                    useWideViewPort = true
-                                    builtInZoomControls = true
-                                    displayZoomControls = false
-                                    allowFileAccess = false
-                                    allowContentAccess = false
-                                    setSupportMultipleWindows(false)
-                                    javaScriptCanOpenWindowsAutomatically = false
-                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                    mediaPlaybackRequiresUserGesture = false
-                                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile; rv:109.0) Gecko/118.0 Firefox/118.0"
+                    // Turbo Navigation & URL Bar
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFF1E293B),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            // Top Row: Back, Forward, Address/Search Input, Reload/Go, Turbo Shield
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Web Back
+                                IconButton(
+                                    onClick = { webViewInstance?.goBack() },
+                                    enabled = canGoBack,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = if (canGoBack) Color(0xFF00E5FF) else Color(0xFF475569),
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
 
-                                webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                        val url = request?.url?.toString() ?: return false
-                                        if (url.startsWith("intent:") || url.startsWith("market:") || url.startsWith("tg:") || url.startsWith("whatsapp:")) {
-                                            return true
-                                        }
-                                        if (adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
-                                            blockedAdsCount++
-                                            return true
-                                        }
-                                        currentUrl = url
-                                        return false
-                                    }
+                                // Web Forward
+                                IconButton(
+                                    onClick = { webViewInstance?.goForward() },
+                                    enabled = canGoForward,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                                        contentDescription = "Forward",
+                                        tint = if (canGoForward) Color(0xFF00E5FF) else Color(0xFF475569),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
 
-                                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                        val url = request?.url?.toString() ?: return null
-                                        if (url.contains(".m3u8", ignoreCase = true) ||
-                                            url.contains(".mpd", ignoreCase = true) ||
-                                            url.contains(".mkv", ignoreCase = true) ||
-                                            url.contains("movielinkbd", ignoreCase = true) ||
-                                            (url.contains("/media/", ignoreCase = true) && url.contains("token=", ignoreCase = true)) ||
-                                            (url.contains(".mp4", ignoreCase = true) && !url.contains("thumb") && !url.contains("preview")) ||
-                                            url.contains("/master.m3u8", ignoreCase = true) ||
-                                            url.contains("/playlist.m3u8", ignoreCase = true) ||
-                                            url.contains("/index.m3u8", ignoreCase = true)) {
-                                            if (!adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
-                                                detectedStreamUrl = url
-                                                detectedStreamType = when {
-                                                    url.contains("movielinkbd", true) || (url.contains("/media/", true) && url.contains("token=")) -> "MovieLinkBD Movie (MKV/HD)"
-                                                    url.contains(".mkv", true) -> "MKV High-Definition Video"
-                                                    url.contains(".m3u8", true) -> "HLS Live Stream (M3U8)"
-                                                    url.contains(".mpd", true) -> "DASH Stream (MPD)"
-                                                    else -> "MP4 Direct Video"
-                                                }
+                                // Address & Search Bar
+                                OutlinedTextField(
+                                    value = inputUrlOrQuery,
+                                    onValueChange = { inputUrlOrQuery = it },
+                                    placeholder = {
+                                        Text(
+                                            "URL বা মুভি খুঁজুন...",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF00E5FF),
+                                        unfocusedBorderColor = Color(0xFF475569),
+                                        focusedContainerColor = Color(0xFF0F172A),
+                                        unfocusedContainerColor = Color(0xFF0F172A),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    ),
+                                    trailingIcon = {
+                                        if (inputUrlOrQuery.isNotBlank()) {
+                                            IconButton(
+                                                onClick = { navigateTo(inputUrlOrQuery) },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Search,
+                                                    contentDescription = "Go",
+                                                    tint = Color(0xFF00E5FF),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
                                             }
                                         }
-                                        if (adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
-                                            blockedAdsCount++
-                                            return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream("".toByteArray()))
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                )
+
+                                // Reload / Stop Button
+                                IconButton(
+                                    onClick = {
+                                        if (isWebLoading) {
+                                            webViewInstance?.stopLoading()
+                                        } else {
+                                            webViewInstance?.reload()
                                         }
-                                        return super.shouldInterceptRequest(view, request)
-                                    }
-
-                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                        super.onPageStarted(view, url, favicon)
-                                        isWebLoading = true
-                                        url?.let { currentUrl = it }
-                                        canGoBack = view?.canGoBack() == true
-                                        canGoForward = view?.canGoForward() == true
-                                    }
-
-                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                        super.onPageFinished(view, url)
-                                        isWebLoading = false
-                                        url?.let { currentUrl = it }
-                                        pageTitle = view?.title ?: provider.name
-                                        canGoBack = view?.canGoBack() == true
-                                        canGoForward = view?.canGoForward() == true
-                                    }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isWebLoading) Icons.Rounded.Close else Icons.Rounded.Refresh,
+                                        contentDescription = "Reload",
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
 
-                                webChromeClient = object : WebChromeClient() {
-                                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                        loadProgress = newProgress / 100f
-                                        if (newProgress >= 100) isWebLoading = false
-                                    }
-                                    override fun onReceivedTitle(view: WebView?, title: String?) {
-                                        if (!title.isNullOrBlank()) pageTitle = title
+                                // Turbo Ad-Shield Active Badge Button
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isTurboShieldEnabled) Color(0xFF065F46) else Color(0xFF334155),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isTurboShieldEnabled) Color(0xFF10B981) else Color(0xFF64748B)
+                                    ),
+                                    modifier = Modifier
+                                        .clickable {
+                                            isTurboShieldEnabled = !isTurboShieldEnabled
+                                            Toast.makeText(
+                                                context,
+                                                if (isTurboShieldEnabled) "টার্বো অ্যাড-শিল্ড সক্রিয় (বিজ্ঞাপন ও পপআপ বন্ধ)" else "টার্বো অ্যাড-শিল্ড নিষ্ক্রিয়",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Shield,
+                                            contentDescription = "Ad Shield",
+                                            tint = if (isTurboShieldEnabled) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = "$blockedAdsCount",
+                                            color = if (isTurboShieldEnabled) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
+                            }
 
-                                loadUrl(provider.siteUrl.ifBlank { "https://showflix.in" })
-                                webViewInstance = this
+                            // Quick Bookmarks Carousel Strip
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                items(quickBookmarks) { (label, url) ->
+                                    val isCurrent = currentUrl.startsWith(url)
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isCurrent) Color(0xFF2563EB) else Color(0xFF0F172A),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isCurrent) Color(0xFF60A5FA) else Color(0xFF334155)
+                                        ),
+                                        modifier = Modifier.clickable { navigateTo(url) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Bookmark,
+                                                contentDescription = null,
+                                                tint = if (isCurrent) Color.White else Color(0xFF00E5FF),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Text(
+                                                text = label,
+                                                color = if (isCurrent) Color.White else Color(0xFFCBD5E1),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
-                    )
+                    }
+
+                    // Loading Progress Indicator
+                    if (isWebLoading && loadProgress < 1f) {
+                        LinearProgressIndicator(
+                            progress = { loadProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.5.dp),
+                            color = Color(0xFF00E5FF),
+                            trackColor = Color(0xFF1E293B)
+                        )
+                    }
+
+                    // WebView Container + Floating Detected Stream Sniffer Bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    layoutParams = ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
+                                    settings.apply {
+                                        javaScriptEnabled = true
+                                        domStorageEnabled = true
+                                        databaseEnabled = true
+                                        cacheMode = WebSettings.LOAD_DEFAULT
+                                        setRenderPriority(WebSettings.RenderPriority.HIGH)
+                                        loadWithOverviewMode = true
+                                        useWideViewPort = true
+                                        builtInZoomControls = true
+                                        displayZoomControls = false
+                                        allowFileAccess = false
+                                        allowContentAccess = false
+                                        setSupportMultipleWindows(false)
+                                        javaScriptCanOpenWindowsAutomatically = false
+                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                        mediaPlaybackRequiresUserGesture = false
+                                        userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile; rv:109.0) Gecko/118.0 Firefox/118.0"
+                                    }
+
+                                    webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                            val url = request?.url?.toString() ?: return false
+                                            if (url.startsWith("intent:") || url.startsWith("market:") || url.startsWith("tg:") || url.startsWith("whatsapp:")) {
+                                                return true
+                                            }
+                                            if (isTurboShieldEnabled && adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
+                                                blockedAdsCount++
+                                                return true
+                                            }
+                                            currentUrl = url
+                                            inputUrlOrQuery = url
+                                            return false
+                                        }
+
+                                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                            val url = request?.url?.toString() ?: return null
+                                            if (url.contains(".m3u8", ignoreCase = true) ||
+                                                url.contains(".mpd", ignoreCase = true) ||
+                                                url.contains(".mkv", ignoreCase = true) ||
+                                                url.contains("movielinkbd", ignoreCase = true) ||
+                                                (url.contains("/media/", ignoreCase = true) && url.contains("token=", ignoreCase = true)) ||
+                                                (url.contains(".mp4", ignoreCase = true) && !url.contains("thumb") && !url.contains("preview")) ||
+                                                url.contains("/master.m3u8", ignoreCase = true) ||
+                                                url.contains("/playlist.m3u8", ignoreCase = true) ||
+                                                url.contains("/index.m3u8", ignoreCase = true)) {
+                                                if (!adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
+                                                    detectedStreamUrl = url
+                                                    detectedStreamType = when {
+                                                        url.contains("movielinkbd", true) || (url.contains("/media/", true) && url.contains("token=")) -> "MovieLinkBD Movie (MKV/HD)"
+                                                        url.contains(".mkv", true) -> "MKV High-Definition Video"
+                                                        url.contains(".m3u8", true) -> "HLS Live Stream (M3U8)"
+                                                        url.contains(".mpd", true) -> "DASH Stream (MPD)"
+                                                        else -> "MP4 Direct Video"
+                                                    }
+                                                }
+                                            }
+                                            if (isTurboShieldEnabled && adFilterKeywords.any { url.contains(it, ignoreCase = true) }) {
+                                                blockedAdsCount++
+                                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream("".toByteArray()))
+                                            }
+                                            return super.shouldInterceptRequest(view, request)
+                                        }
+
+                                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                            super.onPageStarted(view, url, favicon)
+                                            isWebLoading = true
+                                            url?.let {
+                                                currentUrl = it
+                                                inputUrlOrQuery = it
+                                            }
+                                            canGoBack = view?.canGoBack() == true
+                                            canGoForward = view?.canGoForward() == true
+                                        }
+
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            isWebLoading = false
+                                            url?.let {
+                                                currentUrl = it
+                                                inputUrlOrQuery = it
+                                            }
+                                            pageTitle = view?.title ?: provider.name
+                                            canGoBack = view?.canGoBack() == true
+                                            canGoForward = view?.canGoForward() == true
+                                        }
+                                    }
+
+                                    webChromeClient = object : WebChromeClient() {
+                                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                            loadProgress = newProgress / 100f
+                                            if (newProgress >= 100) isWebLoading = false
+                                        }
+                                        override fun onReceivedTitle(view: WebView?, title: String?) {
+                                            if (!title.isNullOrBlank()) pageTitle = title
+                                        }
+                                    }
+
+                                    loadUrl(provider.siteUrl.ifBlank { "https://showflix.in" })
+                                    webViewInstance = this
+                                }
+                            }
+                        )
+
+                        // FLOATING STREAM SNIFFER BANNER: Automatically pops up when a media stream is captured!
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = detectedStreamUrl != null,
+                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(12.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFF064E3B),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF10B981)),
+                                shadowElevation = 12.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.PlayArrow,
+                                                contentDescription = null,
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "ভিডিও স্ট্রিম সনাক্ত হয়েছে!",
+                                                color = Color.White,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = detectedStreamType,
+                                                color = Color(0xFF6EE7B7),
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                val streamUrl = detectedStreamUrl ?: return@Button
+                                                val isVod = streamUrl.contains("movielinkbd") ||
+                                                        streamUrl.contains(".mp4") ||
+                                                        streamUrl.contains(".mkv") ||
+                                                        streamUrl.contains("/movie/")
+                                                val directItem = MediaItem(
+                                                    id = "sniffed_${System.currentTimeMillis()}",
+                                                    title = pageTitle.ifBlank { provider.name },
+                                                    category = "Web Stream",
+                                                    type = if (isVod) MediaType.MOVIE else MediaType.LIVE_TV,
+                                                    streamUrl = streamUrl,
+                                                    isLive = !isVod
+                                                )
+                                                onPlayDirectMedia(directItem)
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF00E5FF),
+                                                contentColor = Color.Black
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("প্লে করুন", fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                        }
+
+                                        IconButton(
+                                            onClick = { detectedStreamUrl = null },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.Close, contentDescription = "Dismiss", tint = Color(0xFFCBD5E1), modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

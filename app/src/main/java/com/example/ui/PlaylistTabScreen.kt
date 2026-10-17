@@ -327,10 +327,18 @@ fun PlaylistTabScreen(
                 singleLine = true
             )
 
-            // Filter playlists based on search
+            // Filter playlists based on search (Exclude pure movie playlists so they stay exclusively in Movies tab)
             val filteredPlaylists = remember(playlists, searchQuery) {
-                if (searchQuery.isBlank()) playlists else {
-                    playlists.filter {
+                val nonMoviePlaylists = playlists.filterNot {
+                    it.isMoviePlaylist ||
+                    it.isMovieOnly ||
+                    it.type.equals("MOVIE", ignoreCase = true) ||
+                    it.id.startsWith("pl_ott_") ||
+                    it.id.startsWith("movie_") ||
+                    (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+                }
+                if (searchQuery.isBlank()) nonMoviePlaylists else {
+                    nonMoviePlaylists.filter {
                         it.title.contains(searchQuery, ignoreCase = true) ||
                                 (it.description != null && it.description.contains(searchQuery, ignoreCase = true))
                     }

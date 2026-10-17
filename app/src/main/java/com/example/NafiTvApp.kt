@@ -102,8 +102,8 @@ class NafiTvApp : Application(), ImageLoaderFactory {
     private fun buildOptimizedImageLoader(): ImageLoader {
         val isLowRam = isLowRamEnvironment()
         // On 512MB RAM phones, keep memory cache to 5% of heap to prevent LMK kills
-        val memCachePercent = if (isLowRam) 0.05 else 0.10
-        val diskCacheMaxBytes = if (isLowRam) 20L * 1024 * 1024 else 35L * 1024 * 1024
+        val memCachePercent = if (isLowRam) 0.05 else 0.15
+        val diskCacheMaxBytes = if (isLowRam) 25L * 1024 * 1024 else 100L * 1024 * 1024
 
         return ImageLoader.Builder(this)
             .okHttpClient(sharedOkHttpClient)
@@ -120,11 +120,11 @@ class NafiTvApp : Application(), ImageLoaderFactory {
                     .maxSizeBytes(diskCacheMaxBytes)
                     .build()
             }
-            .bitmapConfig(Bitmap.Config.RGB_565) // 50% memory saving on all channel logos & posters
-            .allowHardware(false) // Disables hardware bitmaps for 100% crash-free stability on TV boxes & low-RAM GPUs
+            .bitmapConfig(Bitmap.Config.RGB_565) // 50% memory saving on channel logos & posters
+            .allowHardware(!isLowRam) // GPU hardware bitmaps enabled for buttery 60/120fps scrolling on modern devices
             .allowRgb565(true)
             .crossfade(false) // Saves GPU compositing passes on low-RAM devices
-            .precision(Precision.INEXACT) // Automatically downsamples posters and logos to target UI size (huge memory savings!)
+            .precision(Precision.INEXACT) // Automatically downsamples posters and logos to target UI size
             .networkObserverEnabled(true)
             .respectCacheHeaders(false)
             .memoryCachePolicy(CachePolicy.ENABLED)
@@ -168,13 +168,16 @@ class NafiTvApp : Application(), ImageLoaderFactory {
             } catch (_: Exception) {
                 false
             }
-            // Keep connection pool tiny (3 connections, 30s) on 512MB RAM to conserve socket buffers
-            val maxIdle = if (isLowRam) 3 else 6
-            val keepAliveDuration = if (isLowRam) 30L else 90L
+            val maxIdle = if (isLowRam) 4 else 8
+            val keepAliveDuration = if (isLowRam) 30L else 120L
+
+            val cacheDirectory = File(instance.cacheDir, "nafitv_http_cache")
+            val cacheSize = if (isLowRam) 20L * 1024 * 1024 else 60L * 1024 * 1024
 
             OkHttpClient.Builder()
-                .connectTimeout(12, TimeUnit.SECONDS)
-                .readTimeout(18, TimeUnit.SECONDS)
+                .cache(okhttp3.Cache(cacheDirectory, cacheSize))
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
                 .connectionPool(ConnectionPool(maxIdle, keepAliveDuration, TimeUnit.SECONDS))
                 .retryOnConnectionFailure(true)
                 .build()
