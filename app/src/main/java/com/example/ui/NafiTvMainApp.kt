@@ -68,6 +68,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -412,31 +413,61 @@ fun NafiTvMainApp(
                                 } ?: emptyList()
                             }
 
-                            val moviesM3uUrl = repository.getSavedMoviesM3uUrl()
-                            val moviesM3uJob = async {
-                                if (moviesM3uUrl.isNotBlank()) {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000) {
+                            val moviesM3uRaw = repository.getSavedMoviesM3uUrl()
+                            val movieUrls = repository.extractUrls(moviesM3uRaw).ifEmpty {
+                                if (moviesM3uRaw.isNotBlank()) listOf(moviesM3uRaw.trim()) else emptyList()
+                            }
+                            val moviesM3uJobs = movieUrls.map { url ->
+                                async {
+                                    kotlinx.coroutines.withTimeoutOrNull(5000) {
                                         try {
-                                            if (moviesM3uUrl.endsWith(".json", ignoreCase = true) || moviesM3uUrl.contains("movies.json", ignoreCase = true)) {
-                                                repository.fetchMoviesFromJsonUrl(moviesM3uUrl).map {
+                                            val cleanCategoryName = when {
+                                                url.contains("kolkata", ignoreCase = true) -> "Kolkata Serial (OTT)"
+                                                url.contains("serial", ignoreCase = true) -> "Web Series"
+                                                url.contains("bangla", ignoreCase = true) -> "Bangla OTT Movies"
+                                                else -> "NAFI OTT PLATFORM"
+                                            }
+                                            if (url.endsWith(".json", ignoreCase = true) || url.contains(".json", ignoreCase = true)) {
+                                                repository.fetchMoviesFromJsonUrl(url).map {
                                                     it.copy(
-                                                        type = if (it.type == MediaType.SERIES) MediaType.SERIES else MediaType.MOVIE,
-                                                        tournament = "NAFI_OTT",
-                                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                                        type = if (it.type == MediaType.SERIES || it.isSeries) MediaType.SERIES else MediaType.MOVIE,
+                                                        tournament = cleanCategoryName,
+                                                        category = if (it.category.isBlank() || it.category == "Unknown") cleanCategoryName else it.category
                                                     )
                                                 }.filterNot { deleted.contains(it.id) }
                                             } else {
-                                                repository.parseM3uFromUrl(moviesM3uUrl).map {
+                                                repository.parseM3uFromUrl(url).map {
                                                     it.copy(
-                                                        type = MediaType.MOVIE,
-                                                        tournament = "NAFI_OTT",
-                                                        category = if (it.category.isBlank() || it.category == "Unknown") "NAFI OTT PLATFORM" else "NAFI OTT • ${it.category}"
+                                                        type = if (it.type == MediaType.SERIES || it.isSeries) MediaType.SERIES else MediaType.MOVIE,
+                                                        tournament = cleanCategoryName,
+                                                        category = if (it.category.isBlank() || it.category == "Unknown") cleanCategoryName else it.category
                                                     )
                                                 }.filterNot { deleted.contains(it.id) }
                                             }
                                         } catch (_: Exception) { emptyList() }
                                     } ?: emptyList()
-                                } else emptyList()
+                                }
+                            }
+
+                            // Fetch movies from all Admin & User configured Movie Playlists
+                            val allMoviePlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + repository.getCustomPlaylists() + repository.getInitialPlaylists())
+                                .filter { it.isMoviePlaylist }
+                                .filterNot { deleted.contains(it.id) }
+                                .distinctBy { it.id }
+
+                            val moviePlaylistsJobs = allMoviePlaylists.map { pl ->
+                                async {
+                                    kotlinx.coroutines.withTimeoutOrNull(5500) {
+                                        try {
+                                            repository.fetchPlaylistMoviesOnly(pl).map { item ->
+                                                item.copy(
+                                                    tournament = pl.title,
+                                                    category = if (item.category.isBlank() || item.category.equals("Unknown", ignoreCase = true)) pl.title else item.category
+                                                )
+                                            }.filterNot { deleted.contains(it.id) }
+                                        } catch (_: Exception) { emptyList() }
+                                    } ?: emptyList()
+                                }
                             }
 
                             val mixMoviesJob = async {
@@ -455,11 +486,12 @@ fun NafiTvMainApp(
 
                             val customMov = repository.getCustomStreams().filter { it.type == MediaType.MOVIE || it.type == MediaType.SERIES || (!it.isLive && it.type != MediaType.LIVE_EVENT) }.filterNot { deleted.contains(it.id) }
 
-                            val moviesM3u = moviesM3uJob.await()
+                            val moviesM3uItems = moviesM3uJobs.awaitAll().flatten()
+                            val moviePlaylistsItems = moviePlaylistsJobs.awaitAll().flatten()
                             val mixMovies = mixMoviesJob.await()
                             val xtreamMovies = xtreamMoviesJob.await()
 
-                            val combined = (customMov + xtreamMovies + moviesM3u + mixMovies + moviesList)
+                            val combined = (customMov + xtreamMovies + moviesM3uItems + moviePlaylistsItems + mixMovies + moviesList)
                                 .distinctBy { it.id }
                                 .filterNot { deleted.contains(it.id) }
                                 .sortedByDescending { it.movieSortWeight }
@@ -1157,7 +1189,7 @@ fun NafiTvMainApp(
                             )
 
                             AppTab.PLAYLIST -> PlaylistTabScreen(
-                                playlists = playlistsList,
+                                playlists = playlistsList.filterNot { it.isMoviePlaylist },
                                 repository = repository,
                                 isTvMode = isTvMode,
                                 isAdultHidden = isAdultHidden,
@@ -1613,7 +1645,7 @@ fun NafiTvMainApp(
                         )
 
                         AppTab.PLAYLIST -> PlaylistTabScreen(
-                            playlists = playlistsList,
+                            playlists = playlistsList.filterNot { it.isMoviePlaylist },
                             repository = repository,
                             isTvMode = isTvMode,
                             isAdultHidden = isAdultHidden,
