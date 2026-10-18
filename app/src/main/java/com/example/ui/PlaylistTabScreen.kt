@@ -134,7 +134,17 @@ fun PlaylistTabScreen(
             selectedPlaylistTypeFilter = "ALL"
             selectedPlaylistCategory = "All"
             try {
-                val fetched = repository.fetchPlaylistChannels(pl)
+                val fetched = repository.fetchPlaylistChannels(pl) { partialList ->
+                    val filteredPartial = if (shouldFilterAdult) {
+                        partialList.filterNot { repository.isDemoChannel(it) || repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
+                    } else {
+                        partialList.filterNot { repository.isDemoChannel(it) }
+                    }
+                    if (filteredPartial.isNotEmpty()) {
+                        playlistChannels = filteredPartial
+                        isLoadingChannels = false
+                    }
+                }
                 val filtered = if (shouldFilterAdult) {
                     fetched.filterNot { repository.isDemoChannel(it) || repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
                 } else {
@@ -428,7 +438,26 @@ fun PlaylistTabScreen(
                         scope.launch {
                             isLoadingChannels = true
                             try {
-                                playlistChannels = repository.fetchPlaylistChannels(currentPl)
+                                val shouldFilterAdult = isAdultHidden || repository.isAdultContentHidden()
+                                val fetched = repository.fetchPlaylistChannels(currentPl) { partialList ->
+                                    val filteredPartial = if (shouldFilterAdult) {
+                                        partialList.filterNot { repository.isDemoChannel(it) || repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
+                                    } else {
+                                        partialList.filterNot { repository.isDemoChannel(it) }
+                                    }
+                                    if (filteredPartial.isNotEmpty()) {
+                                        playlistChannels = filteredPartial
+                                        isLoadingChannels = false
+                                    }
+                                }
+                                val filtered = if (shouldFilterAdult) {
+                                    fetched.filterNot { repository.isDemoChannel(it) || repository.isMediaHidden(it) || repository.isAdultMedia(it) || repository.isAdultCategory(it.category) }
+                                } else {
+                                    fetched.filterNot { repository.isDemoChannel(it) }
+                                }
+                                if (filtered.isNotEmpty()) {
+                                    playlistChannels = filtered
+                                }
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             } finally {
@@ -667,35 +696,81 @@ fun PlaylistTabScreen(
                 }
             }
 
-            if (isLoadingChannels) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+            // -------------------------------------------------------------
+            // NON-BLOCKING BACKGROUND LOADING BAR (ব্রাউজিং চালু থাকবে!)
+            // -------------------------------------------------------------
+            if (isLoadingChannels && playlistChannels.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp)) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.5.dp),
+                        color = Color(0xFF00E5FF),
+                        trackColor = Color(0xFF1E293B)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        CircularProgressIndicator(color = Color(0xFF00E5FF))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(11.dp),
+                                color = Color(0xFF00E5FF),
+                                strokeWidth = 1.5.dp
+                            )
+                            Text(
+                                text = "সার্ভার থেকে কনটেন্ট লোড হচ্ছে... (${safePlaylistChannels.size} টি প্রস্তুত)",
+                                color = Color(0xFF38BDF8),
+                                fontSize = 11.sp
+                            )
+                        }
                         Text(
-                            text = "চ্যানেল লোড হচ্ছে...",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp
+                            text = "⚡ ব্রাউজিং চালু আছে",
+                            color = Color(0xFF10B981),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
-            } else if (filteredChannels.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(20.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "কোনো চ্যানেল পাওয়া যায়নি",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 13.sp
-                    )
+            }
+
+            if (filteredChannels.isEmpty()) {
+                if (isLoadingChannels && playlistChannels.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFF00E5FF))
+                            Text(
+                                text = "সার্ভার থেকে মুভি ও সিরিজ লোড হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (channelSearchQuery.isNotBlank()) "খোঁজার সাথে মিল পাওয়া যায়নি" else "কোনো চ্যানেল বা মুভি পাওয়া যায়নি",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             } else {
                 val isPosterGrid = selectedPlaylistTypeFilter == "MOVIE" || selectedPlaylistTypeFilter == "SERIES" ||
