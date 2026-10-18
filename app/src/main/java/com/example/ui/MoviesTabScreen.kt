@@ -47,9 +47,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.ViewCarousel
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -58,7 +55,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -165,7 +161,6 @@ fun MoviesTabScreen(
     // Dialog state
     var selectedSeriesForDialog by remember { mutableStateOf<MediaItem?>(null) }
     var selectedMovieForDetails by remember { mutableStateOf<MediaItem?>(null) }
-    var showAddMoviePlaylistDialog by remember { mutableStateOf(false) }
 
     // Active Selected Server or OTT Platform Hub
     var selectedHub by remember { mutableStateOf<MovieHubItem?>(null) }
@@ -240,25 +235,20 @@ fun MoviesTabScreen(
                 )
             }
 
-            // 2. All Movie Playlists configured in Admin Panel or local storage
-            val allMoviePlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + repository.getCustomPlaylists() + repository.getInitialPlaylists())
-                .filter { it.isMoviePlaylist }
-                .distinctBy { it.id }
-
+            // 2. Custom & Admin Movie Playlists configured in Admin Panel
+            val customPlaylists = repository.getCustomPlaylists()
             val plGradients = listOf(
                 listOf(Color(0xFFC2410C), Color(0xFF431407)), // Amber/Orange
                 listOf(Color(0xFF0369A1), Color(0xFF082F49)), // Sky Blue
-                listOf(Color(0xFF047857), Color(0xFF064E3B)), // Emerald
-                listOf(Color(0xFF7C3AED), Color(0xFF3B0764)), // Purple
-                listOf(Color(0xFFBE123C), Color(0xFF4C0519))  // Crimson
+                listOf(Color(0xFF4338CA), Color(0xFF1E1B4B))  // Indigo
             )
-            allMoviePlaylists.forEachIndexed { idx, pl ->
+            customPlaylists.forEachIndexed { idx, pl ->
                 val grad = plGradients[idx % plGradients.size]
                 val cleanHost = if (!pl.serverUrl.isNullOrBlank()) {
                     pl.serverUrl.removePrefix("http://").removePrefix("https://").substringBefore("/")
                 } else if (pl.url.isNotBlank()) {
                     pl.url.removePrefix("http://").removePrefix("https://").substringBefore("/")
-                } else "Movie Playlist"
+                } else "Playlist"
                 val nameLower = pl.title.lowercase()
                 val logo = pl.logoUrl?.takeIf { it.isNotBlank() } ?: when {
                     nameLower.contains("netflix") -> "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBIO3ih/9e630327e04e2e0a9dac340d97a12930/Netflix_Symbol_PMS.png"
@@ -278,13 +268,13 @@ fun MoviesTabScreen(
                     nameLower.contains("prime") -> Color(0xFF00A8E1)
                     nameLower.contains("hoichoi") -> Color(0xFFEF4444)
                     nameLower.contains("chorki") -> Color(0xFFF59E0B)
-                    else -> Color(0xFF00E5FF)
+                    else -> Color(0xFFF59E0B)
                 }
                 hubs.add(
                     MovieHubItem(
                         id = pl.id,
-                        title = pl.title.ifBlank { "মুভি প্লেলিস্ট ${idx + 1}" },
-                        subtitle = if (pl.type.equals("XTREAM", ignoreCase = true)) "Xtream Movie Playlist" else "Movie & Series Playlist",
+                        title = pl.title.ifBlank { "Playlist ${idx + 1}" },
+                        subtitle = if (pl.type.equals("XTREAM", ignoreCase = true)) "Xtream Playlist" else "M3U Movie Playlist",
                         hubCategory = HubCategory.PLAYLIST,
                         serverHost = cleanHost,
                         playlist = pl,
@@ -295,41 +285,27 @@ fun MoviesTabScreen(
                 )
             }
 
-            // 3. Saved Movie M3U / JSON URLs set in Admin panel (supports multiple URLs)
-            val savedMoviesM3uRaw = repository.getSavedMoviesM3uUrl()
-            val extractedUrls = repository.extractUrls(savedMoviesM3uRaw).ifEmpty {
-                if (savedMoviesM3uRaw.isNotBlank()) listOf(savedMoviesM3uRaw.trim()) else emptyList()
-            }
-            extractedUrls.forEachIndexed { urlIdx, urlStr ->
-                val alreadyAdded = hubs.any { it.playlist?.url.equals(urlStr, ignoreCase = true) || it.serverHost.equals(urlStr.substringBefore("?").takeLast(25), ignoreCase = true) }
-                if (!alreadyAdded) {
-                    val title = when {
-                        urlStr.contains("kolkata", ignoreCase = true) -> "Kolkata Serial (OTT)"
-                        urlStr.contains("serial", ignoreCase = true) -> "Web Series"
-                        urlStr.contains("bangla", ignoreCase = true) -> "Bangla OTT Movies"
-                        extractedUrls.size > 1 -> "NAFI OTT Playlist ${urlIdx + 1}"
-                        else -> "NAFI OTT VOD"
-                    }
-                    hubs.add(
-                        MovieHubItem(
-                            id = "saved_movies_m3u_$urlIdx",
-                            title = title,
-                            subtitle = "Cloud Movie Library",
-                            hubCategory = HubCategory.PLAYLIST,
-                            serverHost = urlStr.substringBefore("?").takeLast(25),
-                            playlist = PlaylistInfo(
-                                id = "saved_movies_m3u_$urlIdx",
-                                title = title,
-                                url = urlStr,
-                                type = if (urlStr.endsWith(".json", true) || urlStr.contains(".json", true)) "JSON" else "MOVIE",
-                                isAdmin = true,
-                                isMovieOnly = true
-                            ),
-                            gradientColors = listOf(Color(0xFF0284C7), Color(0xFF0B132B)),
-                            accentColor = Color(0xFF00E5FF)
-                        )
+            // 3. Saved Movie M3U URL if set in Admin panel
+            val savedMoviesM3u = repository.getSavedMoviesM3uUrl()
+            if (savedMoviesM3u.isNotBlank() && hubs.none { it.serverHost.contains("movies.json") || it.id == "saved_movies_m3u" }) {
+                hubs.add(
+                    MovieHubItem(
+                        id = "saved_movies_m3u",
+                        title = "NAFI OTT VOD",
+                        subtitle = "Cloud Movie Library",
+                        hubCategory = HubCategory.PLAYLIST,
+                        serverHost = savedMoviesM3u.substringBefore("?").takeLast(25),
+                        playlist = PlaylistInfo(
+                            id = "saved_movies_m3u",
+                            title = "NAFI OTT VOD",
+                            url = savedMoviesM3u,
+                            type = "M3U",
+                            isAdmin = true
+                        ),
+                        gradientColors = listOf(Color(0xFF0284C7), Color(0xFF0B132B)),
+                        accentColor = Color(0xFF00E5FF)
                     )
-                }
+                )
             }
         }
 
@@ -348,13 +324,7 @@ fun MoviesTabScreen(
                             hub.xtreamAccount?.let { repository.fetchXtreamAccountMovies(it) } ?: emptyList()
                         }
                         HubCategory.PLAYLIST -> {
-                            hub.playlist?.let { pl ->
-                                if (pl.url.endsWith(".json", true) || pl.url.contains(".json", true)) {
-                                    repository.fetchMoviesFromJsonUrl(pl.url)
-                                } else {
-                                    repository.fetchPlaylistMoviesOnly(pl)
-                                }
-                            } ?: emptyList()
+                            hub.playlist?.let { repository.fetchPlaylistMoviesOnly(it) } ?: emptyList()
                         }
                         HubCategory.OTT_BRAND -> {
                             // 1. Check if Admin added any custom playlist or Xtream account for this brand (e.g. Sony LIV, Hotstar, Netflix)
@@ -486,10 +456,6 @@ fun MoviesTabScreen(
                 if (cat.isNotBlank() && !cat.equals("Unknown", ignoreCase = true)) {
                     groupedMap.getOrPut(cat) { mutableListOf() }.add(m)
                 }
-                val tour = m.tournament?.trim()
-                if (!tour.isNullOrBlank() && !tour.equals(cat, ignoreCase = true) && !tour.equals("Unknown", ignoreCase = true)) {
-                    groupedMap.getOrPut(tour) { mutableListOf() }.add(m)
-                }
             }
             val catPairs = groupedMap.map { (cat, list) ->
                 cat to list.distinctBy { it.id }.sortedByDescending { it.movieSortWeight }
@@ -552,8 +518,7 @@ fun MoviesTabScreen(
                 val matchesCategory = when (selectedCategory) {
                     "All" -> true
                     "❤️ Favorites" -> favoriteIds.contains(movie.id)
-                    else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true) ||
-                            (movie.tournament != null && movie.tournament!!.trim().equals(selectedCategory.trim(), ignoreCase = true))
+                    else -> movie.category.trim().equals(selectedCategory.trim(), ignoreCase = true)
                 }
                 matchesSearch && matchesCategory
             }.distinctBy { it.id }
@@ -702,21 +667,6 @@ fun MoviesTabScreen(
                             onClick = {
                                 selectedHub = if (selectedHub?.id == hub.id) null else hub
                                 selectedCategory = "All"
-                            }
-                        )
-                    }
-
-                    // "+ প্লেলিস্ট" (Add Movie Playlist directly to Movies tab)
-                    item(key = "add_movie_playlist_btn") {
-                        OttCircularBrandIcon(
-                            title = "+ প্লেলিস্ট",
-                            logoUrl = null,
-                            isSelected = false,
-                            accentColor = Color(0xFFF59E0B),
-                            isTvMode = isTvMode,
-                            isAllIcon = false,
-                            onClick = {
-                                showAddMoviePlaylistDialog = true
                             }
                         )
                     }
@@ -1346,118 +1296,6 @@ fun MoviesTabScreen(
                 selectedMovieForDetails = null
                 onSelectMedia(mediaToPlay)
             }
-        )
-    }
-
-    // Add Movie Playlist Dialog (Add M3U or JSON movie playlist directly into Movies tab)
-    if (showAddMoviePlaylistDialog && repository != null) {
-        val context = LocalContext.current
-        var newTitle by remember { mutableStateOf("") }
-        var newUrl by remember { mutableStateOf("") }
-        var newLogo by remember { mutableStateOf("") }
-        var isSaving by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { showAddMoviePlaylistDialog = false },
-            title = {
-                Text(
-                    "🎬 নতুন মুভি ও সিরিজ প্লেলিস্ট যোগ করুন",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "M3U বা JSON মুভি প্লেলিস্টের লিংক দিন। এটি সরাসরি এই মুভি সেকশনে লোড হবে:",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.5.sp
-                    )
-                    OutlinedTextField(
-                        value = newTitle,
-                        onValueChange = { newTitle = it },
-                        label = { Text("প্লেলিস্টের নাম (যেমন: NAFI OTT Cinema)") },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00E5FF),
-                            unfocusedBorderColor = Color(0xFF334155)
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = newUrl,
-                        onValueChange = { newUrl = it },
-                        label = { Text("প্লেলিস্ট লিংক (M3U বা JSON URL)") },
-                        placeholder = { Text("https://.../movies.json বা .m3u", color = Color(0xFF64748B)) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00E5FF),
-                            unfocusedBorderColor = Color(0xFF334155)
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = newLogo,
-                        onValueChange = { newLogo = it },
-                        label = { Text("লোগো URL (ঐচ্ছিক)") },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00E5FF),
-                            unfocusedBorderColor = Color(0xFF334155)
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newTitle.isNotBlank() && newUrl.isNotBlank()) {
-                            isSaving = true
-                            val cleanUrl = newUrl.trim()
-                            val cleanTitle = newTitle.trim()
-                            val isJson = cleanUrl.endsWith(".json", true) || cleanUrl.contains(".json", true)
-                            val newPl = PlaylistInfo(
-                                id = "movie_pl_${System.currentTimeMillis()}",
-                                title = cleanTitle,
-                                url = cleanUrl,
-                                logoUrl = newLogo.trim().ifBlank { null },
-                                description = "OTT Movie Playlist",
-                                type = if (isJson) "JSON" else "MOVIE",
-                                isAdmin = true,
-                                isMovieOnly = true
-                            )
-                            repository.saveAdminPlaylist(newPl)
-                            repository.saveUserPlaylist(newPl)
-                            coroutineScope.launch {
-                                repository.pushPlaylistToFirebase(newPl)
-                            }
-                            Toast.makeText(context, "✅ মুভি প্লেলিস্ট যুক্ত হয়েছে এবং মুভি অপশনে লোড হচ্ছে!", Toast.LENGTH_SHORT).show()
-                            showAddMoviePlaylistDialog = false
-                            isSaving = false
-                        } else {
-                            Toast.makeText(context, "অনুগ্রহ করে নাম এবং সঠিক URL দিন", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF), contentColor = Color.Black),
-                    enabled = !isSaving
-                ) {
-                    Text("সংরক্ষণ ও লোড করুন", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddMoviePlaylistDialog = false }) {
-                    Text("বাতিল", color = Color(0xFF94A3B8))
-                }
-            },
-            containerColor = Color(0xFF0F172A)
         )
     }
 }
