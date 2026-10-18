@@ -2781,7 +2781,15 @@ fun AdminControlAppScreen(
                 }
 
                 val allAdminAndUserPlaylists = (repository.getAdminPlaylists() + repository.getUserPlaylists() + playlistsList).distinctBy { it.id }
-                val moviePlaylists = allAdminAndUserPlaylists.filter { it.isMoviePlaylist }
+                val moviePlaylists = allAdminAndUserPlaylists.filter {
+                    it.id == "pl_nafi_movies_json" ||
+                    it.title.contains("movie", ignoreCase = true) ||
+                    it.title.contains("cinema", ignoreCase = true) ||
+                    it.type.equals("JSON", ignoreCase = true) ||
+                    it.url.contains("movie", ignoreCase = true) ||
+                    it.description?.contains("মুভি", ignoreCase = true) == true ||
+                    it.description?.contains("movie", ignoreCase = true) == true
+                }
 
                 // 0. OTT Movie Hub & Server Creator (Netflix, Hotstar, Xtream, Playlist)
                 item {
@@ -6769,18 +6777,15 @@ fun AdminControlAppScreen(
                         Button(
                             onClick = {
                                 if (editPlaylistTitle.isNotBlank() && editPlaylistUrl.isNotBlank()) {
-                                    val isMovie = target.isMoviePlaylist || target.isMovieOnly
                                     val updatedPl = target.copy(
                                         title = editPlaylistTitle.trim(),
                                         url = editPlaylistUrl.trim(),
                                         logoUrl = editPlaylistLogoUrl.trim().takeIf { it.isNotBlank() },
-                                        description = editPlaylistDescription.trim().takeIf { it.isNotBlank() },
-                                        isMovieOnly = isMovie,
-                                        type = if (isMovie && target.type != "JSON") "MOVIE" else target.type
+                                        description = editPlaylistDescription.trim().takeIf { it.isNotBlank() }
                                     )
 
                                     repository.saveAdminPlaylist(updatedPl)
-                                    if (isMovie) {
+                                    if (target.id == "pl_nafi_movies_json" || target.title.contains("movie", ignoreCase = true) || target.url.contains("movie", ignoreCase = true) || target.type.equals("JSON", ignoreCase = true)) {
                                         repository.saveMoviesM3uUrl(updatedPl.url)
                                         moviesM3uInput = updatedPl.url
                                         coroutineScope.launch {
@@ -6792,7 +6797,7 @@ fun AdminControlAppScreen(
                                     }
                                     onDataChanged()
                                     editingPlaylistItem = null
-                                    Toast.makeText(context, "${updatedPl.title} মুভি প্লেলিস্ট সফলভাবে আপডেট হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "${updatedPl.title} প্লেলিস্ট সফলভাবে আপডেট হয়েছে!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, "প্লেলিস্টের নাম এবং M3U URL উভয়ই পূরণ করুন", Toast.LENGTH_SHORT).show()
                                 }

@@ -185,7 +185,6 @@ fun PlaylistTabScreen(
                         )
                     }
 
-                    val availableIptvPlaylists = remember(playlists) { playlists.filterNot { it.isMoviePlaylist } }
                     Column {
                         Text(
                             text = "IPTV Playlists",
@@ -194,7 +193,7 @@ fun PlaylistTabScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${availableIptvPlaylists.size} টি লাইভ টিভি প্লেলিস্ট",
+                            text = "${playlists.size} টি প্লেলিস্ট সংরক্ষিত",
                             color = Color(0xFF94A3B8),
                             fontSize = 11.5.sp
                         )
@@ -330,7 +329,14 @@ fun PlaylistTabScreen(
 
             // Filter playlists based on search (Exclude pure movie playlists so they stay exclusively in Movies tab)
             val filteredPlaylists = remember(playlists, searchQuery) {
-                val nonMoviePlaylists = playlists.filterNot { it.isMoviePlaylist }
+                val nonMoviePlaylists = playlists.filterNot {
+                    it.isMoviePlaylist ||
+                    it.isMovieOnly ||
+                    it.type.equals("MOVIE", ignoreCase = true) ||
+                    it.id.startsWith("pl_ott_") ||
+                    it.id.startsWith("movie_") ||
+                    (it.description != null && it.description.contains("OTT Movie", ignoreCase = true))
+                }
                 if (searchQuery.isBlank()) nonMoviePlaylists else {
                     nonMoviePlaylists.filter {
                         it.title.contains(searchQuery, ignoreCase = true) ||

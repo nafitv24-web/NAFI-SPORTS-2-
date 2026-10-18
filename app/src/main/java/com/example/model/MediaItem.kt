@@ -261,45 +261,7 @@ data class PlaylistInfo(
     val isMovieOnly: Boolean = false
 ) {
     val isProtected: Boolean get() = isAdmin || isReadOnly
-    val isMoviePlaylist: Boolean
-        get() = isMovieOnly ||
-                type.equals("MOVIE", ignoreCase = true) ||
-                type.equals("JSON", ignoreCase = true) ||
-                type.equals("VOD", ignoreCase = true) ||
-                id.startsWith("pl_ott_") ||
-                id.startsWith("movie_") ||
-                id.contains("movie", ignoreCase = true) ||
-                id.contains("cinema", ignoreCase = true) ||
-                id.contains("serial", ignoreCase = true) ||
-                title.contains("movie", ignoreCase = true) ||
-                title.contains("cinema", ignoreCase = true) ||
-                title.contains("film", ignoreCase = true) ||
-                title.contains("ott", ignoreCase = true) ||
-                title.contains("series", ignoreCase = true) ||
-                title.contains("serial", ignoreCase = true) ||
-                title.contains("drama", ignoreCase = true) ||
-                title.contains("মুভি", ignoreCase = true) ||
-                title.contains("সিনেমা", ignoreCase = true) ||
-                title.contains("সিরিজ", ignoreCase = true) ||
-                title.contains("নাটক", ignoreCase = true) ||
-                title.contains("ফিল্ম", ignoreCase = true) ||
-                url.contains("movie", ignoreCase = true) ||
-                url.contains("cinema", ignoreCase = true) ||
-                url.contains("film", ignoreCase = true) ||
-                url.contains("series", ignoreCase = true) ||
-                url.contains("serial", ignoreCase = true) ||
-                url.contains("vod", ignoreCase = true) ||
-                url.contains(".json", ignoreCase = true) ||
-                (description != null && (
-                    description.contains("movie", ignoreCase = true) ||
-                    description.contains("ott", ignoreCase = true) ||
-                    description.contains("cinema", ignoreCase = true) ||
-                    description.contains("film", ignoreCase = true) ||
-                    description.contains("মুভি", ignoreCase = true) ||
-                    description.contains("সিনেমা", ignoreCase = true) ||
-                    description.contains("সিরিজ", ignoreCase = true) ||
-                    description.contains("vod", ignoreCase = true)
-                ))
+    val isMoviePlaylist: Boolean get() = isMovieOnly || type.equals("MOVIE", ignoreCase = true) || id.startsWith("pl_ott_") || id.startsWith("movie_") || (description != null && description.contains("Movie", ignoreCase = true))
 }
 
 data class MovieProvider(
